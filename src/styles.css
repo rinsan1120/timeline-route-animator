@@ -28,8 +28,10 @@ button { touch-action: manipulation; }
 label { color: #536177; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 select, input[type='time'] { width: 100%; height: 39px; margin-top: 7px; color: #162943; background: #f8fafb; border: 1px solid #d9e0e6; border-radius: 7px; padding: 0 11px; font-size: 12px; outline: none; }
 select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(255,93,55,.1); }
+.date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .time-grid { display: grid; grid-template-columns: 1fr 24px 1fr; align-items: end; margin-top: 12px; }
 .time-arrow { color: #a8b1bc; text-align: center; height: 29px; }
+.range-note { margin: 9px 0 0; color: #748297; font-size: 9px; line-height: 1.5; }
 .secondary-button { border: 1px solid #ccd5de; color: #283c55; background: white; border-radius: 7px; min-height: 38px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .wide { width: 100%; margin-top: 13px; }
 .mode-switch, .duration-options { display: flex; padding: 3px; border-radius: 8px; background: #edf1f4; gap: 2px; }
@@ -50,11 +52,25 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .annotation-editor { display: grid; gap: 8px; margin-top: 10px; }
 .annotation-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
 .annotation-editor button { min-height: 44px; }
+.day-marker-editor { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #d8e0e7; }
+.day-marker-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
+.day-marker-editor button { min-height: 44px; }
 .annotation-overlay { position: absolute; z-index: 4; inset: 0; pointer-events: none; overflow: hidden; }
 .annotation-balloon { position: absolute; width: max-content; max-width: calc(100% - 16px); padding: calc(8px * var(--balloon-scale)) calc(10px * var(--balloon-scale)); color: #10233f; background: white; border: calc(1px * var(--balloon-scale)) solid #ccd5de; border-radius: calc(8px * var(--balloon-scale)); box-shadow: 0 calc(2px * var(--balloon-scale)) calc(7px * var(--balloon-scale)) rgba(7,17,31,.2); font-size: calc(12px * var(--font-scale)); line-height: 1.4; }
 .annotation-balloon span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .annotation-balloon::after { content: ''; position: absolute; left: var(--pointer-left); bottom: calc(-6px * var(--balloon-scale)); width: calc(10px * var(--balloon-scale)); height: calc(10px * var(--balloon-scale)); background: white; border-right: calc(1px * var(--balloon-scale)) solid #ccd5de; border-bottom: calc(1px * var(--balloon-scale)) solid #ccd5de; transform: translateX(-50%) rotate(45deg); }
 .annotation-balloon[data-placement='below']::after { top: calc(-6px * var(--balloon-scale)); bottom: auto; transform: translateX(-50%) rotate(225deg); }
+.day-marker-overlay { position: absolute; z-index: 5; inset: 0; pointer-events: none; overflow: hidden; }
+.day-marker { position: absolute; width: max-content; min-width: 138px; max-width: calc(100% - 16px); display: grid; justify-items: center; gap: 2px; padding: 10px 14px 9px; color: white; background: #102c4b; border: 2px solid #ff8b68; border-radius: 5px; box-shadow: 0 4px 14px rgba(7,17,31,.28); line-height: 1.25; }
+.day-marker strong { color: white; font-size: 14px; letter-spacing: .08em; }
+.day-marker time { color: #cbd7e4; font-size: 10px; font-weight: 600; letter-spacing: .05em; }
+.day-marker span { max-width: 220px; overflow: hidden; color: white; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.day-marker::after { content: ''; position: absolute; left: var(--day-marker-anchor-x); height: 18px; border-left: 2px solid #ff8b68; transform: translateX(-50%); }
+.day-marker::before { content: ''; position: absolute; z-index: 1; left: var(--day-marker-anchor-x); width: 8px; height: 8px; background: #ff5d37; border: 2px solid white; border-radius: 50%; transform: translateX(-50%); }
+.day-marker[data-placement='above']::after { top: 100%; }
+.day-marker[data-placement='above']::before { top: calc(100% + 16px); }
+.day-marker[data-placement='below']::after { bottom: 100%; }
+.day-marker[data-placement='below']::before { bottom: calc(100% + 16px); }
 .annotation-style-controls { display: grid; gap: 8px; margin-top: 16px; }
 .annotation-style-controls h3 { margin: 0; font-size: 13px; }
 .annotation-style-controls label { display: block; }

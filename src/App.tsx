@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import RouteMap from './map/RouteMap';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import { addPoint, deletePoint, movePoint } from './route/editor';
-import { formatDistance, routeDistance } from './route/geometry';
+import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
+import { deriveDayMarkers, tripRouteDistance } from './route/tripRoute';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
@@ -16,7 +17,8 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
-  const [date, setDate] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [from, setFrom] = useState('00:00');
   const [to, setTo] = useState('23:59');
   const [fileName, setFileName] = useState('');
@@ -25,6 +27,8 @@ export default function App() {
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [annotationLabel, setAnnotationLabel] = useState('');
+  const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
+  const [dayMarkerNoteInput, setDayMarkerNoteInput] = useState('');
   const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
@@ -45,9 +49,14 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
+  const dayMarkers = useMemo(() => deriveDayMarkers(points, dayMarkerNotes, startDate), [points, dayMarkerNotes, startDate]);
+  const selectedDayMarker = dayMarkers.find((marker) => marker.pointId === selectedPointId) ?? null;
   useEffect(() => {
     setAnnotationLabel(selectedPoint?.annotation?.label ?? '');
   }, [selectedPoint?.id, selectedPoint?.annotation?.label]);
+  useEffect(() => {
+    setDayMarkerNoteInput(selectedDayMarker ? dayMarkerNotes[selectedDayMarker.date] ?? '' : '');
+  }, [selectedDayMarker?.date, dayMarkerNotes]);
 
   const saveAnnotation = () => {
     if (!selectedPoint) return;
@@ -72,7 +81,31 @@ export default function App() {
     }) });
     setError('');
   };
-  const distance = useMemo(() => routeDistance(points), [points]);
+
+  const saveDayMarkerNote = () => {
+    if (!selectedDayMarker) return;
+    const note = dayMarkerNoteInput.trim();
+    if (!note || Array.from(note).length > 40) {
+      setError('日付マーカーの補足は1〜40文字で入力してください。');
+      return;
+    }
+    setDayMarkerNotes((current) => ({ ...current, [selectedDayMarker.date]: note }));
+    setDayMarkerNoteInput(note);
+    setError('');
+  };
+
+  const removeDayMarkerNote = () => {
+    if (!selectedDayMarker) return;
+    setDayMarkerNotes((current) => {
+      const next = { ...current };
+      delete next[selectedDayMarker.date];
+      return next;
+    });
+    setDayMarkerNoteInput('');
+    setError('');
+  };
+
+  const distance = useMemo(() => tripRouteDistance(points), [points]);
   const animationPoints = useMemo(() => {
     if (points.length < 2) return points;
     const startIndex = animationStartPointId ? points.findIndex((point) => point.id === animationStartPointId) : 0;
@@ -80,11 +113,11 @@ export default function App() {
     return startIndex >= 0 && endIndex > startIndex ? points.slice(startIndex, endIndex + 1) : points;
   }, [points, animationStartPointId, animationEndPointId]);
 
-  const extract = useCallback((selectedDate = date, start = from, end = to) => {
+  const extract = useCallback(() => {
     setError('');
     setBusy(true);
-    workerRef.current?.postMessage({ type: 'extract', date: selectedDate, from: start, to: end });
-  }, [date, from, to]);
+    workerRef.current?.postMessage({ type: 'extract-range', startDate, endDate, from, to });
+  }, [startDate, endDate, from, to]);
 
   useEffect(() => {
     const worker = new Worker(new URL('./timeline/worker.ts', import.meta.url), { type: 'module' });
@@ -96,7 +129,9 @@ export default function App() {
         setBusy(false);
       } else if (message.type === 'loaded') {
         setDates(message.dates);
-        setDate(message.dates[0]);
+        setStartDate(message.dates[0]);
+        setEndDate(message.dates[0]);
+        setDayMarkerNotes({});
         setFileName(message.fileName);
         setNotice(`${message.dates.length}日分の日付を検出しました。`);
         worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
@@ -222,7 +257,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, duration, revealRoute, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -236,8 +271,8 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date, from, to, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute, annotationStyle } }, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, `route-project-${date || 'untitled'}.json`);
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute, annotationStyle } }, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
   return (
@@ -260,13 +295,21 @@ export default function App() {
         <aside className="control-panel">
           <section className="panel-section source-section">
             <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'Timeline JSONを読み込んでください'}</p></div></div>
-            <label>日付<select value={date} disabled={!dates.length || busy} onChange={(event) => setDate(event.target.value)}>{dates.map((item) => <option key={item} value={item}>{item.replaceAll('-', ' / ')}</option>)}</select></label>
+            <div className="date-grid">
+              <label>開始日<select value={startDate} disabled={!dates.length || busy} onChange={(event) => {
+                const value = event.target.value;
+                setStartDate(value);
+                if (!endDate || value > endDate) setEndDate(value);
+              }}>{dates.map((item) => <option key={item} value={item}>{item.replaceAll('-', ' / ')}</option>)}</select></label>
+              <label>終了日<select value={endDate} disabled={!dates.length || busy} onChange={(event) => setEndDate(event.target.value)}>{dates.filter((item) => item >= startDate).map((item) => <option key={item} value={item}>{item.replaceAll('-', ' / ')}</option>)}</select></label>
+            </div>
             <div className="time-grid">
               <label>From<input type="time" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
               <span className="time-arrow">→</span>
               <label>To<input type="time" value={to} onChange={(event) => setTo(event.target.value)} /></label>
             </div>
-            <button className="secondary-button wide" disabled={!date || busy} onClick={() => extract()}>この範囲を読み込む</button>
+            <p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p>
+            <button className="secondary-button wide" disabled={!startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
           </section>
 
           <section className="panel-section">
@@ -286,6 +329,13 @@ export default function App() {
                 }} placeholder="美瑛・青い池" />
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
                 {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
+              </div>}
+              {editMode && selectedDayMarker && <div className="day-marker-editor">
+                <strong>DAY {selectedDayMarker.dayNumber} · {selectedDayMarker.date.replaceAll('-', '.')}</strong>
+                <label htmlFor="day-marker-note">日付マーカーの補足（最大40文字）</label>
+                <input id="day-marker-note" type="text" value={dayMarkerNoteInput} onChange={(event) => setDayMarkerNoteInput(event.currentTarget.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="○○ホテル" />
+                <button className="secondary-button" disabled={!dayMarkerNoteInput.trim() || Array.from(dayMarkerNoteInput.trim()).length > 40} onClick={saveDayMarkerNote}>{selectedDayMarker.note ? '変更' : '設定'}</button>
+                {selectedDayMarker.note && <button className="secondary-button" onClick={removeDayMarkerNote}>削除</button>}
               </div>}
             </div>}
             {animationRangeMode && <div className="detail-card animation-range-card">
@@ -335,13 +385,13 @@ export default function App() {
             <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
-            {videoUrl && <a className="download-button" href={videoUrl} download={`route-${date}.mp4`}>MP4を保存</a>}
+            {videoUrl && <a className="download-button" href={videoUrl} download={`route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`}>MP4を保存</a>}
             {points.length > 0 && <button className="text-button" onClick={downloadProject}>編集プロジェクトJSONを保存</button>}
           </section>
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}

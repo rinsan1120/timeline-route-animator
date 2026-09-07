@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
-import { interpolateRoute } from '../route/geometry';
+import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type DayMarker } from '../route/tripRoute';
 import { OSM_STYLE } from './osmStyle';
 import AnnotationOverlay from './AnnotationOverlay';
+import DayMarkerOverlay from './DayMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
 
-function routeCollection(points: RoutePoint[]) {
+function routeCollection(segments: RoutePoint[][]) {
   return {
     type: 'FeatureCollection' as const,
-    features: points.length ? [{ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: points.map((point) => [point.longitude, point.latitude]) } }] : [],
+    features: segments.filter((points) => points.length >= 2).map((points) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: points.map((point) => [point.longitude, point.latitude]) } })),
   };
 }
 
@@ -30,6 +31,7 @@ function rawCollection(points: RawPosition[]) {
 
 interface RouteMapProps {
   annotationStyle: AnnotationStyle;
+  dayMarkers: DayMarker[];
   points: RoutePoint[];
   animationPoints: RoutePoint[];
   rawPositions: RawPosition[];
@@ -70,7 +72,7 @@ export default function RouteMap(props: RouteMapProps) {
       attributionControl: false,
     });
     mapRef.current = map;
-    const redrawOverlay = () => updateRouteOverlay(map, getVisibleRoutePoints(propsRef.current), propsRef.current.animationPoints, routeOverlayRef.current, previewMarkerRef.current, propsRef.current.previewProgress);
+    const redrawOverlay = () => updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current), propsRef.current.animationPoints, routeOverlayRef.current, previewMarkerRef.current, propsRef.current.previewProgress);
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
       redrawOverlay();
@@ -145,7 +147,7 @@ export default function RouteMap(props: RouteMapProps) {
     refreshMap(map, props);
     map.resize();
     map.triggerRepaint();
-    updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, previewMarkerRef.current, props.previewProgress);
+    updateRouteOverlay(map, getVisibleRouteSegments(props), props.animationPoints, routeOverlayRef.current, previewMarkerRef.current, props.previewProgress);
     updateMapDiagnostics(map, props.points);
   }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute]);
 
@@ -208,6 +210,7 @@ export default function RouteMap(props: RouteMapProps) {
       <path className="edit-points-selected" />
     </svg>}
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={props.previewProgress} annotationStyle={props.annotationStyle} />
+    <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={props.previewProgress} />
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -215,7 +218,7 @@ export default function RouteMap(props: RouteMapProps) {
 }
 
 function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
-  if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(props.points) });
+  if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(splitRouteByDay(props.points)) });
   if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points, props.selectedPointId) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
   if (!map.getSource('preview-marker')) map.addSource('preview-marker', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -257,8 +260,8 @@ function updateMapDiagnostics(map: MapLibreMap, points: RoutePoint[]) {
 }
 
 function refreshMap(map: MapLibreMap, props: RouteMapProps) {
-  const visiblePoints = getVisibleRoutePoints(props);
-  (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visiblePoints));
+  const visibleSegments = getVisibleRouteSegments(props);
+  (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visibleSegments));
   (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points, props.selectedPointId));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
@@ -266,40 +269,40 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps) {
   if (map.getLayer('route-points-layer')) map.setPaintProperty('route-points-layer', 'circle-radius', ['case', ['get', 'selected'], 12, props.animationRangeMode ? 9 : 7]);
   let markerFeatures: object[] = [];
   if (props.previewProgress !== null && props.animationPoints.length) {
-    const position = interpolateRoute(props.animationPoints, props.previewProgress);
+    const position = interpolateTripRoute(props.animationPoints, props.previewProgress);
     if (position) markerFeatures = [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [position.longitude, position.latitude] } }];
   }
   (map.getSource('preview-marker') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: markerFeatures } as never);
 }
 
-function getVisibleRoutePoints(props: RouteMapProps): RoutePoint[] {
-  let visiblePoints = props.previewProgress === null ? props.points : props.animationPoints;
-  if (props.previewProgress !== null && props.revealRoute && props.animationPoints.length > 1) {
-    const position = interpolateRoute(props.animationPoints, props.previewProgress);
-    if (position) visiblePoints = [
-      ...props.animationPoints.slice(0, position.segmentIndex + 1),
-      { id: 'preview-tail', latitude: position.latitude, longitude: position.longitude, source: 'manual', original: false },
-    ];
-  }
-  return visiblePoints;
+function getVisibleRouteSegments(props: RouteMapProps): RoutePoint[][] {
+  if (props.previewProgress === null) return splitRouteByDay(props.points);
+  return props.revealRoute
+    ? revealedTripRouteSegments(props.animationPoints, props.previewProgress)
+    : splitRouteByDay(props.animationPoints);
 }
 
 function updateRouteOverlay(
   map: MapLibreMap,
-  points: RoutePoint[],
+  segments: RoutePoint[][],
   animationPoints: RoutePoint[],
   path: SVGPathElement | null,
   previewMarker: SVGCircleElement | null,
   previewProgress: number | null,
 ) {
-  if (!path || points.length < 2) {
+  if (!path) {
+    return;
+  }
+  if (!segments.some((points) => points.length >= 2)) {
     path?.setAttribute('d', '');
   } else {
-    const projected = points.map((point) => map.project([point.longitude, point.latitude]));
-    path.setAttribute('d', projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
+    path.setAttribute('d', segments.map((points) => {
+      const projected = points.map((point) => map.project([point.longitude, point.latitude]));
+      return projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+    }).join(' '));
   }
   const position = previewProgress !== null && animationPoints.length
-    ? interpolateRoute(animationPoints, previewProgress)
+    ? interpolateTripRoute(animationPoints, previewProgress)
     : null;
   updateOverlayMarker(map, position, previewMarker);
 }

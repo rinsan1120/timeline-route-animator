@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
-import { routePointProgresses } from '../route/geometry';
+import { tripRoutePointProgresses } from '../route/tripRoute';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { CSSProperties } from 'react';
 
@@ -17,7 +17,7 @@ interface AnnotationOverlayProps {
 export default function AnnotationOverlay({ map, points, animationPoints, editMode, previewProgress, annotationStyle }: AnnotationOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const arrivals = useMemo(() => {
-    const progresses = routePointProgresses(animationPoints);
+    const progresses = tripRoutePointProgresses(animationPoints);
     return animationPoints.flatMap((point, index) => point.annotation?.label ? [{ point, progress: progresses[index] }] : []);
   }, [animationPoints]);
   const editedAnnotations = useMemo(() => points.filter((point) => point.annotation?.label), [points]);

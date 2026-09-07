@@ -1,8 +1,8 @@
 import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
-import { interpolateRoute, routePointProgresses } from '../route/geometry';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
+import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
 
 const WIDTH = 1920;
@@ -23,6 +23,7 @@ export function outputVideoFrameCount(duration: number): number {
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
   points: RoutePoint[];
+  dayMarkers?: DayMarker[];
   duration: number;
   revealRoute: boolean;
   annotationStyle?: AnnotationStyle;
@@ -70,9 +71,20 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
-    const arrivals = routePointProgresses(options.points);
+    const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
       ? [{ label: point.annotation.label, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
+    const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
+    const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
+      const pointIndex = pointIndexById.get(marker.pointId);
+      return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], arrivalProgress: arrivals[pointIndex] }];
+    });
+    let pixelIndex = 0;
+    const routeSegments = splitRouteByDay(options.points).map((segment) => segment.map(() => {
+      const point = { pixel: pixels[pixelIndex], pointIndex: pixelIndex, arrivalProgress: arrivals[pixelIndex] };
+      pixelIndex += 1;
+      return point;
+    }));
     // Encoding uses only the captured bitmap and projected route from this point on.
     map.remove();
     mapRemoved = true;
@@ -92,7 +104,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, options.points, progress, options.revealRoute, annotations, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -112,10 +124,12 @@ function drawFrame(
   context: CanvasRenderingContext2D,
   background: ImageBitmap,
   pixels: maplibregl.Point[],
+  routeSegments: VideoRoutePoint[][],
   points: RoutePoint[],
   progress: number,
   revealRoute: boolean,
   annotations: VideoAnnotation[],
+  dayMarkers: VideoDayMarker[],
   annotationStyle: AnnotationStyle,
 ) {
   context.drawImage(background, 0, 0);
@@ -125,22 +139,31 @@ function drawFrame(
   context.strokeStyle = '#ff5d37';
   context.shadowColor = 'rgba(0,0,0,.22)';
   context.shadowBlur = 8;
+  const position = interpolateTripRoute(points, progress)!;
+  const markerStart = pixels[position.fromIndex];
+  const markerEnd = pixels[position.toIndex];
+  const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
+  const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
   context.beginPath();
-  context.moveTo(pixels[0].x, pixels[0].y);
-  const position = interpolateRoute(points, progress)!;
-  if (revealRoute) {
-    for (let index = 1; index <= position.segmentIndex; index += 1) context.lineTo(pixels[index].x, pixels[index].y);
-    const start = pixels[position.segmentIndex];
-    const end = pixels[position.segmentIndex + 1];
-    context.lineTo(start.x + (end.x - start.x) * position.segmentProgress, start.y + (end.y - start.y) * position.segmentProgress);
-  } else for (let index = 1; index < pixels.length; index += 1) context.lineTo(pixels[index].x, pixels[index].y);
+  for (const segment of routeSegments) {
+    let started = false;
+    for (const routePoint of segment) {
+      if (revealRoute && routePoint.arrivalProgress > progress) break;
+      if (started) context.lineTo(routePoint.pixel.x, routePoint.pixel.y);
+      else context.moveTo(routePoint.pixel.x, routePoint.pixel.y);
+      started = true;
+    }
+    const segmentStart = segment[0]?.pointIndex ?? -1;
+    const segmentEnd = segment.at(-1)?.pointIndex ?? -1;
+    if (revealRoute && started && position.fromIndex !== position.toIndex
+      && position.fromIndex >= segmentStart && position.toIndex <= segmentEnd
+      && segment.some((routePoint) => routePoint.pointIndex === position.toIndex && routePoint.arrivalProgress > progress)) {
+      context.lineTo(x, y);
+    }
+  }
   context.stroke();
   context.shadowBlur = 0;
 
-  const markerStart = pixels[position.segmentIndex];
-  const markerEnd = pixels[position.segmentIndex + 1];
-  const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
-  const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
   context.beginPath();
   context.arc(x, y, 22, 0, Math.PI * 2);
   context.fillStyle = '#ffda57';
@@ -153,6 +176,10 @@ function drawFrame(
     if (progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
   }
 
+  for (const dayMarker of dayMarkers) {
+    if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker);
+  }
+
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
@@ -162,6 +189,17 @@ function drawFrame(
 
 interface VideoAnnotation {
   label: string;
+  pixel: { x: number; y: number };
+  arrivalProgress: number;
+}
+
+interface VideoRoutePoint {
+  pixel: { x: number; y: number };
+  pointIndex: number;
+  arrivalProgress: number;
+}
+
+interface VideoDayMarker extends DayMarker {
   pixel: { x: number; y: number };
   arrivalProgress: number;
 }
@@ -228,6 +266,68 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.textAlign = 'left';
   context.fillText(label, left + paddingX, top + height / 2);
   context.restore();
+}
+
+function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker) {
+  context.save();
+  const margin = 24;
+  const bottom = HEIGHT - 70;
+  const width = 300;
+  const height = marker.note ? 134 : 102;
+  const gap = 42;
+  const left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
+  const below = marker.pixel.y - height - gap < margin;
+  const top = Math.max(margin, Math.min(bottom - height, below ? marker.pixel.y + gap : marker.pixel.y - height - gap));
+  const anchorX = Math.max(left + 18, Math.min(left + width - 18, marker.pixel.x));
+
+  context.strokeStyle = '#ff8b68';
+  context.lineWidth = 5;
+  context.beginPath();
+  context.moveTo(anchorX, below ? top : top + height);
+  context.lineTo(marker.pixel.x, marker.pixel.y);
+  context.stroke();
+  context.beginPath();
+  context.arc(marker.pixel.x, marker.pixel.y, 10, 0, Math.PI * 2);
+  context.fillStyle = '#ff5d37';
+  context.fill();
+  context.lineWidth = 4;
+  context.strokeStyle = '#ffffff';
+  context.stroke();
+
+  context.shadowColor = 'rgba(7,17,31,.28)';
+  context.shadowBlur = 18;
+  context.shadowOffsetY = 5;
+  context.fillStyle = '#102c4b';
+  context.fillRect(left, top, width, height);
+  context.shadowBlur = 0;
+  context.shadowOffsetY = 0;
+  context.lineWidth = 4;
+  context.strokeStyle = '#ff8b68';
+  context.strokeRect(left, top, width, height);
+  context.fillStyle = '#ff8b68';
+  context.fillRect(left, top, width, 7);
+
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = '#ffffff';
+  context.font = '700 36px system-ui, sans-serif';
+  context.fillText(`DAY ${marker.dayNumber}`, left + width / 2, top + 34);
+  context.fillStyle = '#cbd7e4';
+  context.font = '24px system-ui, sans-serif';
+  context.fillText(marker.date.replaceAll('-', '.'), left + width / 2, top + 70);
+  if (marker.note) {
+    context.fillStyle = '#ffffff';
+    context.font = '26px system-ui, sans-serif';
+    context.fillText(truncateCanvasText(context, marker.note, width - 28), left + width / 2, top + 108);
+  }
+  context.restore();
+}
+
+function truncateCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string {
+  if (context.measureText(value).width <= maxWidth) return value;
+  const characters = Array.from(value);
+  while (characters.length && context.measureText(`${characters.join('')}…`).width > maxWidth) characters.pop();
+  return `${characters.join('')}…`;
 }
 
 function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {

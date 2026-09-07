@@ -26,7 +26,8 @@ export interface ExtractedTimeline {
 
 export type WorkerRequest =
   | { type: 'load'; buffer: ArrayBuffer; fileName: string }
-  | { type: 'extract'; date: string; from: string; to: string };
+  | { type: 'extract'; date: string; from: string; to: string }
+  | { type: 'extract-range'; startDate: string; endDate: string; from: string; to: string };
 
 export type WorkerResponse =
   | { type: 'loaded'; dates: string[]; fileName: string }

@@ -220,6 +220,30 @@ export function extractTimelineRange(index: TimelineIndex, date: string, from: s
   };
 }
 
+export function extractTimelineDateRange(index: TimelineIndex, startDate: string, endDate: string, from: string, to: string): ExtractedTimeline {
+  if (startDate > endDate) throw new Error('開始日は終了日以前の日付を指定してください。');
+  if (startDate === endDate) return extractTimelineRange(index, startDate, from, to);
+  const fromMinute = parseMinute(from);
+  const toMinute = parseMinute(to);
+  const dates = [...new Set([...index.routeByDate.keys(), ...index.rawByDate.keys()])]
+    .filter((date) => date >= startDate && date <= endDate)
+    .sort();
+  const routePoints: RoutePoint[] = [];
+  const rawPositions: RawPosition[] = [];
+  for (const date of dates) {
+    const inRange = (timestamp: string) => {
+      const parts = timeParts(timestamp);
+      if (!parts || parts.date !== date) return false;
+      if (date === startDate) return parts.minute >= fromMinute;
+      if (date === endDate) return parts.minute <= toMinute;
+      return true;
+    };
+    routePoints.push(...(index.routeByDate.get(date) ?? []).filter((point) => point.timestamp && inRange(point.timestamp)));
+    rawPositions.push(...(index.rawByDate.get(date) ?? []).filter((point) => inRange(point.timestamp)));
+  }
+  return { routePoints, rawPositions };
+}
+
 export function parseTimelineText(text: string): TimelineIndex {
   let value: unknown;
   value = JSON.parse(text);

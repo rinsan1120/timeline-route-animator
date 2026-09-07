@@ -1,10 +1,10 @@
 import type { RoutePoint } from '../timeline/types';
-import { nearestSegmentIndex } from './geometry';
+import { nearestTripSegmentIndex } from './tripRoute';
 
 export function addPoint(points: RoutePoint[], latitude: number, longitude: number, id = `manual-${crypto.randomUUID()}`): RoutePoint[] {
   const point: RoutePoint = { id, latitude, longitude, source: 'manual', original: false };
   if (points.length < 2) return [...points, point];
-  const segmentIndex = nearestSegmentIndex(points, longitude, latitude);
+  const segmentIndex = nearestTripSegmentIndex(points, longitude, latitude);
   return [...points.slice(0, segmentIndex + 1), point, ...points.slice(segmentIndex + 1)];
 }
 
