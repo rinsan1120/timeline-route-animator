@@ -3,15 +3,7 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
 import { interpolateRoute } from '../route/geometry';
-
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
-const FALLBACK_STYLE = {
-  version: 8 as const,
-  sources: {},
-  layers: [
-    { id: 'fallback-background', type: 'background' as const, paint: { 'background-color': '#e7edef' } },
-  ],
-};
+import { OSM_STYLE } from './osmStyle';
 
 function routeCollection(points: RoutePoint[]) {
   return {
@@ -55,8 +47,6 @@ export default function RouteMap(props: RouteMapProps) {
   const routeOverlayRef = useRef<SVGPathElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
-  const fallbackRef = useRef(false);
-  const mapErrorCountRef = useRef(0);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const propsRef = useRef(props);
@@ -66,7 +56,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (!containerRef.current) return;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: STYLE_URL,
+      style: OSM_STYLE,
       center: [139.767, 35.681],
       zoom: 10,
       attributionControl: false,
@@ -81,11 +71,11 @@ export default function RouteMap(props: RouteMapProps) {
     const loadTimeout = window.setTimeout(() => {
       if (!loadedRef.current) {
         setMapStatus('error');
-        propsRef.current.onError('地図の読み込みがタイムアウトしました。OpenFreeMapへ接続できるか確認してください。');
+        propsRef.current.onError('地図の読み込みがタイムアウトしました。ネットワーク接続を確認してください。');
       }
     }, 15_000);
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
     const initializeMap = () => {
       const firstLoad = !loadedRef.current;
       loadedRef.current = true;
@@ -100,11 +90,9 @@ export default function RouteMap(props: RouteMapProps) {
     map.on('style.load', initializeMap);
     map.on('move', redrawOverlay);
     map.on('error', (event: ErrorEvent) => {
-      if (event.error) mapErrorCountRef.current += 1;
-      if (event.error && !fallbackRef.current && (!loadedRef.current || mapErrorCountRef.current >= 3)) {
-        fallbackRef.current = true;
-        propsRef.current.onError('背景地図を読み込めなかったため、ルートのみ表示しています。OpenFreeMapへの接続を確認してください。');
-        map.setStyle(FALLBACK_STYLE);
+      if (event.error) {
+        // Keep the raster source and editable layers alive after individual tile failures.
+        propsRef.current.onError('地図の一部を読み込めませんでした。ネットワーク接続を確認してください。');
       }
     });
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {

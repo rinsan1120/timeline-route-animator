@@ -2,6 +2,18 @@
 
 Last updated: 2026-09-07
 
+## Latest Update: OSM raster background (2026-09-07)
+
+- 最新の明示要件により、AGENTS.mdのOpenFreeMap指定を上書きし、背景をOpenStreetMap標準ラスタータイルへ変更。MapLibre、ルート編集、JSON処理、Pages設定は維持。
+- `src/map/osmStyle.ts`の型付きinline styleをRouteMapと動画rendererで共用。URLは`https://tile.openstreetmap.org/{z}/{x}/{y}.png`、tileSize 256、maxzoom 19。外部style JSONは使用しない。
+- RouteMapのエラー回数による背景style切替を削除。一部タイルエラーは日本語通知のみとし、地図・ルートlayerを維持。attributionは折りたたまず表示。
+- 動画はstyle準備→fitBounds→idle待機→背景1回キャプチャ→map解放→背景再利用。タイムアウト時の単色背景fallbackは維持。動画クレジットは`© OpenStreetMap contributors`。
+- `npm ci`成功。`npm test`成功（13 tests、実サンプルなしの条件付きsuiteはskip）、`npm run build`成功（既存の約1.37MB chunk警告）。追加テストで共通style、fitBounds/idleの順序、背景1回取得、150フレーム再利用、map解放を検証。
+- ローカルWindows Chromeの合成ルート確認ページでOSM地図、ルート線、編集点、preview marker、360px幅の地図クレジットを確認。OSM PNG要求あり、OpenFreeMap要求0件。
+- 同ページで実MP4生成成功（1,834,657 bytes、ブラウザmetadata: 1920×1080、5秒）。30fpsはエンコーダー設定と150フレームの回帰テストで確認。
+- Chrome拡張のファイルアクセス権限不足でアプリ本体のJSONファイル選択検証は不可。Android JSON問題の修正は今回含めない。Android実機・Pagesへの反映は未確認、未コミット・未デプロイ。
+- 以下は以前の引継ぎ記録。OpenFreeMapや公開状態に関する記述は当時の状況。
+
 ## Current Status
 
 V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図表示、手動編集、プレビュー、MP4生成）はコード上実装済み。ローカルChromeの地図表示はユーザー確認済み。GitHub Project Pages対応としてVite baseを`/timeline-route-animator/`へ変更し、公式Pages Actions方式で`dist/`を公開する`.github/workflows/deploy.yml`を整備した。変更は未コミット・未デプロイ。

@@ -7,7 +7,7 @@ Android版Google Maps TimelineからエクスポートしたJSONを、端末の�
 - Timeline JSONをWeb Worker内で解析（日付index、`timelinePath`、`rawSignals.position`）
 - `activity.topCandidate.type`に依存しないルート抽出
 - 日付とFrom / Toによる一日分の抽出
-- MapLibre GL JS + OpenFreeMapによる地図表示
+- MapLibre GL JS + OpenStreetMap標準ラスタータイルによる地図表示
 - ルートポイントの追加、連続追加、ドラッグ移動、削除
 - Undo / Redo / 初期状態への復元（PCではCmd/Ctrl+Z、Cmd/Ctrl+Shift+Zにも対応）
 - rawSignalsの参考表示と精度別の色分け
@@ -16,7 +16,7 @@ Android版Google Maps TimelineからエクスポートしたJSONを、端末の�
 - WebCodecs + Mediabunnyによる1920×1080・30fps・H.264 MP4生成
 - 編集済みルートだけを含むプロジェクトJSONの保存
 
-Timeline JSON本体はアップロード、外部API送信、localStorage保存を一切行いません。地図タイルの表示にはOpenFreeMapへのネットワーク接続が必要です。
+Timeline JSON本体はアップロード、外部API送信、localStorage保存を一切行いません。地図タイルの表示にはOpenStreetMapへのネットワーク接続が必要です。
 
 ## 対応ブラウザ
 
@@ -73,10 +73,11 @@ npm run build
 - `rawSignals.position`は人間が補正するときの参考表示専用です。
 - activity type、Routing API、道路スナップ、AI推定、自動GPS補完は使用しません。
 - 動画生成時は専用MapLibre mapを一度読み込み、背景を1回だけCanvasへキャプチャします。各フレームでは背景を再利用し、ルートとマーカーだけを描画します。
-- OpenFreeMapが広告ブロッカーやネットワーク設定で遮断された場合は、ローカル背景へ切り替えてルートだけを表示・動画化します。
+- OSMタイルの一部が読み込めなくても、背景全体を無効化せずルート表示・編集を維持します。動画用地図の読込がタイムアウトした場合はローカル背景で動画化します。
+- 背景styleは`src/map/osmStyle.ts`で共通定義し、`https://tile.openstreetmap.org/{z}/{x}/{y}.png`を使用します。[OSM Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)に従い、ブラウザの通常キャッシュとRefererを利用します。viewportに必要なタイルのみ取得し、bulk download・複数zoomの事前取得・offline download・tile archiveは実装しません。
 - 数十MBのJSONでもUIを長時間止めないよう、ファイルの読み取り・`JSON.parse`・index作成・範囲抽出はWorkerで行います。ただし標準の`JSON.parse`自体は全体を一度メモリへ展開します。
 - V1ではGPX/KML、4K、60fps、カメラ追従、任意PNGマーカー、複数日結合には対応しません。
 
 ## Attribution
 
-編集画面ではMapLibreのAttributionControlを表示し、生成動画には`© OpenFreeMap © OpenStreetMap contributors`を焼き込みます。
+編集画面ではMapLibreのAttributionControlを折りたたまず表示し、生成動画には`© OpenStreetMap contributors`を白い背景に22pxの文字で焼き込みます。

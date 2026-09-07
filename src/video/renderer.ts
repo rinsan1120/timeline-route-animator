@@ -2,11 +2,11 @@ import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
 import { interpolateRoute } from '../route/geometry';
+import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const FPS = 30;
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
 
 export interface VideoProgress { current: number; total: number; percent: number }
@@ -33,9 +33,10 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
   document.body.appendChild(mapContainer);
-  const map = new maplibregl.Map({ container: mapContainer, style: STYLE_URL, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
+  const map = new maplibregl.Map({ container: mapContainer, style: OSM_STYLE, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
+  let mapRemoved = false;
   try {
-    await waitForMap(map, 'load', 20_000);
+    await waitForStyle(map, 20_000);
     const bounds = new maplibregl.LngLatBounds();
     options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
     map.fitBounds(bounds, { padding: 100, maxZoom: 16, duration: 0 });
@@ -56,6 +57,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
+    // Encoding uses only the captured bitmap and projected route from this point on.
+    map.remove();
+    mapRemoved = true;
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: FPS * 2 });
@@ -76,7 +80,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     if (!target.buffer) throw new Error('MP4データを作成できませんでした。');
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
-    map.remove();
+    if (!mapRemoved) map.remove();
     mapContainer.remove();
   }
 }
@@ -124,15 +128,7 @@ function drawFrame(
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
   context.font = '22px system-ui, sans-serif';
-  context.fillText('© OpenFreeMap  © OpenStreetMap contributors', 34, HEIGHT - 25);
-}
-
-function waitForMap(map: maplibregl.Map, event: 'load', timeout: number): Promise<void> {
-  if (map.loaded()) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('地図の読み込みがタイムアウトしました。')), timeout);
-    map.once(event, () => { window.clearTimeout(timer); resolve(); });
-  });
+  context.fillText(OSM_ATTRIBUTION, 34, HEIGHT - 25);
 }
 
 function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {
@@ -144,10 +140,10 @@ function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {
 }
 
 function waitForStyle(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (map.isStyleLoaded()) return nextPaint();
+  if (map.isStyleLoaded()) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error('動画用地図を準備できませんでした。')), timeout);
-    map.once('style.load', () => { window.clearTimeout(timer); void nextPaint().then(resolve); });
+    map.once('style.load', () => { window.clearTimeout(timer); resolve(); });
   });
 }
 
