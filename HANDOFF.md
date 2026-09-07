@@ -4,7 +4,7 @@ Last updated: 2026-09-07
 
 ## Current Status
 
-V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図表示、手動編集、プレビュー、MP4生成）はコード上実装済み。ローカルChromeの地図表示修正はユーザー確認済みで、commit `be9e455`まで`origin/main`と同期している。現在はGitHub Pagesがリポジトリ直下の未ビルド`index.html`を配信して起動画面で停止する問題に対応中。`dist/`を公開するGitHub Actions workflowを追加したが、未コミット・未デプロイ。
+V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図表示、手動編集、プレビュー、MP4生成）はコード上実装済み。ローカルChromeの地図表示はユーザー確認済み。GitHub Project Pages対応としてVite baseを`/timeline-route-animator/`へ変更し、公式Pages Actions方式で`dist/`を公開する`.github/workflows/deploy.yml`を整備した。変更は未コミット・未デプロイ。
 
 ## Completed
 
@@ -23,9 +23,10 @@ V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図�
 
 ## In Progress
 
-- `.github/workflows/deploy-pages.yml`を新規追加し、`main`へのpush時に`npm ci`、テスト、ビルド、`dist/`のPagesデプロイを行う構成にした。未コミット。
-- `README.md`のGitHub Pages手順を、SettingsでSourceをGitHub Actionsに設定する内容へ更新した。未コミット。
-- workflowをpush後、GitHub側のPages設定変更と実デプロイ確認が必要。
+- `vite.config.ts`のbaseを`/timeline-route-animator/`へ変更した。未コミット。
+- 旧`.github/workflows/deploy-pages.yml`を`.github/workflows/deploy.yml`へ置き換えた。`main` push時に`npm ci`、テスト、ビルド、`dist/`のPagesデプロイを行う。未コミット。
+- `README.md`のProject Pages公開手順と公開URLを更新した。未コミット。
+- push後、GitHub側のPages Source変更と実デプロイ確認が必要。
 
 ## Known Issues
 
@@ -39,7 +40,7 @@ V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図�
 
 ## Next Actions
 
-1. `README.md`、`.github/workflows/deploy-pages.yml`、`HANDOFF.md`をレビューしてコミットし、`main`へpushする。
+1. `vite.config.ts`、生成済み`vite.config.js`、`.github/workflows/deploy.yml`、`README.md`、`HANDOFF.md`をレビューしてコミットし、`main`へpushする。旧`.github/workflows/deploy-pages.yml`の削除も含める。
 2. GitHubの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に変更し、「Deploy to GitHub Pages」workflowのbuild/deploy完了を確認する。
 3. `https://rinsan1120.github.io/timeline-route-animator/`を強制再読み込みし、ビルド済み`./assets/index-*.js`が配信されてアプリUIへ切り替わること、Worker・地図・JSON読込が動くことを確認する。
 4. ポイント選択・移動・連続追加・削除・Undo/Redo・rawSignals表示をデスクトップと幅360pxで確認する。
@@ -50,6 +51,10 @@ V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図�
 
 - `pnpm test`: passed（3 files、13 tests。ローカル実サンプルの条件付きテストを含む）
 - `pnpm build`: passed
+- `npm ci`: passed（116 packages、0 vulnerabilities）
+- `npm test`: passed（3 files、13 tests）
+- `npm run build`: passed
+- `npm run dev`: startup passed。`http://127.0.0.1:5173/timeline-route-animator/`が表示された
 - TypeScript check: passed（`pnpm build`内の`tsc -b`）
 - Build warning: main JS chunk約1.37MB
 - Codex in-app Chromium（1280px）: 実サンプル読込、ルートlayer作成、ルート全体が表示範囲内、950x606の地図領域、SVGルート線表示を確認
@@ -58,13 +63,16 @@ V1の主要フロー（Timeline JSON読込、1日・時間範囲抽出、地図�
 - Current GitHub Pages: failed（未ビルドのルート`index.html`を配信して起動画面で停止することをHTTP応答とファイルサイズで確認）
 - New GitHub Actions Pages deployment: not checked（未コミット）
 - MP4 export: not checked
-- `npm test` / `npm run build`: not run（この確認ではpnpmを使用）
 - `package-lock.json`: package.jsonのdependencies/devDependenciesとの一致を確認
+- Built JS/CSS refs: `/timeline-route-animator/assets/...`を確認
+- Built Worker ref: `/timeline-route-animator/assets/worker-RlgR-A05.js`を確認し、ファイル存在も確認
+- PWA manifest / service worker: not present
 
 ## Important Context
 
 - Pages停止の原因はアプリコードの実行時エラーではなく、Pagesが`dist/`ではなくソースルートを公開していること。公開HTMLは1645 bytesで、ソース`index.html`と一致した。ローカルビルドの`dist/index.html`は`./assets/index-*.js`を正しく参照する。
-- 新workflowは`actions/checkout@v4`、`actions/setup-node@v4`（Node 22）、`actions/configure-pages@v5`、`actions/upload-pages-artifact@v4`、`actions/deploy-pages@v4`を使用する。
+- 新workflowは`actions/checkout@v4`、`actions/setup-node@v4`（Node 22）、`actions/configure-pages@v5`、`actions/upload-pages-artifact@v4`、`actions/deploy-pages@v4`を使用する。buildとdeployは別jobで、deployは`github-pages` environmentを使用する。
+- Worker生成元は`src/App.tsx`の`new Worker(new URL('./timeline/worker.ts', import.meta.url), { type: 'module' })`で、固定URLは使用していない。
 - 現在のGit branchは`main`で`origin/main`を追跡。ステージ済み変更はない。
-- 現在の未コミット変更は`README.md`、`HANDOFF.md`、新規`.github/workflows/deploy-pages.yml`。アプリ本体コードの未コミット変更はない。
+- 現在の未コミット変更は`vite.config.ts`、生成済み`vite.config.js`、`README.md`、`HANDOFF.md`、2つの`*.tsbuildinfo`、旧`.github/workflows/deploy-pages.yml`の削除、新規`.github/workflows/deploy.yml`。`src/`配下のアプリ本体コードは変更していない。
 - `docs/SPEC.md`および`docs/`ディレクトリは現時点では存在しない。

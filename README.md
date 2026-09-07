@@ -57,13 +57,15 @@ npm run build
 
 ## GitHub Pagesへ公開
 
-`vite.config.ts`は相対baseを使用しているため、ユーザー/組織ページとプロジェクトページの両方に対応します。
+`vite.config.ts`のbaseはProject Pagesの公開パス`/timeline-route-animator/`に設定されています。
 
 1. GitHubリポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定します。
-2. `main`へpushすると、`.github/workflows/deploy-pages.yml`がテストとビルドを実行し、生成された`dist/`だけをPagesへ公開します。
+2. `main`へpushすると、`.github/workflows/deploy.yml`がテストとビルドを実行し、生成された`dist/`だけをPagesへ公開します。
 3. Actionsの「Deploy to GitHub Pages」が完了してから公開URLを開きます。リポジトリ直下を直接Pagesへ公開すると、未ビルドの`/src/main.tsx`が参照されてアプリは起動しません。
 
 実Timeline JSONや`sample-data/`はpushしないでください。
+
+公開URL: <https://rinsan1120.github.io/timeline-route-animator/>
 
 ## 実装上の制約
 
