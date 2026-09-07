@@ -7,6 +7,7 @@ const WIDTH = 1920;
 const HEIGHT = 1080;
 const FPS = 30;
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
+const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
 
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
@@ -38,7 +39,12 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const bounds = new maplibregl.LngLatBounds();
     options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
     map.fitBounds(bounds, { padding: 100, maxZoom: 16, duration: 0 });
-    await waitForIdle(map, 20_000);
+    try {
+      await waitForIdle(map, 20_000);
+    } catch {
+      map.setStyle(FALLBACK_STYLE);
+      await waitForStyle(map, 5_000);
+    }
     map.triggerRepaint();
     await nextPaint();
 
@@ -134,6 +140,14 @@ function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error('動画用地図の読み込みがタイムアウトしました。')), timeout);
     map.once('idle', () => { window.clearTimeout(timer); resolve(); });
+  });
+}
+
+function waitForStyle(map: maplibregl.Map, timeout: number): Promise<void> {
+  if (map.isStyleLoaded()) return nextPaint();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('動画用地図を準備できませんでした。')), timeout);
+    map.once('style.load', () => { window.clearTimeout(timer); void nextPaint().then(resolve); });
   });
 }
 

@@ -5,4 +5,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   worker: { format: 'es' },
+  optimizeDeps: {
+    exclude: ['maplibre-gl'],
+  },
 });

@@ -71,6 +71,7 @@ npm run build
 - `rawSignals.position`は人間が補正するときの参考表示専用です。
 - activity type、Routing API、道路スナップ、AI推定、自動GPS補完は使用しません。
 - 動画生成時は専用MapLibre mapを一度読み込み、背景を1回だけCanvasへキャプチャします。各フレームでは背景を再利用し、ルートとマーカーだけを描画します。
+- OpenFreeMapが広告ブロッカーやネットワーク設定で遮断された場合は、ローカル背景へ切り替えてルートだけを表示・動画化します。
 - 数十MBのJSONでもUIを長時間止めないよう、ファイルの読み取り・`JSON.parse`・index作成・範囲抽出はWorkerで行います。ただし標準の`JSON.parse`自体は全体を一度メモリへ展開します。
 - V1ではGPX/KML、4K、60fps、カメラ追従、任意PNGマーカー、複数日結合には対応しません。
 
