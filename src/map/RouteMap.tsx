@@ -47,8 +47,7 @@ interface RouteMapProps {
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGPathElement>(null);
-  const animationStartMarkerRef = useRef<SVGCircleElement>(null);
-  const animationEndMarkerRef = useRef<SVGCircleElement>(null);
+  const previewMarkerRef = useRef<SVGCircleElement>(null);
   const editPointsOverlayRef = useRef<SVGSVGElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
@@ -67,7 +66,7 @@ export default function RouteMap(props: RouteMapProps) {
       attributionControl: false,
     });
     mapRef.current = map;
-    const redrawOverlay = () => updateRouteOverlay(map, getVisibleRoutePoints(propsRef.current), propsRef.current.animationPoints, routeOverlayRef.current, animationStartMarkerRef.current, animationEndMarkerRef.current);
+    const redrawOverlay = () => updateRouteOverlay(map, getVisibleRoutePoints(propsRef.current), propsRef.current.animationPoints, routeOverlayRef.current, previewMarkerRef.current, propsRef.current.previewProgress);
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
       redrawOverlay();
@@ -144,7 +143,7 @@ export default function RouteMap(props: RouteMapProps) {
     const fittedPoints = props.previewProgress !== null ? props.animationPoints : props.points;
     if (fittedPoints.length > 0) fitRoute(map, fittedPoints, 0);
     map.triggerRepaint();
-    updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, animationStartMarkerRef.current, animationEndMarkerRef.current);
+    updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, previewMarkerRef.current, props.previewProgress);
     updateMapDiagnostics(map, props.points);
   }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute]);
 
@@ -192,8 +191,7 @@ export default function RouteMap(props: RouteMapProps) {
     <div className={`map ${props.addMode ? 'map--adding' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <path ref={routeOverlayRef} />
-      <circle ref={animationStartMarkerRef} className="animation-start-marker" r="9" />
-      <circle ref={animationEndMarkerRef} className="animation-end-marker" r="11" />
+      <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
     {props.editMode && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
       <path className="edit-points-original" />
@@ -281,8 +279,8 @@ function updateRouteOverlay(
   points: RoutePoint[],
   animationPoints: RoutePoint[],
   path: SVGPathElement | null,
-  startMarker: SVGCircleElement | null,
-  endMarker: SVGCircleElement | null,
+  previewMarker: SVGCircleElement | null,
+  previewProgress: number | null,
 ) {
   if (!path || points.length < 2) {
     path?.setAttribute('d', '');
@@ -290,20 +288,22 @@ function updateRouteOverlay(
     const projected = points.map((point) => map.project([point.longitude, point.latitude]));
     path.setAttribute('d', projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
   }
-  updateOverlayMarker(map, animationPoints[0], startMarker);
-  updateOverlayMarker(map, animationPoints.at(-1), endMarker);
+  const position = previewProgress !== null && animationPoints.length
+    ? interpolateRoute(animationPoints, previewProgress)
+    : null;
+  updateOverlayMarker(map, position, previewMarker);
 }
 
-function updateOverlayMarker(map: MapLibreMap, point: RoutePoint | undefined, marker: SVGCircleElement | null) {
+function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latitude: number } | null, marker: SVGCircleElement | null) {
   if (!marker) return;
   if (!point) {
-    marker.style.display = 'none';
+    marker.setAttribute('display', 'none');
     return;
   }
   const projected = map.project([point.longitude, point.latitude]);
   marker.setAttribute('cx', projected.x.toFixed(1));
   marker.setAttribute('cy', projected.y.toFixed(1));
-  marker.style.display = '';
+  marker.removeAttribute('display');
 }
 
 function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point'], maxDistance = 28): RoutePoint | null {
