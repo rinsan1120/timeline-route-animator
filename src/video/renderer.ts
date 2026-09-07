@@ -12,7 +12,7 @@ const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'backg
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
   points: RoutePoint[];
-  duration: 5 | 10 | 15;
+  duration: number;
   revealRoute: boolean;
   onProgress: (progress: VideoProgress) => void;
   signal?: AbortSignal;
@@ -26,6 +26,7 @@ export async function checkVideoSupport(): Promise<string | null> {
 }
 
 export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blob> {
+  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('動画時間は5〜60秒の整数で指定してください。');
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);

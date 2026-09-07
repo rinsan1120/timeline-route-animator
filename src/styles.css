@@ -50,7 +50,10 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .animation-range-actions { display: grid; gap: 6px; margin-top: 6px; }
 .animation-range-actions .secondary-button { padding: 0 8px; }
 .raw-detail > button { border: 0; background: none; position: absolute; right: 8px; top: 7px; color: #7b8795; cursor: pointer; }
-.duration-options { margin-top: 7px; }
+.duration-controls input[type='range'] { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--orange); }
+.duration-limits { display: flex; justify-content: space-between; color: #67778a; font-size: 11px; }
+.duration-number { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
+.duration-number input { width: 90px; min-height: 44px; padding: 0 10px; border: 1px solid #d9e0e6; border-radius: 7px; background: #f8fafb; color: #162943; font-size: 16px; text-align: center; }
 .select-label { display: block; margin-top: 15px; }
 .preview-button, .generate-button, .download-button { width: 100%; min-height: 43px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center; }
 .preview-button { margin-top: 16px; border: 1px solid #d6dde4; background: #fff; color: #273950; gap: 8px; }

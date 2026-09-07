@@ -7,7 +7,6 @@ import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { renderRouteVideo, type VideoProgress } from './video/renderer';
 
-type Duration = 5 | 10 | 15;
 type MapMode = 'display' | 'edit' | 'animation-range';
 
 export default function App() {
@@ -28,7 +27,8 @@ export default function App() {
   const [addMode, setAddMode] = useState(false);
   const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
   const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
-  const [duration, setDuration] = useState<Duration>(10);
+  const [duration, setDuration] = useState<number>(10);
+  const [durationInput, setDurationInput] = useState('10');
   const [revealRoute, setRevealRoute] = useState(true);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -249,7 +249,23 @@ export default function App() {
 
           <section className="panel-section video-section">
             <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
-            <label>動画時間<div className="duration-options">{([5, 10, 15] as Duration[]).map((value) => <button key={value} className={duration === value ? 'active' : ''} onClick={() => setDuration(value)}>{value}秒</button>)}</div></label>
+            <div className="duration-controls">
+              <label htmlFor="video-duration-range">動画時間</label>
+              <input id="video-duration-range" type="range" min="5" max="60" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+                const value = Number(event.currentTarget.value);
+                setDuration(value);
+                setDurationInput(String(value));
+              }} />
+              <div className="duration-limits"><span>5秒</span><span>60秒</span></div>
+              <label className="duration-number" htmlFor="video-duration-number">
+                <input id="video-duration-number" aria-label="動画時間（秒）" type="number" inputMode="numeric" min="5" max="60" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setDurationInput(value);
+                  if (value !== '' && Number.isFinite(Number(value))) setDuration(Math.min(60, Math.max(5, Math.round(Number(value)))));
+                }} onBlur={() => setDurationInput(String(duration))} />
+                秒
+              </label>
+            </div>
             <label className="select-label">ルート表示<select value={revealRoute ? 'reveal' : 'all'} onChange={(event) => setRevealRoute(event.target.value === 'reveal')}><option value="reveal">通過済み部分だけ表示</option><option value="all">全ルートを最初から表示</option></select></label>
             <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
