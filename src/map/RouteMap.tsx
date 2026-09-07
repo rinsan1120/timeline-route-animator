@@ -28,9 +28,11 @@ function rawCollection(points: RawPosition[]) {
 
 interface RouteMapProps {
   points: RoutePoint[];
+  animationPoints: RoutePoint[];
   rawPositions: RawPosition[];
   showRaw: boolean;
   editMode: boolean;
+  animationRangeMode: boolean;
   addMode: boolean;
   selectedPointId: string | null;
   previewProgress: number | null;
@@ -124,11 +126,12 @@ export default function RouteMap(props: RouteMapProps) {
     if (!map || !loadedRef.current) return;
     refreshMap(map, props);
     map.resize();
-    if (props.points.length > 0) fitRoute(map, props.points, 0);
+    const fittedPoints = props.previewProgress !== null ? props.animationPoints : props.points;
+    if (fittedPoints.length > 0) fitRoute(map, fittedPoints, 0);
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRoutePoints(props), routeOverlayRef.current);
     updateMapDiagnostics(map, props.points);
-  }, [props.points, props.rawPositions, props.showRaw, props.editMode, props.previewProgress, props.revealRoute]);
+  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.previewProgress, props.revealRoute]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -169,7 +172,8 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(props.points) });
   if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
-  if (!map.getSource('start-marker')) map.addSource('start-marker', { type: 'geojson', data: pointCollection(props.points.slice(0, 1)) });
+  if (!map.getSource('animation-start-marker')) map.addSource('animation-start-marker', { type: 'geojson', data: pointCollection(props.animationPoints.slice(0, 1)) });
+  if (!map.getSource('animation-end-marker')) map.addSource('animation-end-marker', { type: 'geojson', data: pointCollection(props.animationPoints.slice(-1)) });
   if (!map.getSource('preview-marker')) map.addSource('preview-marker', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#ff5d37', 'line-width': 6, 'line-opacity': 0.92 } });
   if (!map.getLayer('raw-points')) map.addLayer({ id: 'raw-points', type: 'circle', source: 'raw-positions', layout: { visibility: props.showRaw ? 'visible' : 'none' }, paint: {
@@ -177,10 +181,11 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
     'circle-color': ['interpolate', ['linear'], ['get', 'accuracyMeters'], 0, '#16c79a', 50, '#f6c945', 200, '#ef476f'],
     'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-opacity': 0.8,
   } });
-  if (!map.getLayer('route-points-layer')) map.addLayer({ id: 'route-points-layer', type: 'circle', source: 'route-points', layout: { visibility: props.editMode ? 'visible' : 'none' }, paint: {
+  if (!map.getLayer('route-points-layer')) map.addLayer({ id: 'route-points-layer', type: 'circle', source: 'route-points', layout: { visibility: props.editMode || props.animationRangeMode ? 'visible' : 'none' }, paint: {
     'circle-radius': 7, 'circle-color': ['case', ['get', 'manual'], '#2dd4bf', '#ffffff'], 'circle-stroke-color': '#10233f', 'circle-stroke-width': 2,
   } });
-  if (!map.getLayer('start-marker-layer')) map.addLayer({ id: 'start-marker-layer', type: 'circle', source: 'start-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
+  if (!map.getLayer('animation-start-marker-layer')) map.addLayer({ id: 'animation-start-marker-layer', type: 'circle', source: 'animation-start-marker', paint: { 'circle-radius': 9, 'circle-color': '#2dd4bf', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 3 } });
+  if (!map.getLayer('animation-end-marker-layer')) map.addLayer({ id: 'animation-end-marker-layer', type: 'circle', source: 'animation-end-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
   if (!map.getLayer('preview-marker-layer')) map.addLayer({ id: 'preview-marker-layer', type: 'circle', source: 'preview-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
 }
 
@@ -212,23 +217,24 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps) {
   (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visiblePoints));
   (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
-  (map.getSource('start-marker') as GeoJSONSource | undefined)?.setData(pointCollection(props.points.slice(0, 1)));
+  (map.getSource('animation-start-marker') as GeoJSONSource | undefined)?.setData(pointCollection(props.animationPoints.slice(0, 1)));
+  (map.getSource('animation-end-marker') as GeoJSONSource | undefined)?.setData(pointCollection(props.animationPoints.slice(-1)));
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
-  if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode ? 'visible' : 'none');
+  if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode || props.animationRangeMode ? 'visible' : 'none');
   let markerFeatures: object[] = [];
-  if (props.previewProgress !== null && props.points.length) {
-    const position = interpolateRoute(props.points, props.previewProgress);
+  if (props.previewProgress !== null && props.animationPoints.length) {
+    const position = interpolateRoute(props.animationPoints, props.previewProgress);
     if (position) markerFeatures = [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [position.longitude, position.latitude] } }];
   }
   (map.getSource('preview-marker') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: markerFeatures } as never);
 }
 
 function getVisibleRoutePoints(props: RouteMapProps): RoutePoint[] {
-  let visiblePoints = props.points;
-  if (props.previewProgress !== null && props.revealRoute && props.points.length > 1) {
-    const position = interpolateRoute(props.points, props.previewProgress);
+  let visiblePoints = props.previewProgress === null ? props.points : props.animationPoints;
+  if (props.previewProgress !== null && props.revealRoute && props.animationPoints.length > 1) {
+    const position = interpolateRoute(props.animationPoints, props.previewProgress);
     if (position) visiblePoints = [
-      ...props.points.slice(0, position.segmentIndex + 1),
+      ...props.animationPoints.slice(0, position.segmentIndex + 1),
       { id: 'preview-tail', latitude: position.latitude, longitude: position.longitude, source: 'manual', original: false },
     ];
   }

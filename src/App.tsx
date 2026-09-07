@@ -8,6 +8,7 @@ import { readTimelineFile } from './timeline/fileLoader';
 import { renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type Duration = 5 | 10 | 15;
+type MapMode = 'display' | 'edit' | 'animation-range';
 
 export default function App() {
   const workerRef = useRef<Worker | null>(null);
@@ -23,8 +24,10 @@ export default function App() {
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
-  const [editMode, setEditMode] = useState(false);
+  const [mapMode, setMapMode] = useState<MapMode>('display');
   const [addMode, setAddMode] = useState(false);
+  const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
+  const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
   const [duration, setDuration] = useState<Duration>(10);
   const [revealRoute, setRevealRoute] = useState(true);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
@@ -35,8 +38,16 @@ export default function App() {
   const [videoUrl, setVideoUrl] = useState('');
 
   const points = history.present;
+  const editMode = mapMode === 'edit';
+  const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
   const distance = useMemo(() => routeDistance(points), [points]);
+  const animationPoints = useMemo(() => {
+    if (points.length < 2) return points;
+    const startIndex = animationStartPointId ? points.findIndex((point) => point.id === animationStartPointId) : 0;
+    const endIndex = animationEndPointId ? points.findIndex((point) => point.id === animationEndPointId) : points.length - 1;
+    return startIndex >= 0 && endIndex > startIndex ? points.slice(startIndex, endIndex + 1) : points;
+  }, [points, animationStartPointId, animationEndPointId]);
 
   const extract = useCallback((selectedDate = date, start = from, end = to) => {
     setError('');
@@ -63,6 +74,8 @@ export default function App() {
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
         setSelectedRaw(null);
+        setAnimationStartPointId(null);
+        setAnimationEndPointId(null);
         setBusy(false);
         setNotice(message.routePoints.length ? `${message.routePoints.length}点のルートを読み込みました。` : '指定時間内にtimelinePathがありません。時間範囲を変更してください。');
       }
@@ -97,6 +110,16 @@ export default function App() {
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
 
+  useEffect(() => {
+    const startMissing = animationStartPointId && !points.some((point) => point.id === animationStartPointId);
+    const endMissing = animationEndPointId && !points.some((point) => point.id === animationEndPointId);
+    if (startMissing || endMissing) {
+      setAnimationStartPointId(null);
+      setAnimationEndPointId(null);
+      setNotice('指定したポイントが削除されたため、アニメ範囲を全ルートへ戻しました。');
+    }
+  }, [points, animationStartPointId, animationEndPointId]);
+
   const loadFile = async (file: File) => {
     setBusy(true);
     setError('');
@@ -119,13 +142,43 @@ export default function App() {
     setSelectedPointId(next.find((point) => !points.some((old) => old.id === point.id))?.id ?? null);
   };
 
+  const setAnimationStart = () => {
+    if (!selectedPointId) return;
+    const selectedIndex = points.findIndex((point) => point.id === selectedPointId);
+    const endIndex = animationEndPointId ? points.findIndex((point) => point.id === animationEndPointId) : points.length - 1;
+    if (selectedIndex < 0 || selectedIndex >= endIndex) {
+      setError('開始地点は終了地点より前のポイントを選択してください。');
+      return;
+    }
+    setError('');
+    setAnimationStartPointId(selectedPointId);
+  };
+
+  const setAnimationEnd = () => {
+    if (!selectedPointId) return;
+    const selectedIndex = points.findIndex((point) => point.id === selectedPointId);
+    const startIndex = animationStartPointId ? points.findIndex((point) => point.id === animationStartPointId) : 0;
+    if (selectedIndex <= startIndex) {
+      setError('終了地点は開始地点より後のポイントを選択してください。');
+      return;
+    }
+    setError('');
+    setAnimationEndPointId(selectedPointId);
+  };
+
+  const resetAnimationRange = () => {
+    setAnimationStartPointId(null);
+    setAnimationEndPointId(null);
+    setError('');
+  };
+
   const generateVideo = async () => {
     setError('');
     setVideoProgress({ current: 0, total: duration * 30, percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points, duration, revealRoute, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, duration, revealRoute, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -139,7 +192,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date, from, to, editedRoute: points, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date, from, to, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${date || 'untitled'}.json`);
   };
 
@@ -175,11 +228,22 @@ export default function App() {
           <section className="panel-section">
             <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="mode-switch">
-              <button className={!editMode ? 'active' : ''} onClick={() => { setEditMode(false); setAddMode(false); }}>表示</button>
-              <button className={editMode ? 'active' : ''} onClick={() => setEditMode(true)}>編集</button>
+              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); }}>表示</button>
+              <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
+              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); }}>アニメ範囲</button>
             </div>
             <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}</div>}
+            {animationRangeMode && <div className="detail-card animation-range-card">
+              <strong>アニメーション範囲</strong>
+              <span>開始: {animationPoints[0] ? `${points.indexOf(animationPoints[0]) + 1}番目` : '未選択'}</span>
+              <span>終了: {animationPoints.at(-1) ? `${points.indexOf(animationPoints.at(-1)!) + 1}番目` : '未選択'}</span>
+              <div className="animation-range-actions">
+                <button className="secondary-button" disabled={!selectedPoint} onClick={setAnimationStart}>ここを開始地点に設定</button>
+                <button className="secondary-button" disabled={!selectedPoint} onClick={setAnimationEnd}>ここを終了地点に設定</button>
+              </div>
+              <button className="text-button" onClick={resetAnimationRange}>全ルートを使用</button>
+            </div>}
             {selectedRaw && <RawDetail point={selectedRaw} onClose={() => setSelectedRaw(null)} />}
           </section>
 
@@ -187,8 +251,8 @@ export default function App() {
             <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
             <label>動画時間<div className="duration-options">{([5, 10, 15] as Duration[]).map((value) => <button key={value} className={duration === value ? 'active' : ''} onClick={() => setDuration(value)}>{value}秒</button>)}</div></label>
             <label className="select-label">ルート表示<select value={revealRoute ? 'reveal' : 'all'} onChange={(event) => setRevealRoute(event.target.value === 'reveal')}><option value="reveal">通過済み部分だけ表示</option><option value="all">全ルートを最初から表示</option></select></label>
-            <button className="preview-button" disabled={points.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
-            <button className="generate-button" disabled={points.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
+            <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
+            <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <a className="download-button" href={videoUrl} download={`route-${date}.mp4`}>MP4を保存</a>}
             {points.length > 0 && <button className="text-button" onClick={downloadProject}>編集プロジェクトJSONを保存</button>}
@@ -196,7 +260,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap points={points} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); }}>×</button></div>}
