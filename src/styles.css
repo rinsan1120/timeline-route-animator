@@ -66,10 +66,6 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .progress-card button { border: 0; background: none; color: #8b5960; grid-column: 1 / -1; font-size: 10px; }
 .map-stage { position: relative; min-width: 0; min-height: 0; background: #dce5e7; }
 .map { position: absolute; inset: 0; }
-.route-overlay { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.route-overlay path { fill: none; stroke: var(--orange); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 2px 2px rgba(7,17,31,.22)); }
-.animation-start-marker { fill: #2dd4bf; stroke: #07111f; stroke-width: 3; }
-.animation-end-marker { fill: #ffda57; stroke: #07111f; stroke-width: 4; }
 .map-status { position: absolute; z-index: 3; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: #42546a; background: rgba(231,238,239,.92); font-size: 12px; }
 .map-status .spinner { border-color: rgba(31,50,69,.2); border-top-color: var(--orange); }
 .map-status--error { color: #8e2736; background: rgba(255,240,242,.94); text-align: center; padding: 24px; }
