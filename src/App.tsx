@@ -22,6 +22,7 @@ export default function App() {
   const [showRaw, setShowRaw] = useState(false);
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+  const [annotationLabel, setAnnotationLabel] = useState('');
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
   const [addMode, setAddMode] = useState(false);
@@ -41,6 +42,33 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
+  useEffect(() => {
+    setAnnotationLabel(selectedPoint?.annotation?.label ?? '');
+  }, [selectedPoint?.id, selectedPoint?.annotation?.label]);
+
+  const saveAnnotation = () => {
+    if (!selectedPoint) return;
+    const label = annotationLabel.trim();
+    if (!label || Array.from(label).length > 30) {
+      setError('地点ラベルは1〜30文字で入力してください。');
+      return;
+    }
+    if (selectedPoint.annotation?.label !== label) {
+      dispatch({ type: 'commit', points: points.map((point) => point.id === selectedPoint.id ? { ...point, annotation: { label } } : point) });
+    }
+    setAnnotationLabel(label);
+    setError('');
+  };
+
+  const removeAnnotation = () => {
+    if (!selectedPoint?.annotation) return;
+    dispatch({ type: 'commit', points: points.map((point) => {
+      if (point.id !== selectedPoint.id) return point;
+      const { annotation, ...rest } = point;
+      return rest;
+    }) });
+    setError('');
+  };
   const distance = useMemo(() => routeDistance(points), [points]);
   const animationPoints = useMemo(() => {
     if (points.length < 2) return points;
@@ -233,7 +261,17 @@ export default function App() {
               <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); }}>アニメ範囲</button>
             </div>
             <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>
-            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}</div>}
+            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
+              {editMode && <div className="annotation-editor">
+                <label htmlFor="annotation-label">地点ラベル（最大30文字）</label>
+                <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
+                  // Text editing keeps its own Undo/Redo instead of changing route history.
+                  event.stopPropagation();
+                }} placeholder="美瑛・青い池" />
+                <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
+                {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
+              </div>}
+            </div>}
             {animationRangeMode && <div className="detail-card animation-range-card">
               <strong>アニメーション範囲</strong>
               <span>開始: {animationPoints[0] ? `${points.indexOf(animationPoints[0]) + 1}番目` : '未選択'}</span>

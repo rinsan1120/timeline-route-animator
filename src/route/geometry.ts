@@ -25,6 +25,25 @@ export interface InterpolatedPosition {
   segmentProgress: number;
 }
 
+// Compute once per route, then reuse for all annotated points (including future video rendering).
+export function routePointProgresses(points: RoutePoint[]): number[] {
+  const cumulative = points.length ? [0] : [];
+  for (let index = 1; index < points.length; index += 1) {
+    cumulative.push(cumulative[index - 1] + distanceMeters(points[index - 1], points[index]));
+  }
+  const total = cumulative.at(-1) ?? 0;
+  return cumulative.map((distance, index) => {
+    if (index === 0) return 0;
+    if (index === points.length - 1) return 1;
+    return total === 0 ? 0 : distance / total;
+  });
+}
+
+export function routePointProgress(points: RoutePoint[], pointId: string): number | null {
+  const index = points.findIndex((point) => point.id === pointId);
+  return index < 0 ? null : routePointProgresses(points)[index];
+}
+
 export function interpolateRoute(points: RoutePoint[], progress: number): InterpolatedPosition | null {
   if (!points.length) return null;
   if (points.length === 1) return { ...points[0], segmentIndex: 0, segmentProgress: 0 };

@@ -5,6 +5,7 @@ export interface RoutePoint {
   timestamp?: string;
   source: 'timelinePath' | 'manual';
   original: boolean;
+  annotation?: { label: string };
 }
 
 export interface RawPosition {
