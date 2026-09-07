@@ -51,10 +51,15 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .annotation-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
 .annotation-editor button { min-height: 44px; }
 .annotation-overlay { position: absolute; z-index: 4; inset: 0; pointer-events: none; overflow: hidden; }
-.annotation-balloon { position: absolute; width: max-content; max-width: calc(100% - 16px); padding: 8px 10px; color: #10233f; background: white; border: 1px solid #ccd5de; border-radius: 8px; box-shadow: 0 2px 7px rgba(7,17,31,.2); font-size: 12px; line-height: 1.4; }
+.annotation-balloon { position: absolute; width: max-content; max-width: calc(100% - 16px); padding: calc(8px * var(--balloon-scale)) calc(10px * var(--balloon-scale)); color: #10233f; background: white; border: calc(1px * var(--balloon-scale)) solid #ccd5de; border-radius: calc(8px * var(--balloon-scale)); box-shadow: 0 calc(2px * var(--balloon-scale)) calc(7px * var(--balloon-scale)) rgba(7,17,31,.2); font-size: calc(12px * var(--font-scale)); line-height: 1.4; }
 .annotation-balloon span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.annotation-balloon::after { content: ''; position: absolute; left: var(--pointer-left); bottom: -6px; width: 10px; height: 10px; background: white; border-right: 1px solid #ccd5de; border-bottom: 1px solid #ccd5de; transform: translateX(-50%) rotate(45deg); }
-.annotation-balloon[data-placement='below']::after { top: -6px; bottom: auto; transform: translateX(-50%) rotate(225deg); }
+.annotation-balloon::after { content: ''; position: absolute; left: var(--pointer-left); bottom: calc(-6px * var(--balloon-scale)); width: calc(10px * var(--balloon-scale)); height: calc(10px * var(--balloon-scale)); background: white; border-right: calc(1px * var(--balloon-scale)) solid #ccd5de; border-bottom: calc(1px * var(--balloon-scale)) solid #ccd5de; transform: translateX(-50%) rotate(45deg); }
+.annotation-balloon[data-placement='below']::after { top: calc(-6px * var(--balloon-scale)); bottom: auto; transform: translateX(-50%) rotate(225deg); }
+.annotation-style-controls { display: grid; gap: 8px; margin-top: 16px; }
+.annotation-style-controls h3 { margin: 0; font-size: 13px; }
+.annotation-style-controls label { display: block; }
+.annotation-style-controls span { float: right; }
+.annotation-style-controls input { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--orange); }
 .animation-range-actions { display: grid; gap: 6px; margin-top: 6px; }
 .animation-range-actions .secondary-button { padding: 0 8px; }
 .raw-detail > button { border: 0; background: none; position: absolute; right: 8px; top: 7px; color: #7b8795; cursor: pointer; }

@@ -1,7 +1,8 @@
 import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
-import { interpolateRoute } from '../route/geometry';
+import { interpolateRoute, routePointProgresses } from '../route/geometry';
+import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
 
 const WIDTH = 1920;
@@ -14,6 +15,7 @@ export interface RenderVideoOptions {
   points: RoutePoint[];
   duration: number;
   revealRoute: boolean;
+  annotationStyle?: AnnotationStyle;
   onProgress: (progress: VideoProgress) => void;
   signal?: AbortSignal;
 }
@@ -58,6 +60,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
+    const arrivals = routePointProgresses(options.points);
+    const annotations = options.points.flatMap((point, index) => point.annotation?.label
+      ? [{ label: point.annotation.label, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
     // Encoding uses only the captured bitmap and projected route from this point on.
     map.remove();
     mapRemoved = true;
@@ -70,7 +75,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const progress = total === 1 ? 1 : frame / (total - 1);
-      drawFrame(context, background, pixels, options.points, progress, options.revealRoute);
+      drawFrame(context, background, pixels, options.points, progress, options.revealRoute, annotations, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       await source.add(frame / FPS, 1 / FPS, { keyFrame: frame % (FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -93,6 +98,8 @@ function drawFrame(
   points: RoutePoint[],
   progress: number,
   revealRoute: boolean,
+  annotations: VideoAnnotation[],
+  annotationStyle: AnnotationStyle,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -125,11 +132,85 @@ function drawFrame(
   context.strokeStyle = '#07111f';
   context.stroke();
 
+  for (const annotation of annotations) {
+    if (progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
+  }
+
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
   context.font = '22px system-ui, sans-serif';
   context.fillText(OSM_ATTRIBUTION, 34, HEIGHT - 25);
+}
+
+interface VideoAnnotation {
+  label: string;
+  pixel: { x: number; y: number };
+  arrivalProgress: number;
+}
+
+function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnnotation, style: AnnotationStyle) {
+  context.save();
+  const scale = style.balloonScale;
+  const fontSize = 28 * style.fontScale;
+  const paddingX = 20 * scale;
+  const paddingY = 16 * scale;
+  const gap = 40 * scale;
+  const margin = 24;
+  // Reserve the bottom strip for attribution, which is drawn last.
+  const bottom = HEIGHT - 70;
+  context.font = `${fontSize}px system-ui, sans-serif`;
+  const maxTextWidth = WIDTH - margin * 2 - paddingX * 2;
+  let label = annotation.label;
+  if (context.measureText(label).width > maxTextWidth) {
+    const characters = Array.from(label);
+    while (characters.length && context.measureText(`${characters.join('')}…`).width > maxTextWidth) characters.pop();
+    label = `${characters.join('')}…`;
+  }
+  const width = context.measureText(label).width + paddingX * 2;
+  const radius = Math.min(16 * scale, width / 4);
+  const pointerSize = Math.min(12 * scale, width / 8);
+  const height = fontSize * 1.4 + paddingY * 2;
+  const left = Math.max(margin, Math.min(WIDTH - margin - width, annotation.pixel.x - width / 2));
+  const below = annotation.pixel.y - height - gap < margin;
+  const top = Math.max(margin, Math.min(bottom - height - pointerSize, below ? annotation.pixel.y + gap : annotation.pixel.y - height - gap));
+  const pointerX = Math.max(left + radius + pointerSize, Math.min(left + width - radius - pointerSize, annotation.pixel.x));
+  context.fillStyle = '#ffffff';
+  context.strokeStyle = '#ccd5de';
+  context.lineWidth = 2 * scale;
+  context.shadowColor = 'rgba(7,17,31,.2)';
+  context.shadowBlur = 14 * scale;
+  context.shadowOffsetY = 4 * scale;
+  context.beginPath();
+  context.moveTo(left + radius, top);
+  if (below) {
+    context.lineTo(pointerX - pointerSize, top);
+    context.lineTo(pointerX, top - pointerSize);
+    context.lineTo(pointerX + pointerSize, top);
+  }
+  context.lineTo(left + width - radius, top);
+  context.quadraticCurveTo(left + width, top, left + width, top + radius);
+  context.lineTo(left + width, top + height - radius);
+  context.quadraticCurveTo(left + width, top + height, left + width - radius, top + height);
+  if (!below) {
+    context.lineTo(pointerX + pointerSize, top + height);
+    context.lineTo(pointerX, top + height + pointerSize);
+    context.lineTo(pointerX - pointerSize, top + height);
+  }
+  context.lineTo(left + radius, top + height);
+  context.quadraticCurveTo(left, top + height, left, top + height - radius);
+  context.lineTo(left, top + radius);
+  context.quadraticCurveTo(left, top, left + radius, top);
+  context.closePath();
+  context.fill();
+  context.shadowBlur = 0;
+  context.shadowOffsetY = 0;
+  context.stroke();
+  context.fillStyle = '#10233f';
+  context.textBaseline = 'middle';
+  context.textAlign = 'left';
+  context.fillText(label, left + paddingX, top + height / 2);
+  context.restore();
 }
 
 function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {

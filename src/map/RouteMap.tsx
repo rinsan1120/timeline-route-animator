@@ -5,6 +5,7 @@ import type { RawPosition, RoutePoint } from '../timeline/types';
 import { interpolateRoute } from '../route/geometry';
 import { OSM_STYLE } from './osmStyle';
 import AnnotationOverlay from './AnnotationOverlay';
+import type { AnnotationStyle } from '../route/annotationStyle';
 
 function routeCollection(points: RoutePoint[]) {
   return {
@@ -28,6 +29,7 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  annotationStyle: AnnotationStyle;
   points: RoutePoint[];
   animationPoints: RoutePoint[];
   rawPositions: RawPosition[];
@@ -205,7 +207,7 @@ export default function RouteMap(props: RouteMapProps) {
       <path className="edit-points-manual" />
       <path className="edit-points-selected" />
     </svg>}
-    <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={props.previewProgress} />
+    <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={props.previewProgress} annotationStyle={props.annotationStyle} />
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}

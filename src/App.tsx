@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
+import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import { addPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance, routeDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
@@ -23,6 +24,7 @@ export default function App() {
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [annotationLabel, setAnnotationLabel] = useState('');
+  const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
   const [addMode, setAddMode] = useState(false);
@@ -206,7 +208,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, duration, revealRoute, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, duration, revealRoute, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -220,7 +222,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date, from, to, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date, from, to, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute, annotationStyle } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${date || 'untitled'}.json`);
   };
 
@@ -304,6 +306,13 @@ export default function App() {
                 秒
               </label>
             </div>
+            <div className="annotation-style-controls">
+              <h3>バルーン表示</h3>
+              {(['balloonScale', 'fontScale'] as const).map((key) => <label key={key}>
+                {key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span>{Math.round(annotationStyle[key] * 100)}%</span>
+                <input type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
+              </label>)}
+            </div>
             <label className="select-label">ルート表示<select value={revealRoute ? 'reveal' : 'all'} onChange={(event) => setRevealRoute(event.target.value === 'reveal')}><option value="reveal">通過済み部分だけ表示</option><option value="all">全ルートを最初から表示</option></select></label>
             <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
@@ -314,7 +323,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); }}>×</button></div>}
