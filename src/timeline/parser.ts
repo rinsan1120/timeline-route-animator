@@ -4,6 +4,9 @@ interface TimelinePathEntry { point?: unknown; time?: unknown }
 interface SemanticSegment { timelinePath?: unknown; [key: string]: unknown }
 interface RawSignal { position?: Record<string, unknown>; [key: string]: unknown }
 interface TimelineDocument { semanticSegments?: unknown; rawSignals?: unknown; [key: string]: unknown }
+interface IosTimelinePathEntry { point?: unknown; durationMinutesOffsetFromStartTime?: unknown }
+interface IosTimelineSegment { startTime?: unknown; endTime?: unknown; timelinePath?: unknown; [key: string]: unknown }
+interface TimezoneAnchor { instant: number; offsetMinutes: number }
 
 export interface TimelineIndex {
   routeByDate: Map<string, RoutePoint[]>;
@@ -12,6 +15,7 @@ export interface TimelineIndex {
 
 const COORDINATE_PATTERN = /^\s*([+-]?\d+(?:\.\d+)?)\s*°?\s*,\s*([+-]?\d+(?:\.\d+)?)\s*°?\s*$/;
 const DATE_TIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/;
+const TIMEZONE_OFFSET_PATTERN = /([+-])(\d{2}):(\d{2})$/;
 
 export function parseCoordinate(value: unknown): { latitude: number; longitude: number } | null {
   if (typeof value !== 'string') return null;
@@ -91,6 +95,107 @@ export function buildTimelineIndex(document: TimelineDocument): TimelineIndex {
   return { routeByDate, rawByDate };
 }
 
+function looksLikeIosTimeline(value: unknown[]): boolean {
+  return value.some((segment) => Boolean(
+    segment
+    && typeof segment === 'object'
+    && typeof (segment as IosTimelineSegment).startTime === 'string'
+    && Array.isArray((segment as IosTimelineSegment).timelinePath),
+  ));
+}
+
+function parseTimezoneAnchor(value: unknown): TimezoneAnchor | null {
+  if (typeof value !== 'string') return null;
+  const match = TIMEZONE_OFFSET_PATTERN.exec(value);
+  if (!match) return null;
+  const instant = Date.parse(value);
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  if (!Number.isFinite(instant) || hours > 23 || minutes > 59) return null;
+  const offsetMinutes = (hours * 60 + minutes) * (match[1] === '-' ? -1 : 1);
+  return { instant, offsetMinutes };
+}
+
+function nearestTimezoneOffset(anchors: TimezoneAnchor[], instant: number): number {
+  if (!anchors.length) return 0;
+  let low = 0;
+  let high = anchors.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (anchors[middle].instant < instant) low = middle + 1;
+    else high = middle;
+  }
+  if (low === 0) return anchors[0].offsetMinutes;
+  if (low === anchors.length) return anchors[anchors.length - 1].offsetMinutes;
+  const before = anchors[low - 1];
+  const after = anchors[low];
+  return instant - before.instant <= after.instant - instant ? before.offsetMinutes : after.offsetMinutes;
+}
+
+function formatTimestampWithOffset(instant: number, offsetMinutes: number): string | null {
+  const localInstant = instant + offsetMinutes * 60_000;
+  const localDate = new Date(localInstant);
+  if (!Number.isFinite(localDate.getTime())) return null;
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const sign = offsetMinutes < 0 ? '-' : '+';
+  const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
+  const minutes = String(absoluteOffset % 60).padStart(2, '0');
+  return `${localDate.toISOString().slice(0, -1)}${sign}${hours}:${minutes}`;
+}
+
+function parseIosCoordinate(value: unknown): { latitude: number; longitude: number } | null {
+  return typeof value === 'string' && value.startsWith('geo:') ? parseCoordinate(value.slice(4)) : null;
+}
+
+function buildIosTimelineIndex(segments: unknown[]): TimelineIndex {
+  const timezoneAnchors: TimezoneAnchor[] = [];
+  for (const rawSegment of segments) {
+    if (!rawSegment || typeof rawSegment !== 'object') continue;
+    const segment = rawSegment as IosTimelineSegment;
+    const startAnchor = parseTimezoneAnchor(segment.startTime);
+    const endAnchor = parseTimezoneAnchor(segment.endTime);
+    if (startAnchor) timezoneAnchors.push(startAnchor);
+    if (endAnchor) timezoneAnchors.push(endAnchor);
+  }
+  timezoneAnchors.sort((a, b) => a.instant - b.instant);
+
+  const routeByDate = new Map<string, RoutePoint[]>();
+  let routeSequence = 0;
+  for (const rawSegment of segments) {
+    if (!rawSegment || typeof rawSegment !== 'object') continue;
+    const segment = rawSegment as IosTimelineSegment;
+    if (typeof segment.startTime !== 'string' || !Array.isArray(segment.timelinePath)) continue;
+    const segmentStart = Date.parse(segment.startTime);
+    if (!Number.isFinite(segmentStart)) continue;
+    for (const entry of segment.timelinePath as IosTimelinePathEntry[]) {
+      if (!entry || typeof entry !== 'object') continue;
+      const coordinate = parseIosCoordinate(entry.point);
+      const rawOffset = entry.durationMinutesOffsetFromStartTime;
+      if (!coordinate || (typeof rawOffset !== 'string' && typeof rawOffset !== 'number') || (typeof rawOffset === 'string' && !rawOffset.trim())) continue;
+      const offsetFromStart = Number(rawOffset);
+      if (!Number.isFinite(offsetFromStart)) continue;
+      const instant = segmentStart + offsetFromStart * 60_000;
+      if (!Number.isFinite(instant)) continue;
+      const timestamp = formatTimestampWithOffset(instant, nearestTimezoneOffset(timezoneAnchors, instant));
+      const parts = timeParts(timestamp);
+      if (!timestamp || !parts) continue;
+      const point: RoutePoint = {
+        id: `timeline-${routeSequence++}`,
+        ...coordinate,
+        timestamp,
+        source: 'timelinePath',
+        original: true,
+      };
+      const points = routeByDate.get(parts.date) ?? [];
+      points.push(point);
+      routeByDate.set(parts.date, points);
+    }
+  }
+  if (!routeSequence) throw new Error('Timeline形式のデータを確認できませんでした。');
+  for (const points of routeByDate.values()) points.sort((a, b) => Date.parse(a.timestamp ?? '') - Date.parse(b.timestamp ?? ''));
+  return { routeByDate, rawByDate: new Map() };
+}
+
 export function getAvailableDates(index: TimelineIndex): string[] {
   return [...new Set([...index.routeByDate.keys(), ...index.rawByDate.keys()])].sort();
 }
@@ -118,6 +223,10 @@ export function extractTimelineRange(index: TimelineIndex, date: string, from: s
 export function parseTimelineText(text: string): TimelineIndex {
   let value: unknown;
   value = JSON.parse(text);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Timeline JSONの形式が正しくありません。');
+  if (Array.isArray(value)) {
+    if (!looksLikeIosTimeline(value)) throw new Error('Timeline JSONの形式が正しくありません。');
+    return buildIosTimelineIndex(value);
+  }
+  if (!value || typeof value !== 'object' || !Array.isArray((value as TimelineDocument).semanticSegments)) throw new Error('Timeline JSONの形式が正しくありません。');
   return buildTimelineIndex(value as TimelineDocument);
 }
