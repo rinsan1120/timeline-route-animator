@@ -4,6 +4,7 @@ import { addPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance, routeDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import type { RawPosition, WorkerResponse } from './timeline/types';
+import { readTimelineFile } from './timeline/fileLoader';
 import { renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type Duration = 5 | 10 | 15;
@@ -66,7 +67,7 @@ export default function App() {
         setNotice(message.routePoints.length ? `${message.routePoints.length}点のルートを読み込みました。` : '指定時間内にtimelinePathがありません。時間範囲を変更してください。');
       }
     };
-    worker.onerror = () => { setError('JSON処理Workerでエラーが発生しました。'); setBusy(false); };
+    worker.onerror = () => { setError('Worker処理に失敗しました。'); setBusy(false); };
     return () => worker.terminate();
   }, []);
 
@@ -101,9 +102,13 @@ export default function App() {
     setError('');
     setNotice('JSONを端末内で解析しています…');
     try {
-      workerRef.current?.postMessage({ type: 'load', file, fileName: file.name });
-    } catch {
-      setError('ファイルを読み込めませんでした。');
+      const buffer = await readTimelineFile(file);
+      const worker = workerRef.current;
+      if (!worker) throw new Error('Worker処理に失敗しました。');
+      console.info('[Timeline] sending buffer to Worker', { byteLength: buffer.byteLength });
+      worker.postMessage({ type: 'load', buffer, fileName: file.name }, [buffer]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'ファイル内容を読み取れませんでした。');
       setBusy(false);
     }
   };

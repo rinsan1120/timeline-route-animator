@@ -1,22 +1,21 @@
 /// <reference lib="webworker" />
-import { extractTimelineRange, getAvailableDates, parseTimelineText, type TimelineIndex } from './parser';
-import type { WorkerResponse } from './types';
+import { extractTimelineRange, type TimelineIndex } from './parser';
+import type { WorkerRequest, WorkerResponse } from './types';
+import { processTimelineBuffer } from './workerProcessor';
 
 let index: TimelineIndex | null = null;
 const send = (message: WorkerResponse) => self.postMessage(message);
 
-self.onmessage = async (event: MessageEvent) => {
-  const message = event.data as { type: string; file?: File; fileName?: string; date?: string; from?: string; to?: string };
+self.onmessage = (event: MessageEvent<WorkerRequest>) => {
+  const message = event.data;
   try {
     if (message.type === 'load') {
-      if (!message.file) throw new Error('JSONファイルが指定されていません。');
-      index = parseTimelineText(await message.file.text());
-      const dates = getAvailableDates(index);
-      if (!dates.length) throw new Error('日時付きのtimelinePathまたはrawSignalsが見つかりません。');
-      send({ type: 'loaded', dates, fileName: message.fileName ?? '' });
+      const result = processTimelineBuffer(message.buffer);
+      index = result.index;
+      send({ type: 'loaded', dates: result.dates, fileName: message.fileName });
     } else if (message.type === 'extract') {
       if (!index) throw new Error('先にTimeline JSONを読み込んでください。');
-      const result = extractTimelineRange(index, message.date ?? '', message.from ?? '', message.to ?? '');
+      const result = extractTimelineRange(index, message.date, message.from, message.to);
       send({ type: 'extracted', ...result });
     }
   } catch (error) {
@@ -24,4 +23,3 @@ self.onmessage = async (event: MessageEvent) => {
   }
 };
 
-export {};

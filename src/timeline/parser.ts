@@ -117,7 +117,7 @@ export function extractTimelineRange(index: TimelineIndex, date: string, from: s
 
 export function parseTimelineText(text: string): TimelineIndex {
   let value: unknown;
-  try { value = JSON.parse(text); } catch { throw new Error('JSONを解析できませんでした。ファイルが壊れていないか確認してください。'); }
+  value = JSON.parse(text);
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Timeline JSONの形式が正しくありません。');
   return buildTimelineIndex(value as TimelineDocument);
 }

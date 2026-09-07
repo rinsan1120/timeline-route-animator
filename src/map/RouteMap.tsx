@@ -169,6 +169,7 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(props.points) });
   if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
+  if (!map.getSource('start-marker')) map.addSource('start-marker', { type: 'geojson', data: pointCollection(props.points.slice(0, 1)) });
   if (!map.getSource('preview-marker')) map.addSource('preview-marker', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#ff5d37', 'line-width': 6, 'line-opacity': 0.92 } });
   if (!map.getLayer('raw-points')) map.addLayer({ id: 'raw-points', type: 'circle', source: 'raw-positions', layout: { visibility: props.showRaw ? 'visible' : 'none' }, paint: {
@@ -179,6 +180,7 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   if (!map.getLayer('route-points-layer')) map.addLayer({ id: 'route-points-layer', type: 'circle', source: 'route-points', layout: { visibility: props.editMode ? 'visible' : 'none' }, paint: {
     'circle-radius': 7, 'circle-color': ['case', ['get', 'manual'], '#2dd4bf', '#ffffff'], 'circle-stroke-color': '#10233f', 'circle-stroke-width': 2,
   } });
+  if (!map.getLayer('start-marker-layer')) map.addLayer({ id: 'start-marker-layer', type: 'circle', source: 'start-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
   if (!map.getLayer('preview-marker-layer')) map.addLayer({ id: 'preview-marker-layer', type: 'circle', source: 'preview-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
 }
 
@@ -210,6 +212,7 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps) {
   (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visiblePoints));
   (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
+  (map.getSource('start-marker') as GeoJSONSource | undefined)?.setData(pointCollection(props.points.slice(0, 1)));
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
   if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode ? 'visible' : 'none');
   let markerFeatures: object[] = [];
