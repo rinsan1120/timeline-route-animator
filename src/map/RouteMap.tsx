@@ -56,6 +56,7 @@ export default function RouteMap(props: RouteMapProps) {
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const propsRef = useRef(props);
   propsRef.current = props;
+  const isPreviewing = props.previewProgress !== null;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -141,12 +142,17 @@ export default function RouteMap(props: RouteMapProps) {
     if (!map || !loadedRef.current) return;
     refreshMap(map, props);
     map.resize();
-    const fittedPoints = props.previewProgress !== null ? props.animationPoints : props.points;
-    if (fittedPoints.length > 0) fitRoute(map, fittedPoints, 0);
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, previewMarkerRef.current, props.previewProgress);
     updateMapDiagnostics(map, props.points);
   }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current || !isPreviewing) return;
+    // Fit only when preview starts, not on each frame or display-state update.
+    fitRoute(map, propsRef.current.animationPoints, 0);
+  }, [isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
