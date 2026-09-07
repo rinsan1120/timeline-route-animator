@@ -49,6 +49,7 @@ export default function RouteMap(props: RouteMapProps) {
   const routeOverlayRef = useRef<SVGPathElement>(null);
   const animationStartMarkerRef = useRef<SVGCircleElement>(null);
   const animationEndMarkerRef = useRef<SVGCircleElement>(null);
+  const editPointsOverlayRef = useRef<SVGSVGElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -114,6 +115,12 @@ export default function RouteMap(props: RouteMapProps) {
         propsRef.current.onSelectRaw(null);
         return;
       }
+      if (propsRef.current.editMode && !propsRef.current.addMode) {
+        const nearest = findNearestRoutePoint(map, propsRef.current.points, event.point);
+        // onSelectPoint also clears the raw selection in App; do not clear it again afterward.
+        if (nearest) propsRef.current.onSelectPoint(nearest.id);
+        return;
+      }
       if (!propsRef.current.addMode) return;
       const hits = map.queryRenderedFeatures(event.point, { layers: ['route-points-layer', 'raw-points'] });
       if (!hits.length) propsRef.current.onAddPoint(event.lngLat.lat, event.lngLat.lng);
@@ -140,6 +147,20 @@ export default function RouteMap(props: RouteMapProps) {
     updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, animationStartMarkerRef.current, animationEndMarkerRef.current);
     updateMapDiagnostics(map, props.points);
   }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const overlay = editPointsOverlayRef.current;
+    if (!map || !overlay || !props.editMode) return;
+    const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, overlay);
+    redraw();
+    map.on('move', redraw);
+    map.on('resize', redraw);
+    return () => {
+      map.off('move', redraw);
+      map.off('resize', redraw);
+    };
+  }, [props.points, props.selectedPointId, props.editMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -174,6 +195,11 @@ export default function RouteMap(props: RouteMapProps) {
       <circle ref={animationStartMarkerRef} className="animation-start-marker" r="9" />
       <circle ref={animationEndMarkerRef} className="animation-end-marker" r="11" />
     </svg>
+    {props.editMode && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
+      <path className="edit-points-original" />
+      <path className="edit-points-manual" />
+      <path className="edit-points-selected" />
+    </svg>}
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -292,4 +318,21 @@ function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoin
     }
   }
   return nearest;
+}
+
+function updateEditPointsOverlay(map: MapLibreMap, points: RoutePoint[], selectedPointId: string | null, overlay: SVGSVGElement) {
+  const original: string[] = [];
+  const manual: string[] = [];
+  let selected = '';
+  // Batch circles into paths instead of creating a DOM element for every route point.
+  for (const point of points) {
+    const screen = map.project([point.longitude, point.latitude]);
+    const radius = point.id === selectedPointId ? 10 : 7;
+    const circle = `M${screen.x - radius},${screen.y}a${radius},${radius} 0 1,0 ${radius * 2},0a${radius},${radius} 0 1,0 ${-radius * 2},0Z`;
+    if (point.id === selectedPointId) selected = circle;
+    else (point.original ? original : manual).push(circle);
+  }
+  overlay.children[0].setAttribute('d', original.join(' '));
+  overlay.children[1].setAttribute('d', manual.join(' '));
+  overlay.children[2].setAttribute('d', selected);
 }
