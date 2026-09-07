@@ -46,6 +46,9 @@ interface RouteMapProps {
 
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const routeOverlayRef = useRef<SVGPathElement>(null);
+  const animationStartMarkerRef = useRef<SVGCircleElement>(null);
+  const animationEndMarkerRef = useRef<SVGCircleElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -63,8 +66,10 @@ export default function RouteMap(props: RouteMapProps) {
       attributionControl: false,
     });
     mapRef.current = map;
+    const redrawOverlay = () => updateRouteOverlay(map, getVisibleRoutePoints(propsRef.current), propsRef.current.animationPoints, routeOverlayRef.current, animationStartMarkerRef.current, animationEndMarkerRef.current);
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
+      redrawOverlay();
     });
     resizeObserver.observe(containerRef.current);
     const loadTimeout = window.setTimeout(() => {
@@ -83,9 +88,11 @@ export default function RouteMap(props: RouteMapProps) {
       installRouteLayers(map, propsRef.current);
       refreshMap(map, propsRef.current);
       fitRoute(map, propsRef.current.points, 0);
+      redrawOverlay();
       if (!firstLoad) map.triggerRepaint();
     };
     map.on('style.load', initializeMap);
+    map.on('move', redrawOverlay);
     map.on('error', (event: ErrorEvent) => {
       if (event.error) {
         // Keep the raster source and editable layers alive after individual tile failures.
@@ -115,6 +122,7 @@ export default function RouteMap(props: RouteMapProps) {
       window.clearTimeout(loadTimeout);
       resizeObserver.disconnect();
       map.off('style.load', initializeMap);
+      map.off('move', redrawOverlay);
       selectedMarkerRef.current?.remove();
       map.remove();
       mapRef.current = null;
@@ -129,6 +137,7 @@ export default function RouteMap(props: RouteMapProps) {
     const fittedPoints = props.previewProgress !== null ? props.animationPoints : props.points;
     if (fittedPoints.length > 0) fitRoute(map, fittedPoints, 0);
     map.triggerRepaint();
+    updateRouteOverlay(map, getVisibleRoutePoints(props), props.animationPoints, routeOverlayRef.current, animationStartMarkerRef.current, animationEndMarkerRef.current);
     updateMapDiagnostics(map, props.points);
   }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute]);
 
@@ -160,6 +169,11 @@ export default function RouteMap(props: RouteMapProps) {
 
   return <>
     <div className={`map ${props.addMode ? 'map--adding' : ''}`} ref={containerRef} />
+    <svg className="route-overlay" aria-hidden="true">
+      <path ref={routeOverlayRef} />
+      <circle ref={animationStartMarkerRef} className="animation-start-marker" r="9" />
+      <circle ref={animationEndMarkerRef} className="animation-end-marker" r="11" />
+    </svg>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -168,7 +182,7 @@ export default function RouteMap(props: RouteMapProps) {
 
 function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(props.points) });
-  if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points, props.animationRangeMode ? props.selectedPointId : null) });
+  if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points, props.selectedPointId) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
   if (!map.getSource('preview-marker')) map.addSource('preview-marker', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#ff5d37', 'line-width': 6, 'line-opacity': 0.92 } });
@@ -211,7 +225,7 @@ function updateMapDiagnostics(map: MapLibreMap, points: RoutePoint[]) {
 function refreshMap(map: MapLibreMap, props: RouteMapProps) {
   const visiblePoints = getVisibleRoutePoints(props);
   (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visiblePoints));
-  (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points, props.animationRangeMode ? props.selectedPointId : null));
+  (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points, props.selectedPointId));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
   if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode || props.animationRangeMode ? 'visible' : 'none');
@@ -234,6 +248,36 @@ function getVisibleRoutePoints(props: RouteMapProps): RoutePoint[] {
     ];
   }
   return visiblePoints;
+}
+
+function updateRouteOverlay(
+  map: MapLibreMap,
+  points: RoutePoint[],
+  animationPoints: RoutePoint[],
+  path: SVGPathElement | null,
+  startMarker: SVGCircleElement | null,
+  endMarker: SVGCircleElement | null,
+) {
+  if (!path || points.length < 2) {
+    path?.setAttribute('d', '');
+  } else {
+    const projected = points.map((point) => map.project([point.longitude, point.latitude]));
+    path.setAttribute('d', projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
+  }
+  updateOverlayMarker(map, animationPoints[0], startMarker);
+  updateOverlayMarker(map, animationPoints.at(-1), endMarker);
+}
+
+function updateOverlayMarker(map: MapLibreMap, point: RoutePoint | undefined, marker: SVGCircleElement | null) {
+  if (!marker) return;
+  if (!point) {
+    marker.style.display = 'none';
+    return;
+  }
+  const projected = map.project([point.longitude, point.latitude]);
+  marker.setAttribute('cx', projected.x.toFixed(1));
+  marker.setAttribute('cy', projected.y.toFixed(1));
+  marker.style.display = '';
 }
 
 function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point'], maxDistance = 28): RoutePoint | null {
