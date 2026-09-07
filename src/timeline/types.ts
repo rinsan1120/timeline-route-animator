@@ -1,0 +1,29 @@
+export interface RoutePoint {
+  id: string;
+  latitude: number;
+  longitude: number;
+  timestamp?: string;
+  source: 'timelinePath' | 'manual';
+  original: boolean;
+}
+
+export interface RawPosition {
+  id: string;
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  accuracyMeters?: number;
+  source?: string;
+  altitudeMeters?: number;
+  speedMetersPerSecond?: number;
+}
+
+export interface ExtractedTimeline {
+  routePoints: RoutePoint[];
+  rawPositions: RawPosition[];
+}
+
+export type WorkerResponse =
+  | { type: 'loaded'; dates: string[]; fileName: string }
+  | ({ type: 'extracted' } & ExtractedTimeline)
+  | { type: 'error'; message: string };
