@@ -59,9 +59,9 @@ describe('OSM video background', () => {
     expect(map.fitBounds.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[1]);
     expect(map.getCanvas).toHaveBeenCalledTimes(1);
     expect(createImageBitmap).toHaveBeenCalledTimes(1);
-    expect(context.drawImage.mock.calls.filter((call) => call[0] === mocks.bitmap)).toHaveLength(150);
+    expect(context.drawImage.mock.calls.filter((call) => call[0] === mocks.bitmap)).toHaveLength(330);
     expect(context.fillText).toHaveBeenCalledWith(OSM_ATTRIBUTION, 34, 1055);
-    expect(mocks.add).toHaveBeenCalledTimes(150);
+    expect(mocks.add).toHaveBeenCalledTimes(330);
     expect(mocks.bitmap.close).toHaveBeenCalledOnce();
     expect(map.remove).toHaveBeenCalledOnce();
     expect(map.remove.mock.invocationCallOrder[0]).toBeLessThan(mocks.add.mock.invocationCallOrder[0]);

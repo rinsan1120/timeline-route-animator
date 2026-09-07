@@ -7,8 +7,18 @@ import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const FPS = 30;
+export const VIDEO_FPS = 30;
+export const PRE_ROLL_SECONDS = 3;
+export const POST_ROLL_SECONDS = 3;
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
+
+export function outputVideoDuration(duration: number): number {
+  return PRE_ROLL_SECONDS + duration + POST_ROLL_SECONDS;
+}
+
+export function outputVideoFrameCount(duration: number): number {
+  return outputVideoDuration(duration) * VIDEO_FPS;
+}
 
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
@@ -28,7 +38,7 @@ export async function checkVideoSupport(): Promise<string | null> {
 }
 
 export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blob> {
-  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('動画時間は5〜60秒の整数で指定してください。');
+  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('移動時間は5〜60秒の整数で指定してください。');
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
@@ -68,15 +78,22 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     mapRemoved = true;
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
-    const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: FPS * 2 });
-    output.addVideoTrack(source, { frameRate: FPS });
+    const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
+    output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
-    const total = options.duration * FPS;
+    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
+    const animationFrames = options.duration * VIDEO_FPS;
+    const total = outputVideoFrameCount(options.duration);
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
-      const progress = total === 1 ? 1 : frame / (total - 1);
+      const animationFrame = frame - preFrames;
+      const progress = frame < preFrames
+        ? 0
+        : animationFrame >= animationFrames
+          ? 1
+          : animationFrame / (animationFrames - 1);
       drawFrame(context, background, pixels, options.points, progress, options.revealRoute, annotations, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
-      await source.add(frame / FPS, 1 / FPS, { keyFrame: frame % (FPS * 2) === 0 });
+      await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }

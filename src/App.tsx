@@ -6,7 +6,7 @@ import { formatDistance, routeDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
-import { renderRouteVideo, type VideoProgress } from './video/renderer';
+import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
 
@@ -14,6 +14,7 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const routeLoadedNoticeTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [date, setDate] = useState('');
   const [from, setFrom] = useState('00:00');
@@ -107,11 +108,24 @@ export default function App() {
         setAnimationStartPointId(null);
         setAnimationEndPointId(null);
         setBusy(false);
-        setNotice(message.routePoints.length ? `${message.routePoints.length}点のルートを読み込みました。` : '指定時間内にtimelinePathがありません。時間範囲を変更してください。');
+        if (message.routePoints.length) {
+          if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+          const routeLoadedNotice = `${message.routePoints.length}点のルートを読み込みました。`;
+          setNotice(routeLoadedNotice);
+          routeLoadedNoticeTimerRef.current = window.setTimeout(() => {
+            setNotice((current) => current === routeLoadedNotice ? '' : current);
+            routeLoadedNoticeTimerRef.current = null;
+          }, 5000);
+        } else {
+          setNotice('指定時間内にtimelinePathがありません。時間範囲を変更してください。');
+        }
       }
     };
     worker.onerror = () => { setError('Worker処理に失敗しました。'); setBusy(false); };
-    return () => worker.terminate();
+    return () => {
+      worker.terminate();
+      if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -204,7 +218,7 @@ export default function App() {
 
   const generateVideo = async () => {
     setError('');
-    setVideoProgress({ current: 0, total: duration * 30, percent: 0 });
+    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
@@ -290,7 +304,7 @@ export default function App() {
           <section className="panel-section video-section">
             <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
             <div className="duration-controls">
-              <label htmlFor="video-duration-range">動画時間</label>
+              <label htmlFor="video-duration-range">移動時間</label>
               <input id="video-duration-range" type="range" min="5" max="60" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                 const value = Number(event.currentTarget.value);
                 setDuration(value);
@@ -298,13 +312,17 @@ export default function App() {
               }} />
               <div className="duration-limits"><span>5秒</span><span>60秒</span></div>
               <label className="duration-number" htmlFor="video-duration-number">
-                <input id="video-duration-number" aria-label="動画時間（秒）" type="number" inputMode="numeric" min="5" max="60" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+                <input id="video-duration-number" aria-label="移動時間（秒）" type="number" inputMode="numeric" min="5" max="60" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                   const value = event.currentTarget.value;
                   setDurationInput(value);
                   if (value !== '' && Number.isFinite(Number(value))) setDuration(Math.min(60, Math.max(5, Math.round(Number(value)))));
                 }} onBlur={() => setDurationInput(String(duration))} />
                 秒
               </label>
+              <div className="video-duration-note">
+                <span>※ 出力動画は、移動時間に開始前3秒・到着後3秒が追加されます。</span>
+                <span>出力時間: {outputVideoDuration(duration)}秒</span>
+              </div>
             </div>
             <div className="annotation-style-controls">
               <h3>バルーン表示</h3>
@@ -326,7 +344,7 @@ export default function App() {
           <RouteMap annotationStyle={annotationStyle} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
-          {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); }}>×</button></div>}
+          {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
           {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
             <button className={!addMode ? 'active' : ''} onClick={() => setAddMode(false)}><span>⌖</span>選択</button>
             <button className={addMode ? 'active' : ''} onClick={() => setAddMode((value) => !value)}><span>＋</span>連続追加</button>
