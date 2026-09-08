@@ -5,11 +5,12 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
+import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
 export const VIDEO_FPS = 30;
-export const PRE_ROLL_SECONDS = 3;
+export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
 export const POST_ROLL_SECONDS = 3;
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
 
@@ -28,6 +29,7 @@ export interface RenderVideoOptions {
   cameraMode?: VideoCameraMode;
   followZoomPreset?: FollowZoomPreset;
   followCameraPlan?: FollowCameraPlan;
+  introZoomEnabled?: boolean;
   duration: number;
   revealRoute: boolean;
   annotationStyle?: AnnotationStyle;
@@ -73,13 +75,53 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     canvas.height = HEIGHT;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('動画用Canvasを作成できませんでした。');
+    const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
+    const dynamicDayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
+      const pointIndex = pointIndexById.get(marker.pointId);
+      return pointIndex === undefined ? [] : [{ ...marker, pointIndex }];
+    });
+    const target = new BufferTarget();
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
+    output.addVideoTrack(source, { frameRate: VIDEO_FPS });
+    await output.start();
+    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
+    const animationFrames = options.duration * VIDEO_FPS;
+    const total = outputVideoFrameCount(options.duration);
+    if (options.introZoomEnabled) {
+      const targetCenter = map.getCenter();
+      const targetZoom = map.getZoom();
+      const startZoom = getIntroStartZoom(targetZoom, map.getMinZoom());
+      const introPlayback: FollowPlaybackState = {
+        phase: 'moving',
+        routeProgress: 0,
+        markerPosition: { longitude: options.points[0].longitude, latitude: options.points[0].latitude },
+        reachedPointIndex: 0,
+        cameraCenter: { longitude: targetCenter.lng, latitude: targetCenter.lat },
+        zoom: startZoom,
+        bearing: 0,
+        pitch: 0,
+      };
+      for (let frame = 0; frame < preFrames; frame += 1) {
+        if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
+        const introProgress = preFrames <= 1 ? 1 : frame / (preFrames - 1);
+        const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
+        map.jumpTo({ center: targetCenter, zoom, bearing: 0, pitch: 0 });
+        await waitForFollowMap(map, 20_000);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
+        await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
+        options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
+        if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      map.jumpTo({ center: targetCenter, zoom: targetZoom, bearing: 0, pitch: 0 });
+      await waitForFollowMap(map, 20_000);
+    }
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
     const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
       ? [{ label: point.annotation.label, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
-    const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
     const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], arrivalProgress: arrivals[pointIndex] }];
@@ -93,15 +135,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     // Encoding uses only the captured bitmap and projected route from this point on.
     map.remove();
     mapRemoved = true;
-    const target = new BufferTarget();
-    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
-    const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
-    output.addVideoTrack(source, { frameRate: VIDEO_FPS });
-    await output.start();
-    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
-    const animationFrames = options.duration * VIDEO_FPS;
-    const total = outputVideoFrameCount(options.duration);
-    for (let frame = 0; frame < total; frame += 1) {
+    for (let frame = options.introZoomEnabled ? preFrames : 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
       const progress = frame < preFrames
@@ -388,7 +422,16 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         : animationFrame >= animationFrames
           ? options.duration
           : animationFrame / (animationFrames - 1) * options.duration;
-      const playback = sampleFollowPlayback(plan, elapsedSeconds);
+      const playback = options.introZoomEnabled && frame < preFrames
+        ? {
+          ...initialPlayback,
+          zoom: interpolateIntroZoom(
+            getIntroStartZoom(initialPlayback.zoom, map.getMinZoom()),
+            initialPlayback.zoom,
+            preFrames <= 1 ? 1 : frame / (preFrames - 1),
+          ),
+        }
+        : sampleFollowPlayback(plan, elapsedSeconds);
       const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
       if (!background || nextBackgroundKey !== backgroundKey) {
         map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
@@ -417,12 +460,13 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
 
 function drawFollowFrame(
   context: CanvasRenderingContext2D,
-  background: ImageBitmap,
+  background: CanvasImageSource,
   map: maplibregl.Map,
   points: RoutePoint[],
   playback: FollowPlaybackState,
   dayMarkers: FollowVideoDayMarker[],
   annotationStyle: AnnotationStyle,
+  revealRoute = true,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -432,7 +476,7 @@ function drawFollowFrame(
   context.shadowColor = 'rgba(0,0,0,.22)';
   context.shadowBlur = 8;
   context.beginPath();
-  for (const segment of revealedTripRouteSegments(points, playback.routeProgress)) {
+  for (const segment of revealRoute ? revealedTripRouteSegments(points, playback.routeProgress) : splitRouteByDay(points)) {
     segment.forEach((point, index) => {
       const pixel = map.project([point.longitude, point.latitude]);
       if (index === 0) context.moveTo(pixel.x, pixel.y);

@@ -8,6 +8,7 @@ import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import { sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
+import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
 
 function routeCollection(segments: RoutePoint[][]) {
   return {
@@ -42,6 +43,8 @@ interface RouteMapProps {
   addMode: boolean;
   selectedPointId: string | null;
   previewProgress: number | null;
+  previewDuration: number;
+  introZoomEnabled: boolean;
   revealRoute: boolean;
   cameraMode: VideoCameraMode;
   followCameraPlan: FollowCameraPlan | null;
@@ -70,6 +73,7 @@ export default function RouteMap(props: RouteMapProps) {
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const wasPreviewingRef = useRef(false);
   const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
+  const previewTargetCameraRef = useRef<MapCameraSnapshot | null>(null);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -112,15 +116,25 @@ export default function RouteMap(props: RouteMapProps) {
       const preview = getPreviewState(propsRef.current);
       const previewing = propsRef.current.previewProgress !== null;
       if (previewing && !wasPreviewingRef.current) previewCameraSnapshotRef.current = captureMapCamera(map);
-      if (preview?.cameraCenter) {
+      if (previewing && propsRef.current.introZoomEnabled && !wasPreviewingRef.current) {
+        previewTargetCameraRef.current = getPreviewTargetCamera(map, propsRef.current);
+      }
+      const introProgress = getPreviewIntroProgress(propsRef.current);
+      if (previewing && propsRef.current.introZoomEnabled && previewTargetCameraRef.current
+        && (propsRef.current.cameraMode === 'overview' || introProgress !== null)) {
+        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress);
+      } else if (preview?.cameraCenter) {
         map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
       }
       refreshMap(map, propsRef.current, preview);
-      if (previewing && !preview?.cameraCenter) fitRoute(map, propsRef.current.animationPoints, 0);
+      if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) fitRoute(map, propsRef.current.animationPoints, 0);
       else if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
       else if (!previewing) fitRoute(map, propsRef.current.points, 0);
       wasPreviewingRef.current = previewing;
-      if (!previewing) previewCameraSnapshotRef.current = null;
+      if (!previewing) {
+        previewCameraSnapshotRef.current = null;
+        previewTargetCameraRef.current = null;
+      }
       redrawOverlay();
       if (!firstLoad) map.triggerRepaint();
     };
@@ -175,17 +189,24 @@ export default function RouteMap(props: RouteMapProps) {
     const previewEnding = !isPreviewing && wasPreviewingRef.current;
     if (previewStarting) previewCameraSnapshotRef.current = captureMapCamera(map);
     const preview = getPreviewState(props);
-    if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
+    if (previewStarting && props.introZoomEnabled) previewTargetCameraRef.current = getPreviewTargetCamera(map, props);
+    const introProgress = getPreviewIntroProgress(props);
+    if (isPreviewing && props.introZoomEnabled && previewTargetCameraRef.current
+      && (props.cameraMode === 'overview' || introProgress !== null)) applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress);
+    else if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
     refreshMap(map, props, preview);
     map.resize();
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     updateMapDiagnostics(map, props.points);
-    if (previewStarting && !preview?.cameraCenter) fitRoute(map, props.animationPoints, 0);
+    if (previewStarting && !props.introZoomEnabled && !preview?.cameraCenter) fitRoute(map, props.animationPoints, 0);
     if (previewEnding && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
     wasPreviewingRef.current = isPreviewing;
-    if (previewEnding) previewCameraSnapshotRef.current = null;
-  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute, props.cameraMode, props.followCameraPlan, isPreviewing]);
+    if (previewEnding) {
+      previewCameraSnapshotRef.current = null;
+      previewTargetCameraRef.current = null;
+    }
+  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -285,6 +306,29 @@ function restoreMapCamera(map: MapLibreMap, snapshot: MapCameraSnapshot) {
   });
 }
 
+function getPreviewTargetCamera(map: MapLibreMap, props: RouteMapProps): MapCameraSnapshot | null {
+  if (props.cameraMode === 'follow' && props.followCameraPlan) {
+    const playback = sampleFollowPlayback(props.followCameraPlan, 0);
+    return {
+      longitude: playback.cameraCenter.longitude,
+      latitude: playback.cameraCenter.latitude,
+      zoom: playback.zoom,
+      bearing: 0,
+      pitch: 0,
+    };
+  }
+  if (!props.animationPoints.length) return null;
+  fitRoute(map, props.animationPoints, 0);
+  return captureMapCamera(map);
+}
+
+function applyIntroPreviewCamera(map: MapLibreMap, target: MapCameraSnapshot, introProgress: number | null) {
+  const zoom = introProgress === null
+    ? target.zoom
+    : interpolateIntroZoom(getIntroStartZoom(target.zoom, map.getMinZoom()), target.zoom, introProgress);
+  map.jumpTo({ center: [target.longitude, target.latitude], zoom, bearing: target.bearing, pitch: target.pitch });
+}
+
 function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
   if (!points.length) return;
   const bounds = new maplibregl.LngLatBounds();
@@ -361,12 +405,27 @@ interface MapPreviewState {
 
 function getPreviewState(props: RouteMapProps): MapPreviewState | null {
   if (props.previewProgress === null || !props.animationPoints.length) return null;
+  const movementProgress = getPreviewMovementProgress(props);
   if (props.cameraMode === 'follow' && props.followCameraPlan) {
-    const playback = sampleFollowPlayback(props.followCameraPlan, props.previewProgress * props.followCameraPlan.duration);
+    const playback = sampleFollowPlayback(props.followCameraPlan, movementProgress * props.followCameraPlan.duration);
     return playback;
   }
-  const position = interpolateTripRoute(props.animationPoints, props.previewProgress);
-  return position ? { routeProgress: props.previewProgress, markerPosition: position, reachedPointIndex: null } : null;
+  const position = interpolateTripRoute(props.animationPoints, movementProgress);
+  return position ? { routeProgress: movementProgress, markerPosition: position, reachedPointIndex: null } : null;
+}
+
+function getPreviewMovementProgress(props: RouteMapProps): number {
+  if (props.previewProgress === null) return 0;
+  if (!props.introZoomEnabled) return props.previewProgress;
+  const totalDuration = INTRO_ZOOM_DURATION_SECONDS + props.previewDuration;
+  const elapsed = props.previewProgress * totalDuration;
+  return Math.max(0, Math.min(1, (elapsed - INTRO_ZOOM_DURATION_SECONDS) / props.previewDuration));
+}
+
+function getPreviewIntroProgress(props: RouteMapProps): number | null {
+  if (!props.introZoomEnabled || props.previewProgress === null) return null;
+  const elapsed = props.previewProgress * (INTRO_ZOOM_DURATION_SECONDS + props.previewDuration);
+  return elapsed <= INTRO_ZOOM_DURATION_SECONDS ? elapsed / INTRO_ZOOM_DURATION_SECONDS : null;
 }
 
 function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latitude: number } | null, marker: SVGCircleElement | null) {

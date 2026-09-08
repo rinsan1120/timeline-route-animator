@@ -8,6 +8,7 @@ import { deriveDayMarkers, tripRouteDistance } from './route/tripRoute';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
+import { INTRO_ZOOM_DURATION_SECONDS } from './video/introZoom';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
@@ -41,6 +42,7 @@ export default function App() {
   const [durationInput, setDurationInput] = useState('10');
   const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
   const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
+  const [introZoomEnabled, setIntroZoomEnabled] = useState(true);
   const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -169,10 +171,11 @@ export default function App() {
 
   useEffect(() => {
     if (previewProgress === null) return;
-    const startedAt = performance.now() - previewProgress * duration * 1000;
+    const previewDuration = duration + (introZoomEnabled ? INTRO_ZOOM_DURATION_SECONDS : 0);
+    const startedAt = performance.now() - previewProgress * previewDuration * 1000;
     let frame = 0;
     const animate = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / (duration * 1000));
+      const progress = Math.min(1, (now - startedAt) / (previewDuration * 1000));
       setPreviewProgress(progress);
       if (progress < 1) frame = requestAnimationFrame(animate);
       else previewEndTimerRef.current = window.setTimeout(() => {
@@ -186,7 +189,7 @@ export default function App() {
       if (previewEndTimerRef.current !== null) window.clearTimeout(previewEndTimerRef.current);
       previewEndTimerRef.current = null;
     };
-  }, [previewProgress === null, duration]);
+  }, [previewProgress === null, duration, introZoomEnabled]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -292,7 +295,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute: true, cameraMode, followZoomPreset, followCameraPlan: plan, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute: true, cameraMode, followZoomPreset, followCameraPlan: plan, introZoomEnabled, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -306,7 +309,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, annotationStyle } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -400,6 +403,7 @@ export default function App() {
                   {([['wide', '広め'], ['standard', '標準'], ['close', '寄り']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
                 </div>
               </>}
+              <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始3秒で広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
             </div>
             <div className="duration-controls">
               <label htmlFor="video-duration-range">移動時間</label>
@@ -438,7 +442,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
