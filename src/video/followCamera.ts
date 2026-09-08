@@ -47,9 +47,9 @@ export interface FollowCameraPlan {
 export const FOLLOW_VIEWPORT = { width: 1920, height: 1080 } as const;
 
 export const FOLLOW_ZOOM_BY_PRESET: Record<FollowZoomPreset, number> = {
-  wide: 12,
-  standard: 13.5,
-  close: 15,
+  wide: 8,
+  standard: 10,
+  close: 12,
 };
 
 export const FOLLOW_CAMERA_CONFIG = {
