@@ -403,17 +403,17 @@ export default function App() {
             </div>
             <div className="duration-controls">
               <label htmlFor="video-duration-range">移動時間</label>
-              <input id="video-duration-range" type="range" min="5" max="60" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+              <input id="video-duration-range" type="range" min="5" max="120" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                 const value = Number(event.currentTarget.value);
                 setDuration(value);
                 setDurationInput(String(value));
               }} />
-              <div className="duration-limits"><span>5秒</span><span>60秒</span></div>
+              <div className="duration-limits"><span>5秒</span><span>120秒</span></div>
               <label className="duration-number" htmlFor="video-duration-number">
-                <input id="video-duration-number" aria-label="移動時間（秒）" type="number" inputMode="numeric" min="5" max="60" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+                <input id="video-duration-number" aria-label="移動時間（秒）" type="number" inputMode="numeric" min="5" max="120" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                   const value = event.currentTarget.value;
                   setDurationInput(value);
-                  if (value !== '' && Number.isFinite(Number(value))) setDuration(Math.min(60, Math.max(5, Math.round(Number(value)))));
+                  if (value !== '' && Number.isFinite(Number(value))) setDuration(Math.min(120, Math.max(5, Math.round(Number(value)))));
                 }} onBlur={() => setDurationInput(String(duration))} />
                 秒
               </label>

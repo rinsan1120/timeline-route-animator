@@ -54,26 +54,23 @@ export const FOLLOW_ZOOM_BY_PRESET: Record<FollowZoomPreset, number> = {
 
 export const FOLLOW_CAMERA_CONFIG = {
   deadZone: { left: 0.20, right: 0.80, top: 0.20, bottom: 0.80 },
-  forcePanBoundary: { left: 0.10, right: 0.90, top: 0.10, bottom: 0.90 },
-  panTriggerDelaySeconds: 1,
+  markerRadiusPixels: 11,
   panTargetAfterCross: { left: 0.80, right: 0.20, top: 0.80, bottom: 0.20 },
   panDurationSeconds: 0.5,
   bearing: 0 as const,
   pitch: 0 as const,
   sampleStepPixels: 4,
-  maxPlanIterations: 128,
 } as const;
 
 export const FOLLOW_DURATION_ERROR = 'この表示範囲では移動時間が短すぎます。移動時間を長くするか、表示範囲を広くしてください。';
 
 interface WorldPoint { x: number; y: number }
 interface UntimedCameraEvent extends Omit<FollowCameraEvent, 'startSeconds' | 'endSeconds'> {}
-interface PendingOutsideState { directions: number; startProgress: number }
 
-const OUTSIDE_LEFT = 1;
-const OUTSIDE_RIGHT = 2;
-const OUTSIDE_TOP = 4;
-const OUTSIDE_BOTTOM = 8;
+const EDGE_LEFT = 1;
+const EDGE_RIGHT = 2;
+const EDGE_TOP = 4;
+const EDGE_BOTTOM = 8;
 
 export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPreset, duration: number): FollowCameraPlan {
   if (!points.length) throw new Error('ルート追従にはルートが必要です。');
@@ -82,48 +79,12 @@ export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPr
   const arrivals = tripRoutePointProgresses(points);
   const segments = splitRouteByDay(points);
   const initialCenter = toGeoPosition(points[0]);
-  let routeMovementSeconds = duration;
-  let events: UntimedCameraEvent[] = [];
-  let planStable = false;
-  const evaluatedMovementSeconds = new Set<number>();
-
-  for (let iteration = 0; iteration < FOLLOW_CAMERA_CONFIG.maxPlanIterations; iteration += 1) {
-    if (evaluatedMovementSeconds.has(routeMovementSeconds)) throw new Error(FOLLOW_DURATION_ERROR);
-    evaluatedMovementSeconds.add(routeMovementSeconds);
-    events = buildUntimedCameraEvents(points, segments, arrivals, initialCenter, worldSize, routeMovementSeconds);
-    const nextRouteMovementSeconds = Math.max(0, duration - events.length * FOLLOW_CAMERA_CONFIG.panDurationSeconds);
-    if (nextRouteMovementSeconds === routeMovementSeconds) {
-      planStable = true;
-      break;
-    }
-    routeMovementSeconds = nextRouteMovementSeconds;
-  }
-
-  const totalPanSeconds = events.length * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
-  if (!planStable || totalPanSeconds >= duration || routeMovementSeconds <= 0) throw new Error(FOLLOW_DURATION_ERROR);
-  const timedEvents: FollowCameraEvent[] = events.map((event, index) => {
-    const startSeconds = event.routeProgress * routeMovementSeconds + index * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
-    return { ...event, startSeconds, endSeconds: startSeconds + FOLLOW_CAMERA_CONFIG.panDurationSeconds };
-  });
-  return { points, duration, zoom, initialCenter, totalPanSeconds, routeMovementSeconds, events: timedEvents };
-}
-
-function buildUntimedCameraEvents(
-  points: RoutePoint[],
-  segments: RoutePoint[][],
-  arrivals: number[],
-  initialCenter: GeoPosition,
-  worldSize: number,
-  routeMovementSeconds: number,
-): UntimedCameraEvent[] {
   let cameraWorld = projectWorld(initialCenter, worldSize);
   const events: UntimedCameraEvent[] = [];
-  let pendingOutside: PendingOutsideState | null = null;
   let segmentStartIndex = 0;
 
   segments.forEach((segment, dayIndex) => {
     if (dayIndex > 0) {
-      pendingOutside = null;
       const previousPointIndex = segmentStartIndex - 1;
       const nextPointIndex = segmentStartIndex;
       const nextPosition = toGeoPosition(points[nextPointIndex]);
@@ -139,7 +100,6 @@ function buildUntimedCameraEvents(
         reachedPointIndexAfter: nextPointIndex,
       });
       cameraWorld = targetWorld;
-      pendingOutside = null;
     }
 
     for (let index = 0; index < segment.length - 1; index += 1) {
@@ -161,27 +121,17 @@ function buildUntimedCameraEvents(
           x: markerWorld.x - cameraWorld.x + FOLLOW_VIEWPORT.width / 2,
           y: markerWorld.y - cameraWorld.y + FOLLOW_VIEWPORT.height / 2,
         };
+        const edgeDirections = getEdgeDirections(screen);
+        if (edgeDirections === 0) continue;
         const routeProgress = arrivals[fromIndex] + (arrivals[toIndex] - arrivals[fromIndex]) * fraction;
-        const outsideDirections = getOutsideDirections(screen);
-        if (outsideDirections === 0) {
-          pendingOutside = null;
-          continue;
-        }
-        if (!pendingOutside || pendingOutside.directions !== outsideDirections) {
-          pendingOutside = { directions: outsideDirections, startProgress: routeProgress };
-        }
-        const outsideDuration = (routeProgress - pendingOutside.startProgress) * routeMovementSeconds;
-        if (!isPastForcePanBoundary(screen, outsideDirections)
-          && outsideDuration < FOLLOW_CAMERA_CONFIG.panTriggerDelaySeconds) continue;
-
-        const targetX = outsideDirections & OUTSIDE_LEFT
+        const targetX = edgeDirections & EDGE_LEFT
           ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.left
-          : outsideDirections & OUTSIDE_RIGHT
+          : edgeDirections & EDGE_RIGHT
             ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.right
             : screen.x;
-        const targetY = outsideDirections & OUTSIDE_TOP
+        const targetY = edgeDirections & EDGE_TOP
           ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.top
-          : outsideDirections & OUTSIDE_BOTTOM
+          : edgeDirections & EDGE_BOTTOM
             ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.bottom
             : screen.y;
         const targetCenter = {
@@ -200,32 +150,29 @@ function buildUntimedCameraEvents(
           reachedPointIndexAfter: reachedPointIndex,
         });
         cameraWorld = targetCenter;
-        pendingOutside = null;
       }
     }
     segmentStartIndex += segment.length;
   });
-  return events;
+
+  const totalPanSeconds = events.length * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
+  if (totalPanSeconds >= duration) throw new Error(FOLLOW_DURATION_ERROR);
+  const routeMovementSeconds = duration - totalPanSeconds;
+  const timedEvents: FollowCameraEvent[] = events.map((event, index) => {
+    const startSeconds = event.routeProgress * routeMovementSeconds + index * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
+    return { ...event, startSeconds, endSeconds: startSeconds + FOLLOW_CAMERA_CONFIG.panDurationSeconds };
+  });
+  return { points, duration, zoom, initialCenter, totalPanSeconds, routeMovementSeconds, events: timedEvents };
 }
 
-function getOutsideDirections(screen: WorldPoint): number {
+function getEdgeDirections(screen: WorldPoint): number {
+  const inset = FOLLOW_CAMERA_CONFIG.markerRadiusPixels;
   let directions = 0;
-  if (screen.x < FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.deadZone.left) directions |= OUTSIDE_LEFT;
-  else if (screen.x > FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.deadZone.right) directions |= OUTSIDE_RIGHT;
-  if (screen.y < FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.deadZone.top) directions |= OUTSIDE_TOP;
-  else if (screen.y > FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.deadZone.bottom) directions |= OUTSIDE_BOTTOM;
+  if (screen.x <= inset) directions |= EDGE_LEFT;
+  else if (screen.x >= FOLLOW_VIEWPORT.width - inset) directions |= EDGE_RIGHT;
+  if (screen.y <= inset) directions |= EDGE_TOP;
+  else if (screen.y >= FOLLOW_VIEWPORT.height - inset) directions |= EDGE_BOTTOM;
   return directions;
-}
-
-function isPastForcePanBoundary(screen: WorldPoint, directions: number): boolean {
-  return (Boolean(directions & OUTSIDE_LEFT)
-      && screen.x <= FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.forcePanBoundary.left)
-    || (Boolean(directions & OUTSIDE_RIGHT)
-      && screen.x >= FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.forcePanBoundary.right)
-    || (Boolean(directions & OUTSIDE_TOP)
-      && screen.y <= FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.forcePanBoundary.top)
-    || (Boolean(directions & OUTSIDE_BOTTOM)
-      && screen.y >= FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.forcePanBoundary.bottom);
 }
 
 export function sampleFollowPlayback(plan: FollowCameraPlan, elapsedSeconds: number): FollowPlaybackState {

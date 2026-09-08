@@ -44,7 +44,7 @@ export async function checkVideoSupport(): Promise<string | null> {
 
 export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blob> {
   if (options.cameraMode === 'follow') return renderFollowRouteVideo(options);
-  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('移動時間は5〜60秒の整数で指定してください。');
+  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 120) throw new Error('移動時間は5〜120秒の整数で指定してください。');
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
@@ -336,7 +336,7 @@ function truncateCanvasText(context: CanvasRenderingContext2D, value: string, ma
 }
 
 async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob> {
-  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('移動時間は5〜60秒の整数で指定してください。');
+  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 120) throw new Error('移動時間は5〜120秒の整数で指定してください。');
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
