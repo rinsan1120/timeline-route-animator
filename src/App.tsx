@@ -17,6 +17,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
+  const previewEndTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -174,10 +175,17 @@ export default function App() {
       const progress = Math.min(1, (now - startedAt) / (duration * 1000));
       setPreviewProgress(progress);
       if (progress < 1) frame = requestAnimationFrame(animate);
-      else window.setTimeout(() => setPreviewProgress(null), 350);
+      else previewEndTimerRef.current = window.setTimeout(() => {
+        previewEndTimerRef.current = null;
+        setPreviewProgress(null);
+      }, 350);
     };
     frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (previewEndTimerRef.current !== null) window.clearTimeout(previewEndTimerRef.current);
+      previewEndTimerRef.current = null;
+    };
   }, [previewProgress === null, duration]);
 
   useEffect(() => {
@@ -421,7 +429,7 @@ export default function App() {
                 <input type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
               </label>)}
             </div>
-            <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={startPreview}><span>▶</span> プレビュー</button>
+            <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <a className="download-button" href={videoUrl} download={`route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`}>MP4を保存</a>}

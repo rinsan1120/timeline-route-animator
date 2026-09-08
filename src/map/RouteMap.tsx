@@ -52,6 +52,14 @@ interface RouteMapProps {
   onError: (message: string) => void;
 }
 
+interface MapCameraSnapshot {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  bearing: number;
+  pitch: number;
+}
+
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGPathElement>(null);
@@ -60,7 +68,8 @@ export default function RouteMap(props: RouteMapProps) {
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const wasFollowPreviewRef = useRef(false);
+  const wasPreviewingRef = useRef(false);
+  const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -101,12 +110,17 @@ export default function RouteMap(props: RouteMapProps) {
       setMapStatus('ready');
       installRouteLayers(map, propsRef.current);
       const preview = getPreviewState(propsRef.current);
+      const previewing = propsRef.current.previewProgress !== null;
+      if (previewing && !wasPreviewingRef.current) previewCameraSnapshotRef.current = captureMapCamera(map);
       if (preview?.cameraCenter) {
         map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
-        wasFollowPreviewRef.current = true;
       }
       refreshMap(map, propsRef.current, preview);
-      if (!preview?.cameraCenter) fitRoute(map, propsRef.current.points, 0);
+      if (previewing && !preview?.cameraCenter) fitRoute(map, propsRef.current.animationPoints, 0);
+      else if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
+      else if (!previewing) fitRoute(map, propsRef.current.points, 0);
+      wasPreviewingRef.current = previewing;
+      if (!previewing) previewCameraSnapshotRef.current = null;
       redrawOverlay();
       if (!firstLoad) map.triggerRepaint();
     };
@@ -157,6 +171,9 @@ export default function RouteMap(props: RouteMapProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
+    const previewStarting = isPreviewing && !wasPreviewingRef.current;
+    const previewEnding = !isPreviewing && wasPreviewingRef.current;
+    if (previewStarting) previewCameraSnapshotRef.current = captureMapCamera(map);
     const preview = getPreviewState(props);
     if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
     refreshMap(map, props, preview);
@@ -164,25 +181,11 @@ export default function RouteMap(props: RouteMapProps) {
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     updateMapDiagnostics(map, props.points);
-  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute, props.cameraMode, props.followCameraPlan]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !loadedRef.current) return;
-    if (isPreviewing) {
-      if (propsRef.current.cameraMode === 'follow' && propsRef.current.followCameraPlan) {
-        const preview = sampleFollowPlayback(propsRef.current.followCameraPlan, 0);
-        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
-        wasFollowPreviewRef.current = true;
-      } else {
-        // Overview keeps the existing fit-on-preview-start behavior.
-        fitRoute(map, propsRef.current.animationPoints, 0);
-      }
-    } else if (wasFollowPreviewRef.current) {
-      wasFollowPreviewRef.current = false;
-      fitRoute(map, propsRef.current.points, 0);
-    }
-  }, [isPreviewing]);
+    if (previewStarting && !preview?.cameraCenter) fitRoute(map, props.animationPoints, 0);
+    if (previewEnding && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
+    wasPreviewingRef.current = isPreviewing;
+    if (previewEnding) previewCameraSnapshotRef.current = null;
+  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.revealRoute, props.cameraMode, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -260,6 +263,26 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
     'circle-stroke-color': '#10233f', 'circle-stroke-width': ['case', ['get', 'selected'], 4, 2],
   } });
   if (!map.getLayer('preview-marker-layer')) map.addLayer({ id: 'preview-marker-layer', type: 'circle', source: 'preview-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
+}
+
+function captureMapCamera(map: MapLibreMap): MapCameraSnapshot {
+  const center = map.getCenter();
+  return {
+    longitude: center.lng,
+    latitude: center.lat,
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+  };
+}
+
+function restoreMapCamera(map: MapLibreMap, snapshot: MapCameraSnapshot) {
+  map.jumpTo({
+    center: [snapshot.longitude, snapshot.latitude],
+    zoom: snapshot.zoom,
+    bearing: snapshot.bearing,
+    pitch: snapshot.pitch,
+  });
 }
 
 function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
