@@ -54,7 +54,7 @@ export const FOLLOW_ZOOM_BY_PRESET: Record<FollowZoomPreset, number> = {
 
 export const FOLLOW_CAMERA_CONFIG = {
   deadZone: { left: 0.20, right: 0.80, top: 0.20, bottom: 0.80 },
-  returnPosition: { left: 0.25, right: 0.75, top: 0.25, bottom: 0.75 },
+  panTargetAfterCross: { left: 0.80, right: 0.20, top: 0.80, bottom: 0.20 },
   panDurationSeconds: 0.5,
   bearing: 0 as const,
   pitch: 0 as const,
@@ -116,14 +116,14 @@ export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPr
           y: markerWorld.y - cameraWorld.y + FOLLOW_VIEWPORT.height / 2,
         };
         const targetX = screen.x < FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.deadZone.left
-          ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.returnPosition.left
+          ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.left
           : screen.x > FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.deadZone.right
-            ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.returnPosition.right
+            ? FOLLOW_VIEWPORT.width * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.right
             : screen.x;
         const targetY = screen.y < FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.deadZone.top
-          ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.returnPosition.top
+          ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.top
           : screen.y > FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.deadZone.bottom
-            ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.returnPosition.bottom
+            ? FOLLOW_VIEWPORT.height * FOLLOW_CAMERA_CONFIG.panTargetAfterCross.bottom
             : screen.y;
         if (targetX === screen.x && targetY === screen.y) continue;
         const targetCenter = {
