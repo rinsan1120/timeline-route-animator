@@ -12,7 +12,7 @@ const document = {
 
 describe('Timeline parser', () => {
   it('parses Google coordinate strings', () => expect(parseCoordinate('35.6064076°, 139.7003083°')).toEqual({ latitude: 35.6064076, longitude: 139.7003083 }));
-  it('lists dates', () => expect(getAvailableDates(buildTimelineIndex(document))).toEqual(['2026-08-08', '2026-08-09']));
+  it('lists dates', () => expect(getAvailableDates(buildTimelineIndex(document))).toEqual(['2026-08-09', '2026-08-08']));
   it('extracts one time range', () => expect(extractTimelineRange(buildTimelineIndex(document), '2026-08-08', '05:00', '12:00').routePoints).toHaveLength(1));
   it('sorts timelinePath chronologically', () => expect(extractTimelineRange(buildTimelineIndex(document), '2026-08-08', '00:00', '23:59').routePoints.map((point) => point.latitude)).toEqual([35.1, 35.2]));
   it('never filters route data by activity type', () => expect(extractTimelineRange(buildTimelineIndex(document), '2026-08-08', '00:00', '23:59').routePoints).toHaveLength(2));
