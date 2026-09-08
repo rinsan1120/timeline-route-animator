@@ -197,7 +197,7 @@ function buildIosTimelineIndex(segments: unknown[]): TimelineIndex {
 }
 
 export function getAvailableDates(index: TimelineIndex): string[] {
-  return [...new Set([...index.routeByDate.keys(), ...index.rawByDate.keys()])].sort();
+  return [...new Set([...index.routeByDate.keys(), ...index.rawByDate.keys()])].sort((a, b) => b.localeCompare(a));
 }
 
 function parseMinute(time: string): number {
