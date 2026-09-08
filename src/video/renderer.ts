@@ -2,8 +2,9 @@ import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
-import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
+import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
+import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -24,6 +25,9 @@ export interface VideoProgress { current: number; total: number; percent: number
 export interface RenderVideoOptions {
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
+  cameraMode?: VideoCameraMode;
+  followZoomPreset?: FollowZoomPreset;
+  followCameraPlan?: FollowCameraPlan;
   duration: number;
   revealRoute: boolean;
   annotationStyle?: AnnotationStyle;
@@ -39,6 +43,7 @@ export async function checkVideoSupport(): Promise<string | null> {
 }
 
 export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blob> {
+  if (options.cameraMode === 'follow') return renderFollowRouteVideo(options);
   if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('移動時間は5〜60秒の整数で指定してください。');
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
@@ -328,6 +333,182 @@ function truncateCanvasText(context: CanvasRenderingContext2D, value: string, ma
   const characters = Array.from(value);
   while (characters.length && context.measureText(`${characters.join('')}…`).width > maxWidth) characters.pop();
   return `${characters.join('')}…`;
+}
+
+async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob> {
+  if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 60) throw new Error('移動時間は5〜60秒の整数で指定してください。');
+  if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
+  const supportError = await checkVideoSupport();
+  if (supportError) throw new Error(supportError);
+  const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration);
+  const initialPlayback = sampleFollowPlayback(plan, 0);
+  const mapContainer = document.createElement('div');
+  Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
+  document.body.appendChild(mapContainer);
+  const map = new maplibregl.Map({
+    container: mapContainer,
+    style: OSM_STYLE,
+    center: [initialPlayback.cameraCenter.longitude, initialPlayback.cameraCenter.latitude],
+    zoom: initialPlayback.zoom,
+    bearing: 0,
+    pitch: 0,
+    interactive: false,
+    attributionControl: false,
+    pixelRatio: 1,
+    canvasContextAttributes: { preserveDrawingBuffer: true },
+  });
+  let background: ImageBitmap | null = null;
+  try {
+    await waitForStyle(map, 20_000);
+    await waitForFollowMap(map, 20_000);
+    const canvas = document.createElement('canvas');
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('動画用Canvasを作成できませんでした。');
+    const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
+    const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
+      const pointIndex = pointIndexById.get(marker.pointId);
+      return pointIndex === undefined ? [] : [{ ...marker, pointIndex }];
+    });
+    const target = new BufferTarget();
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
+    output.addVideoTrack(source, { frameRate: VIDEO_FPS });
+    await output.start();
+    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
+    const animationFrames = options.duration * VIDEO_FPS;
+    const total = outputVideoFrameCount(options.duration);
+    let backgroundKey = '';
+    for (let frame = 0; frame < total; frame += 1) {
+      if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
+      const animationFrame = frame - preFrames;
+      const elapsedSeconds = frame < preFrames
+        ? 0
+        : animationFrame >= animationFrames
+          ? options.duration
+          : animationFrame / (animationFrames - 1) * options.duration;
+      const playback = sampleFollowPlayback(plan, elapsedSeconds);
+      const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
+      if (!background || nextBackgroundKey !== backgroundKey) {
+        map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
+        await waitForFollowMap(map, 20_000);
+        context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
+        const nextBackground = await createImageBitmap(canvas);
+        background?.close();
+        background = nextBackground;
+        backgroundKey = nextBackgroundKey;
+      }
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
+      options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
+      if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    source.close();
+    await output.finalize();
+    if (!target.buffer) throw new Error('MP4データを作成できませんでした。');
+    return new Blob([target.buffer], { type: 'video/mp4' });
+  } finally {
+    background?.close();
+    map.remove();
+    mapContainer.remove();
+  }
+}
+
+function drawFollowFrame(
+  context: CanvasRenderingContext2D,
+  background: ImageBitmap,
+  map: maplibregl.Map,
+  points: RoutePoint[],
+  playback: FollowPlaybackState,
+  dayMarkers: FollowVideoDayMarker[],
+  annotationStyle: AnnotationStyle,
+) {
+  context.drawImage(background, 0, 0);
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.lineWidth = 10;
+  context.strokeStyle = '#ff5d37';
+  context.shadowColor = 'rgba(0,0,0,.22)';
+  context.shadowBlur = 8;
+  context.beginPath();
+  for (const segment of revealedTripRouteSegments(points, playback.routeProgress)) {
+    segment.forEach((point, index) => {
+      const pixel = map.project([point.longitude, point.latitude]);
+      if (index === 0) context.moveTo(pixel.x, pixel.y);
+      else context.lineTo(pixel.x, pixel.y);
+    });
+  }
+  context.stroke();
+  context.shadowBlur = 0;
+
+  const markerPixel = map.project([playback.markerPosition.longitude, playback.markerPosition.latitude]);
+  context.beginPath();
+  context.arc(markerPixel.x, markerPixel.y, 22, 0, Math.PI * 2);
+  context.fillStyle = '#ffda57';
+  context.fill();
+  context.lineWidth = 8;
+  context.strokeStyle = '#07111f';
+  context.stroke();
+
+  for (let index = 0; index <= playback.reachedPointIndex; index += 1) {
+    const point = points[index];
+    if (!point.annotation?.label) continue;
+    const pixel = map.project([point.longitude, point.latitude]);
+    if (!isInVideoViewport(pixel)) continue;
+    drawAnnotation(context, { label: point.annotation.label, pixel, arrivalProgress: 0 }, annotationStyle);
+  }
+
+  for (const dayMarker of dayMarkers) {
+    if (dayMarker.pointIndex > playback.reachedPointIndex) continue;
+    const point = points[dayMarker.pointIndex];
+    const pixel = map.project([point.longitude, point.latitude]);
+    if (!isInVideoViewport(pixel)) continue;
+    drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 });
+  }
+
+  context.fillStyle = 'rgba(255,255,255,.9)';
+  context.fillRect(24, HEIGHT - 50, 520, 34);
+  context.fillStyle = '#27364a';
+  context.font = '22px system-ui, sans-serif';
+  context.fillText(OSM_ATTRIBUTION, 34, HEIGHT - 25);
+}
+
+interface FollowVideoDayMarker extends DayMarker {
+  pointIndex: number;
+}
+
+function isInVideoViewport(point: { x: number; y: number }): boolean {
+  return point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
+}
+
+function waitForFollowMap(map: maplibregl.Map, timeout: number): Promise<void> {
+  if (map.loaded() && map.areTilesLoaded()) {
+    map.triggerRepaint();
+    return nextPaint();
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      map.off('error', onError);
+      map.off('idle', onIdle);
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('ルート追従用の地図タイルを読み込めませんでした。ネットワーク接続を確認してください。'));
+    };
+    const onIdle = () => {
+      cleanup();
+      map.triggerRepaint();
+      void nextPaint().then(resolve);
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('ルート追従用の地図タイルの読み込みがタイムアウトしました。'));
+    }, timeout);
+    map.on('error', onError);
+    map.once('idle', onIdle);
+  });
 }
 
 function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {

@@ -9,9 +9,10 @@ interface DayMarkerOverlayProps {
   animationPoints: RoutePoint[];
   markers: DayMarker[];
   previewProgress: number | null;
+  reachedPointIndex?: number | null;
 }
 
-export default function DayMarkerOverlay({ map, points, animationPoints, markers, previewProgress }: DayMarkerOverlayProps) {
+export default function DayMarkerOverlay({ map, points, animationPoints, markers, previewProgress, reachedPointIndex = null }: DayMarkerOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => {
     const pointsById = new Map(points.map((point) => [point.id, point]));
@@ -21,12 +22,12 @@ export default function DayMarkerOverlay({ map, points, animationPoints, markers
     });
     if (previewProgress === null) return markerPoints;
     const arrivals = tripRoutePointProgresses(animationPoints);
-    const arrivalByPointId = new Map(animationPoints.map((point, index) => [point.id, arrivals[index]]));
+    const arrivalByPointId = new Map(animationPoints.map((point, index) => [point.id, { progress: arrivals[index], pointIndex: index }]));
     return markerPoints.filter((marker) => {
       const arrival = arrivalByPointId.get(marker.pointId);
-      return arrival !== undefined && previewProgress >= arrival;
+      return arrival !== undefined && previewProgress >= arrival.progress && (reachedPointIndex === null || arrival.pointIndex <= reachedPointIndex);
     });
-  }, [points, animationPoints, markers, previewProgress]);
+  }, [points, animationPoints, markers, previewProgress, reachedPointIndex]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;

@@ -7,6 +7,7 @@ import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, tripRouteDistance } from './route/tripRoute';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
+import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
@@ -37,7 +38,9 @@ export default function App() {
   const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(10);
   const [durationInput, setDurationInput] = useState('10');
-  const [revealRoute, setRevealRoute] = useState(true);
+  const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
+  const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
+  const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -251,13 +254,37 @@ export default function App() {
     setError('');
   };
 
+  const startPreview = () => {
+    if (cameraMode === 'follow') {
+      setError('');
+      try {
+        setFollowCameraPlan(buildFollowCameraPlan(animationPoints, followZoomPreset, duration));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
+        return;
+      }
+    } else {
+      setFollowCameraPlan(null);
+    }
+    setPreviewProgress(0);
+  };
+
   const generateVideo = async () => {
     setError('');
+    let plan: FollowCameraPlan | undefined;
+    if (cameraMode === 'follow') {
+      try {
+        plan = buildFollowCameraPlan(animationPoints, followZoomPreset, duration);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
+        return;
+      }
+    }
     setVideoProgress({ current: 0, total: outputVideoFrameCount(duration), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute: true, cameraMode, followZoomPreset, followCameraPlan: plan, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -271,7 +298,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute, annotationStyle } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, annotationStyle } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -353,6 +380,19 @@ export default function App() {
 
           <section className="panel-section video-section">
             <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
+            <div className="video-camera-controls">
+              <label>表示モード</label>
+              <div className="video-mode-options">
+                <button className={cameraMode === 'overview' ? 'active' : ''} aria-pressed={cameraMode === 'overview'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('overview')}>全体表示</button>
+                <button className={cameraMode === 'follow' ? 'active' : ''} aria-pressed={cameraMode === 'follow'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('follow')}>ルート追従</button>
+              </div>
+              {cameraMode === 'follow' && <>
+                <label>表示範囲</label>
+                <div className="follow-zoom-options">
+                  {([['wide', '広め'], ['standard', '標準'], ['close', '寄り']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
+                </div>
+              </>}
+            </div>
             <div className="duration-controls">
               <label htmlFor="video-duration-range">移動時間</label>
               <input id="video-duration-range" type="range" min="5" max="60" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
@@ -381,8 +421,7 @@ export default function App() {
                 <input type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
               </label>)}
             </div>
-            <label className="select-label">ルート表示<select value={revealRoute ? 'reveal' : 'all'} onChange={(event) => setRevealRoute(event.target.value === 'reveal')}><option value="reveal">通過済み部分だけ表示</option><option value="all">全ルートを最初から表示</option></select></label>
-            <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={() => setPreviewProgress(0)}><span>▶</span> プレビュー</button>
+            <button className="preview-button" disabled={animationPoints.length < 2 || previewProgress !== null} onClick={startPreview}><span>▶</span> プレビュー</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <a className="download-button" href={videoUrl} download={`route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`}>MP4を保存</a>}
@@ -391,7 +430,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute={revealRoute} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}

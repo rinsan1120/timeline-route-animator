@@ -11,19 +11,20 @@ interface AnnotationOverlayProps {
   animationPoints: RoutePoint[];
   editMode: boolean;
   previewProgress: number | null;
+  reachedPointIndex?: number | null;
   annotationStyle: AnnotationStyle;
 }
 
-export default function AnnotationOverlay({ map, points, animationPoints, editMode, previewProgress, annotationStyle }: AnnotationOverlayProps) {
+export default function AnnotationOverlay({ map, points, animationPoints, editMode, previewProgress, reachedPointIndex = null, annotationStyle }: AnnotationOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const arrivals = useMemo(() => {
     const progresses = tripRoutePointProgresses(animationPoints);
-    return animationPoints.flatMap((point, index) => point.annotation?.label ? [{ point, progress: progresses[index] }] : []);
+    return animationPoints.flatMap((point, index) => point.annotation?.label ? [{ point, pointIndex: index, progress: progresses[index] }] : []);
   }, [animationPoints]);
   const editedAnnotations = useMemo(() => points.filter((point) => point.annotation?.label), [points]);
   const visible = useMemo(() => previewProgress !== null
-    ? arrivals.filter((entry) => previewProgress >= entry.progress).map((entry) => entry.point)
-    : editMode ? editedAnnotations : [], [arrivals, editedAnnotations, editMode, previewProgress]);
+    ? arrivals.filter((entry) => previewProgress >= entry.progress && (reachedPointIndex === null || entry.pointIndex <= reachedPointIndex)).map((entry) => entry.point)
+    : editMode ? editedAnnotations : [], [arrivals, editedAnnotations, editMode, previewProgress, reachedPointIndex]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
