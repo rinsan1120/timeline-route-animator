@@ -3,7 +3,7 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type DayMarker } from '../route/tripRoute';
-import { OSM_STYLE } from './osmStyle';
+import { GSI_STYLE } from './gsiStyle';
 import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
@@ -84,7 +84,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (!containerRef.current) return;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: OSM_STYLE,
+      style: GSI_STYLE,
       center: [139.767, 35.681],
       zoom: 10,
       attributionControl: false,

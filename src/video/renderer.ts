@@ -3,7 +3,7 @@ import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstE
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { OSM_ATTRIBUTION, OSM_STYLE } from '../map/osmStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 
@@ -54,7 +54,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
   document.body.appendChild(mapContainer);
-  const map = new maplibregl.Map({ container: mapContainer, style: OSM_STYLE, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
+  const map = new maplibregl.Map({ container: mapContainer, style: GSI_STYLE, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
   let mapRemoved = false;
   try {
     await waitForStyle(map, 20_000);
@@ -223,7 +223,7 @@ function drawFrame(
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
   context.font = '22px system-ui, sans-serif';
-  context.fillText(OSM_ATTRIBUTION, 34, HEIGHT - 25);
+  context.fillText(GSI_ATTRIBUTION, 34, HEIGHT - 25);
 }
 
 interface VideoAnnotation {
@@ -381,7 +381,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   document.body.appendChild(mapContainer);
   const map = new maplibregl.Map({
     container: mapContainer,
-    style: OSM_STYLE,
+    style: GSI_STYLE,
     center: [initialPlayback.cameraCenter.longitude, initialPlayback.cameraCenter.latitude],
     zoom: initialPlayback.zoom,
     bearing: 0,
@@ -515,7 +515,7 @@ function drawFollowFrame(
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
   context.font = '22px system-ui, sans-serif';
-  context.fillText(OSM_ATTRIBUTION, 34, HEIGHT - 25);
+  context.fillText(GSI_ATTRIBUTION, 34, HEIGHT - 25);
 }
 
 interface FollowVideoDayMarker extends DayMarker {
