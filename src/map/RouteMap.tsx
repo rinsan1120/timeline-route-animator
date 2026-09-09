@@ -6,7 +6,9 @@ import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type 
 import { GSI_STYLE } from './gsiStyle';
 import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
+import EndpointMarkerOverlay from './EndpointMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
+import type { RouteMarkerMode } from '../route/routeMarker';
 import { sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
 
@@ -43,6 +45,7 @@ interface RouteMapProps {
   addMode: boolean;
   rangeDeleteMode: boolean;
   rangeDeletePointIds: string[];
+  routeMarkerMode: RouteMarkerMode;
   selectedPointId: string | null;
   previewProgress: number | null;
   previewDuration: number;
@@ -408,7 +411,8 @@ export default function RouteMap(props: RouteMapProps) {
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}

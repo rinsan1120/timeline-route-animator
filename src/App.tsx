@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
+import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
@@ -45,6 +46,7 @@ export default function App() {
   const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
   const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
   const [introZoomEnabled, setIntroZoomEnabled] = useState(true);
+  const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>('day');
   const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -339,7 +341,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, duration, revealRoute: true, cameraMode, followZoomPreset, followCameraPlan: plan, introZoomEnabled, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, routeMarkerMode, duration, revealRoute: true, cameraMode, followZoomPreset, followCameraPlan: plan, introZoomEnabled, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -353,7 +355,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -412,7 +414,7 @@ export default function App() {
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
                 {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
               </div>}
-              {editMode && selectedDayMarker && <div className="day-marker-editor">
+              {editMode && routeMarkerMode === 'day' && selectedDayMarker && <div className="day-marker-editor">
                 <strong>DAY {selectedDayMarker.dayNumber} · {selectedDayMarker.date.replaceAll('-', '.')}</strong>
                 <label htmlFor="day-marker-note">日付マーカーの補足（最大40文字）</label>
                 <input id="day-marker-note" type="text" value={dayMarkerNoteInput} onChange={(event) => setDayMarkerNoteInput(event.currentTarget.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="○○ホテル" />
@@ -447,6 +449,10 @@ export default function App() {
                   {([['wide', '広め'], ['standard', '標準'], ['close', '寄り']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
                 </div>
               </>}
+              <label>地点マーカー</label>
+              <div className="route-marker-options">
+                {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
+              </div>
               <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始3秒で広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
             </div>
             <div className="duration-controls">
@@ -486,7 +492,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}

@@ -2,6 +2,7 @@ import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
+import type { RouteMarkerMode } from '../route/routeMarker';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
@@ -26,6 +27,7 @@ export interface VideoProgress { current: number; total: number; percent: number
 export interface RenderVideoOptions {
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
+  routeMarkerMode?: RouteMarkerMode;
   cameraMode?: VideoCameraMode;
   followZoomPreset?: FollowZoomPreset;
   followCameraPlan?: FollowCameraPlan;
@@ -50,6 +52,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
+  const routeMarkerMode = options.routeMarkerMode ?? 'day';
 
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
@@ -108,7 +111,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
         map.jumpTo({ center: targetCenter, zoom, bearing: 0, pitch: 0 });
         await waitForFollowMap(map, 20_000);
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -143,7 +146,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -169,6 +172,7 @@ function drawFrame(
   revealRoute: boolean,
   annotations: VideoAnnotation[],
   dayMarkers: VideoDayMarker[],
+  routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
 ) {
   context.drawImage(background, 0, 0);
@@ -215,8 +219,14 @@ function drawFrame(
     if (progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
   }
 
-  for (const dayMarker of dayMarkers) {
-    if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker);
+  if (routeMarkerMode === 'day') {
+    for (const dayMarker of dayMarkers) {
+      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker);
+    }
+  } else if (routeMarkerMode === 'start-goal') {
+    if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START');
+    const goalPixel = pixels.at(-1);
+    if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL');
   }
 
   context.fillStyle = 'rgba(255,255,255,.9)';
@@ -362,6 +372,53 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   context.restore();
 }
 
+function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL') {
+  context.save();
+  const margin = 24;
+  const bottom = HEIGHT - 70;
+  const width = 230;
+  const height = 78;
+  const gap = 42;
+  const left = Math.max(margin, Math.min(WIDTH - margin - width, pixel.x - width / 2));
+  const below = pixel.y - height - gap < margin;
+  const top = Math.max(margin, Math.min(bottom - height, below ? pixel.y + gap : pixel.y - height - gap));
+  const anchorX = Math.max(left + 18, Math.min(left + width - 18, pixel.x));
+
+  context.strokeStyle = '#ff8b68';
+  context.lineWidth = 5;
+  context.beginPath();
+  context.moveTo(anchorX, below ? top : top + height);
+  context.lineTo(pixel.x, pixel.y);
+  context.stroke();
+  context.beginPath();
+  context.arc(pixel.x, pixel.y, 10, 0, Math.PI * 2);
+  context.fillStyle = '#ff5d37';
+  context.fill();
+  context.lineWidth = 4;
+  context.strokeStyle = '#ffffff';
+  context.stroke();
+
+  context.shadowColor = 'rgba(7,17,31,.28)';
+  context.shadowBlur = 18;
+  context.shadowOffsetY = 5;
+  context.fillStyle = '#102c4b';
+  context.fillRect(left, top, width, height);
+  context.shadowBlur = 0;
+  context.shadowOffsetY = 0;
+  context.lineWidth = 4;
+  context.strokeStyle = '#ff8b68';
+  context.strokeRect(left, top, width, height);
+  context.fillStyle = '#ff8b68';
+  context.fillRect(left, top, width, 7);
+
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = '#ffffff';
+  context.font = '700 36px system-ui, sans-serif';
+  context.fillText(label, left + width / 2, top + height / 2 + 3);
+  context.restore();
+}
+
 function truncateCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string {
   if (context.measureText(value).width <= maxWidth) return value;
   const characters = Array.from(value);
@@ -374,6 +431,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   if (options.points.length < 2) throw new Error('動画生成には2点以上のルートが必要です。');
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
+  const routeMarkerMode = options.routeMarkerMode ?? 'day';
   const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration);
   const initialPlayback = sampleFollowPlayback(plan, 0);
   const mapContainer = document.createElement('div');
@@ -442,7 +500,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         background = nextBackground;
         backgroundKey = nextBackgroundKey;
       }
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -465,6 +523,7 @@ function drawFollowFrame(
   points: RoutePoint[],
   playback: FollowPlaybackState,
   dayMarkers: FollowVideoDayMarker[],
+  routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
   revealRoute = true,
 ) {
@@ -503,12 +562,22 @@ function drawFollowFrame(
     drawAnnotation(context, { label: point.annotation.label, pixel, arrivalProgress: 0 }, annotationStyle);
   }
 
-  for (const dayMarker of dayMarkers) {
-    if (dayMarker.pointIndex > playback.reachedPointIndex) continue;
-    const point = points[dayMarker.pointIndex];
-    const pixel = map.project([point.longitude, point.latitude]);
-    if (!isInVideoViewport(pixel)) continue;
-    drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 });
+  if (routeMarkerMode === 'day') {
+    for (const dayMarker of dayMarkers) {
+      if (dayMarker.pointIndex > playback.reachedPointIndex) continue;
+      const point = points[dayMarker.pointIndex];
+      const pixel = map.project([point.longitude, point.latitude]);
+      if (!isInVideoViewport(pixel)) continue;
+      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 });
+    }
+  } else if (routeMarkerMode === 'start-goal') {
+    const startPixel = map.project([points[0].longitude, points[0].latitude]);
+    if (isInVideoViewport(startPixel)) drawEndpointMarker(context, startPixel, 'START');
+    if (playback.reachedPointIndex >= points.length - 1) {
+      const goal = points.at(-1)!;
+      const goalPixel = map.project([goal.longitude, goal.latitude]);
+      if (isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL');
+    }
   }
 
   context.fillStyle = 'rgba(255,255,255,.9)';
