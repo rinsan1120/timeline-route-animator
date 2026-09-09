@@ -72,9 +72,9 @@ export const GSI_VECTOR_CONFIG = {
     // 地図全体の背景色。明るくするとアプリのオレンジ色ルートが相対的に目立つ。
     background: '#F5F3F2',
     // 海・湖・河川を動画内でも判別しやすくするため、背景より明確に青みを持たせた淡い水色。
-    water: '#C9E4F4',
+    water: '#90D9ED',
     // 水域との境界を動画内でも認識しやすくするため、waterより一段濃い青灰色。
-    coastline: '#A9C9D9',
+    coastline: '#90beed',
     // Zoom 8未満の「道路-主要な道路」専用色。詳細側との色差を小さくする中間的な青灰色。
     overviewMajorRoad: '#AAB8C4',
     // 「道路-主要な道路」に公式outlineがある場合だけ使う輪郭色。独自outlineは生成しない。
