@@ -53,6 +53,21 @@ export const GSI_VECTOR_CONFIG = {
     useCustomPalette: true,
   },
 
+  zoomTransition: {
+    // 地理院Vectorの広域用レイヤと詳細用レイヤの構成が切り替わるZoom。
+    boundaryZoom: 8,
+    // 境界で現れた詳細レイヤが通常の表示濃度へ戻るZoom。
+    fadeEndZoom: 9,
+    // 境界Zoomで新しく現れる詳細道路の初期opacity。
+    detailedRoadOpacityAtBoundary: 0.7,
+    // 境界Zoomで新しく現れる鉄道の初期opacity。
+    detailedRailwayOpacityAtBoundary: 0.4,
+    // 境界Zoomで新しく現れる一般注記の初期opacity。
+    detailedLabelOpacityAtBoundary: 0.45,
+    // 市区町村名は位置把握に重要なため、境界Zoomでも一般注記より強く残す。
+    municipalityOpacityAtBoundary: 0.9,
+  },
+
   colors: {
     // 地図全体の背景色。明るくするとアプリのオレンジ色ルートが相対的に目立つ。
     background: '#F5F3F2',
@@ -60,6 +75,10 @@ export const GSI_VECTOR_CONFIG = {
     water: '#D9EAF5',
     // coastlineの線色。濃くすると海岸線の輪郭が強く見える。
     coastline: '#B8D6E5',
+    // Zoom 8未満の「道路-主要な道路」専用色。詳細側との色差を小さくする中間的な青灰色。
+    overviewMajorRoad: '#AAB8C4',
+    // 「道路-主要な道路」に公式outlineがある場合だけ使う輪郭色。独自outlineは生成しない。
+    overviewMajorRoadOutline: '#95A6B4',
     // road source-layerのmotorway === 1に使う高速道路色。道路網の骨格になる落ち着いた青灰色とする。
     motorway: '#879FBA',
     // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡いベージュとする。

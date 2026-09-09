@@ -11,7 +11,7 @@ type MutableLayer = StyleLayer & {
   'source-layer'?: string;
 };
 
-const { source, appearance, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const { source, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
@@ -43,6 +43,10 @@ function isMunicipalityLabelLayer(layer: StyleLayer): boolean {
   return layer.type === 'symbol'
     && sourceLayerOf(layer) === 'label'
     && metadataPathOf(layer) === '注記-市区町村';
+}
+
+function isOverviewMajorRoadLayer(layer: StyleLayer): boolean {
+  return sourceLayerOf(layer) === 'road' && metadataPathOf(layer) === '道路-主要な道路';
 }
 
 function shouldKeepLayer(layer: StyleLayer): boolean {
@@ -97,6 +101,89 @@ function roadCategory(path: string): keyof typeof roads {
   return 'otherRoad';
 }
 
+function zoomInterpolation(startZoom: number, startValue: unknown, endZoom: number, endValue: unknown): unknown[] {
+  return ['interpolate', ['linear'], ['zoom'], startZoom, startValue, endZoom, endValue];
+}
+
+function applyOpacityFade(
+  paint: Record<string, unknown>,
+  property: string,
+  opacityAtBoundary: number,
+  fadeEndZoom = zoomTransition.fadeEndZoom,
+) {
+  const existingOpacity = paint[property];
+  if (existingOpacity === undefined) {
+    paint[property] = zoomInterpolation(
+      zoomTransition.boundaryZoom,
+      opacityAtBoundary,
+      fadeEndZoom,
+      1,
+    );
+  } else if (typeof existingOpacity === 'number') {
+    paint[property] = zoomInterpolation(
+      zoomTransition.boundaryZoom,
+      existingOpacity * opacityAtBoundary,
+      fadeEndZoom,
+      existingOpacity,
+    );
+  }
+}
+
+function applyZoomTransition(layer: MutableLayer) {
+  if (layer.minzoom !== zoomTransition.boundaryZoom) return;
+  const sourceLayer = sourceLayerOf(layer);
+
+  if (sourceLayer === 'road' && layer.type === 'line') {
+    const paint = layer.paint ?? (layer.paint = {});
+    applyOpacityFade(paint, 'line-opacity', zoomTransition.detailedRoadOpacityAtBoundary);
+    if (typeof paint['line-width'] === 'number') {
+      const width = paint['line-width'];
+      paint['line-width'] = zoomInterpolation(
+        zoomTransition.boundaryZoom,
+        width * 0.75,
+        zoomTransition.fadeEndZoom,
+        width,
+      );
+    }
+
+    const category = roadCategory(metadataPathOf(layer));
+    if (category === 'motorway' || category === 'nationalRoad') {
+      const outline = layer.metadata?.['line-role'] === 'outline';
+      const targetColor = category === 'motorway'
+        ? (outline ? colors.motorwayOutline : colors.motorway)
+        : (outline ? colors.nationalRoadOutline : colors.nationalRoad);
+      paint['line-color'] = zoomInterpolation(
+        zoomTransition.boundaryZoom,
+        outline ? colors.overviewMajorRoadOutline : colors.overviewMajorRoad,
+        zoomTransition.fadeEndZoom,
+        targetColor,
+      );
+    }
+    return;
+  }
+
+  if (sourceLayer === 'railway' && layer.type === 'line') {
+    const paint = layer.paint ?? (layer.paint = {});
+    applyOpacityFade(paint, 'line-opacity', zoomTransition.detailedRailwayOpacityAtBoundary);
+    return;
+  }
+
+  if ((sourceLayer === 'label' || sourceLayer === 'symbol') && layer.type === 'symbol') {
+    const paint = layer.paint ?? (layer.paint = {});
+    if (isMunicipalityLabelLayer(layer)) {
+      applyOpacityFade(
+        paint,
+        'text-opacity',
+        zoomTransition.municipalityOpacityAtBoundary,
+        Math.min(zoomTransition.fadeEndZoom, zoomTransition.boundaryZoom + 0.5),
+      );
+    } else {
+      applyOpacityFade(paint, 'text-opacity', zoomTransition.detailedLabelOpacityAtBoundary);
+      applyOpacityFade(paint, 'icon-opacity', zoomTransition.detailedLabelOpacityAtBoundary);
+    }
+  }
+}
+
 function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   const cloned = {
     ...layer,
@@ -106,7 +193,10 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   const sourceLayer = sourceLayerOf(cloned);
   const path = metadataPathOf(cloned);
 
-  if (sourceLayer === 'road') scaleProperty(cloned.paint, 'line-width', roads[roadCategory(path)].widthScale);
+  if (sourceLayer === 'road') {
+    const widthScale = isOverviewMajorRoadLayer(cloned) ? 1 : roads[roadCategory(path)].widthScale;
+    scaleProperty(cloned.paint, 'line-width', widthScale);
+  }
   if (sourceLayer === 'railway') scaleProperty(cloned.paint, 'line-width', lines.railwayWidthScale);
   if (sourceLayer === 'boundary') scaleProperty(cloned.paint, 'line-width', lines.boundaryWidthScale);
   if (sourceLayer && WATER_SOURCE_LAYERS.has(sourceLayer)) scaleProperty(cloned.paint, 'line-width', lines.waterWidthScale);
@@ -121,45 +211,49 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
     cloned.layout = { ...cloned.layout, 'text-allow-overlap': true };
   }
 
-  if (!appearance.useCustomPalette || !cloned.paint) return cloned;
-  const paint = cloned.paint;
-  if (sourceLayer === 'waterarea' && cloned.type === 'fill') paint['fill-color'] = colors.water;
-  if ((sourceLayer === 'river' || sourceLayer === 'lake') && cloned.type === 'line') paint['line-color'] = colors.water;
-  if (sourceLayer === 'coastline' && cloned.type === 'line') paint['line-color'] = colors.coastline;
-  if (sourceLayer === 'building' && cloned.type === 'fill') paint['fill-color'] = colors.building;
-  if (sourceLayer === 'building' && cloned.type === 'line') paint['line-color'] = colors.building;
-  if (sourceLayer === 'contour' && cloned.type === 'line') paint['line-color'] = colors.contour;
-  if (sourceLayer === 'contour' && cloned.type === 'symbol' && paint['text-color']) paint['text-color'] = colors.contour;
-  if (sourceLayer === 'elevation' && cloned.type === 'symbol' && paint['text-color']) paint['text-color'] = colors.elevation;
-  if (sourceLayer === 'railway' && cloned.type === 'line') paint['line-color'] = colors.railway;
-  if (sourceLayer === 'boundary' && cloned.type === 'line') paint['line-color'] = colors.boundary;
-  if (sourceLayer === 'road' && cloned.type === 'line') {
-    const category = roadCategory(path);
-    const roadColors = {
-      motorway: colors.motorway,
-      nationalRoad: colors.nationalRoad,
-      prefecturalRoad: colors.prefecturalRoad,
-      otherRoad: colors.otherRoad,
-    };
-    const roadOutlineColors = {
-      motorway: colors.motorwayOutline,
-      nationalRoad: colors.nationalRoadOutline,
-      prefecturalRoad: colors.prefecturalRoadOutline,
-      otherRoad: colors.otherRoadOutline,
-    };
-    paint['line-color'] = cloned.metadata?.['line-role'] === 'outline'
-      ? roadOutlineColors[category]
-      : roadColors[category];
+  if (appearance.useCustomPalette && cloned.paint) {
+    const paint = cloned.paint;
+    if (sourceLayer === 'waterarea' && cloned.type === 'fill') paint['fill-color'] = colors.water;
+    if ((sourceLayer === 'river' || sourceLayer === 'lake') && cloned.type === 'line') paint['line-color'] = colors.water;
+    if (sourceLayer === 'coastline' && cloned.type === 'line') paint['line-color'] = colors.coastline;
+    if (sourceLayer === 'building' && cloned.type === 'fill') paint['fill-color'] = colors.building;
+    if (sourceLayer === 'building' && cloned.type === 'line') paint['line-color'] = colors.building;
+    if (sourceLayer === 'contour' && cloned.type === 'line') paint['line-color'] = colors.contour;
+    if (sourceLayer === 'contour' && cloned.type === 'symbol' && paint['text-color']) paint['text-color'] = colors.contour;
+    if (sourceLayer === 'elevation' && cloned.type === 'symbol' && paint['text-color']) paint['text-color'] = colors.elevation;
+    if (sourceLayer === 'railway' && cloned.type === 'line') paint['line-color'] = colors.railway;
+    if (sourceLayer === 'boundary' && cloned.type === 'line') paint['line-color'] = colors.boundary;
+    if (sourceLayer === 'road' && cloned.type === 'line') {
+      const category = roadCategory(path);
+      const roadColors = {
+        motorway: colors.motorway,
+        nationalRoad: colors.nationalRoad,
+        prefecturalRoad: colors.prefecturalRoad,
+        otherRoad: colors.otherRoad,
+      };
+      const roadOutlineColors = {
+        motorway: colors.motorwayOutline,
+        nationalRoad: colors.nationalRoadOutline,
+        prefecturalRoad: colors.prefecturalRoadOutline,
+        otherRoad: colors.otherRoadOutline,
+      };
+      paint['line-color'] = isOverviewMajorRoadLayer(cloned)
+        ? (cloned.metadata?.['line-role'] === 'outline' ? colors.overviewMajorRoadOutline : colors.overviewMajorRoad)
+        : cloned.metadata?.['line-role'] === 'outline'
+          ? roadOutlineColors[category]
+          : roadColors[category];
+    }
+    if ((sourceLayer === 'label' || sourceLayer === 'symbol') && cloned.type === 'symbol' && paint['text-color']) {
+      paint['text-color'] = NATURAL_LABEL_PATH.test(path)
+        ? colors.naturalLabel
+        : /(?:道路|鉄道)/.test(path) ? colors.transportLabel : colors.placeLabel;
+      if ('text-halo-color' in paint) paint['text-halo-color'] = colors.labelHalo;
+    }
+    if (sourceLayer === 'transp' && cloned.type === 'symbol' && paint['text-color']) {
+      paint['text-color'] = colors.routeNumberText;
+    }
   }
-  if ((sourceLayer === 'label' || sourceLayer === 'symbol') && cloned.type === 'symbol' && paint['text-color']) {
-    paint['text-color'] = NATURAL_LABEL_PATH.test(path)
-      ? colors.naturalLabel
-      : /(?:道路|鉄道)/.test(path) ? colors.transportLabel : colors.placeLabel;
-    if ('text-halo-color' in paint) paint['text-halo-color'] = colors.labelHalo;
-  }
-  if (sourceLayer === 'transp' && cloned.type === 'symbol' && paint['text-color']) {
-    paint['text-color'] = colors.routeNumberText;
-  }
+  applyZoomTransition(cloned);
   return cloned;
 }
 
