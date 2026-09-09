@@ -5,6 +5,7 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
+import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
@@ -103,7 +104,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const startZoom = getIntroStartZoom(targetZoom, map.getMinZoom());
       map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
       if (isLowZoomMapView(startZoom)) await waitForLowZoomVisualReady(map, 20_000);
-      else await waitForFollowMap(map, 20_000);
+      else await waitForPrimaryVectorReady(map, 20_000);
       const introPlayback: FollowPlaybackState = {
         phase: 'moving',
         routeProgress: 0,
@@ -127,7 +128,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       }
       map.jumpTo({ center: targetCenter, zoom: targetZoom, bearing: 0, pitch: 0 });
       if (isLowZoomMapView(targetZoom)) await waitForLowZoomVisualReady(map, 20_000);
-      else await waitForFollowMap(map, 20_000);
+      else await waitForPrimaryVectorReady(map, 20_000);
     }
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
@@ -470,7 +471,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
       await waitForLowZoomVisualReady(map, 20_000);
       lowZoomPrewarmed = true;
     } else {
-      await waitForFollowMap(map, 20_000);
+      await waitForPrimaryVectorReady(map, 20_000);
     }
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
@@ -520,7 +521,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
             await waitForRenderedMapFrame(map, 20_000);
           }
         } else {
-          await waitForFollowMap(map, 20_000);
+          await waitForPrimaryVectorReady(map, 20_000);
         }
         context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
         const nextBackground = await createImageBitmap(canvas);
@@ -682,33 +683,38 @@ async function waitForLowZoomVisualReady(map: maplibregl.Map, timeout: number): 
   await waitForRenderedMapFrame(map, timeout);
 }
 
-function waitForFollowMap(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (map.loaded() && map.areTilesLoaded()) {
-    map.triggerRepaint();
-    return nextPaint();
+async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): Promise<void> {
+  // view変更を反映してから、そのviewのメインsourceだけを確認する。
+  await waitForRenderedMapFrame(map, timeout);
+  if (!map.getSource(GSI_OFFICIAL_SOURCE_ID)) {
+    throw new Error('動画用のメイン地図データが見つかりません。');
   }
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       window.clearTimeout(timer);
-      map.off('error', onError);
-      map.off('idle', onIdle);
+      map.off('sourcedata', checkReady);
+      map.off('render', checkReady);
     };
-    const onError = () => {
-      cleanup();
-      reject(new Error('ルート追従用の地図タイルを読み込めませんでした。ネットワーク接続を確認してください。'));
-    };
-    const onIdle = () => {
-      cleanup();
-      map.triggerRepaint();
-      void nextPaint().then(resolve);
+    const checkReady = () => {
+      try {
+        if (map.getSource(GSI_OFFICIAL_SOURCE_ID) && map.isSourceLoaded(GSI_OFFICIAL_SOURCE_ID)) {
+          cleanup();
+          resolve();
+        }
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
     };
     const timer = window.setTimeout(() => {
       cleanup();
-      reject(new Error('ルート追従用の地図タイルの読み込みがタイムアウトしました。'));
+      reject(new Error('動画用のメイン地図データの読み込みがタイムアウトしました。'));
     }, timeout);
-    map.on('error', onError);
-    map.once('idle', onIdle);
+    map.on('sourcedata', checkReady);
+    map.on('render', checkReady);
+    checkReady();
   });
+  await waitForRenderedMapFrame(map, timeout);
 }
 
 function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {

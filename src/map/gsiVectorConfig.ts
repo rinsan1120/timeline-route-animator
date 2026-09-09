@@ -180,6 +180,8 @@ export const GSI_VECTOR_CONFIG = {
     prioritizeMunicipalityNames: true,
     // 公称町字名・集落名等の公式注記レイヤを表示するか。
     showMajorPlaceNames: true,
+    // 人口規模を示す都市の白丸・黒丸等の公式記号（metadata.pathが「記号-人口...」）を表示するか。
+    showPopulationSymbols: false,
     // 山・湖・河川・海等の公式注記レイヤを表示するか。
     showNaturalNames: true,
     // 道路名の公式注記レイヤを表示するか。falseでも道路番号は別設定で残せる。

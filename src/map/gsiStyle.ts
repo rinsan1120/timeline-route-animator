@@ -69,7 +69,8 @@ function shouldKeepLayer(layer: StyleLayer): boolean {
   const path = metadataPathOf(layer);
   if (!labels.showPrefectureNames && path === '注記-都道府県') return false;
   if (!labels.showMunicipalityNames && path === '注記-市区町村') return false;
-  if (!labels.showMajorPlaceNames && /^(?:注記-(?:公称|居住地名|集落名称)|記号-人口)/.test(path)) return false;
+  if (!labels.showMajorPlaceNames && /^注記-(?:公称|居住地名|集落名称)/.test(path)) return false;
+  if (!labels.showPopulationSymbols && path.startsWith('記号-人口')) return false;
   if (!labels.showNaturalNames && sourceLayer === 'label' && NATURAL_LABEL_PATH.test(path)) return false;
   if (!labels.showRoadNames && path === '注記-道路名') return false;
   if (!labels.showRailwayNames && (path === '注記-鉄道路線名' || path === '注記-鉄道駅名')) return false;
