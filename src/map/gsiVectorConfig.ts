@@ -141,11 +141,11 @@ export const GSI_VECTOR_CONFIG = {
     },
     prefecturalRoad: {
       // roadの都道府県道レイヤ群に対する線幅倍率。1より小さくすると国道よりさらに控えめになる。
-      widthScale: 0.65,
+      widthScale: 0.7,
     },
     otherRoad: {
       // 市区町村道・細街路等の公式レイヤ群に対する線幅倍率。Zoomごとの出し分けは公式定義を維持する。
-      widthScale: 0.55,
+      widthScale: 0.7,
     },
   },
 
