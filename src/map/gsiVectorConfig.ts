@@ -93,7 +93,7 @@ export const GSI_VECTOR_CONFIG = {
     // 「道路-主要な道路」に公式outlineがある場合だけ使う輪郭色。独自outlineは生成しない。
     overviewMajorRoadOutline: '#95A6B4',
     // road source-layerのmotorway === 1に使う高速道路色。道路網の骨格になる落ち着いた青灰色とする。
-    motorway: '#879FBA',
+    motorway: '#0e8536',
     // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡いベージュとする。
     nationalRoad: '#eccd7f',
     // road source-layerのrdCtg === 1に使う都道府県道色。道路網を主張させない淡い青灰色とする。
