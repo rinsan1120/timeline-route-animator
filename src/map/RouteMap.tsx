@@ -62,6 +62,7 @@ interface RouteMapProps {
   overviewCustomZoom: number;
   followCameraPlan: FollowCameraPlan | null;
   onSelectPoint: (id: string | null) => void;
+  onSelectionCandidates: (ids: string[]) => void;
   onSelectRaw: (point: RawPosition | null) => void;
   onAddPoint: (latitude: number, longitude: number) => void;
   onMovePoint: (id: string, latitude: number, longitude: number) => void;
@@ -91,6 +92,16 @@ interface RangeDeleteDrag {
 }
 
 const MIN_RANGE_DELETE_DRAG_PIXELS = 4;
+const MAX_POINT_SELECTION_DISTANCE = 28;
+const OVERLAP_CANDIDATE_PADDING = 6;
+
+function isEditSelectionMode(props: RouteMapProps): boolean {
+  return props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null;
+}
+
+function isSelectionAssistActive(props: RouteMapProps): boolean {
+  return isEditSelectionMode(props) && props.selectedPointId !== null;
+}
 
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,7 +144,7 @@ export default function RouteMap(props: RouteMapProps) {
     rangeDeleteSelectionRef.current = new Set(ids);
     updateRangeDeleteHint(rangeDeleteHintRef.current, ids.length);
     if (map && editPointsOverlayRef.current) {
-      updateEditPointsOverlay(map, propsRef.current.points, null, rangeDeleteSelectionRef.current, editPointsOverlayRef.current);
+      updateEditPointsOverlay(map, propsRef.current.points, null, rangeDeleteSelectionRef.current, editPointsOverlayRef.current, false);
     }
     return ids;
   };
@@ -148,7 +159,7 @@ export default function RouteMap(props: RouteMapProps) {
     updateRangeDeleteHint(rangeDeleteHintRef.current, 0);
     const map = mapRef.current;
     if (map && editPointsOverlayRef.current) {
-      updateEditPointsOverlay(map, propsRef.current.points, propsRef.current.selectedPointId, rangeDeleteSelectionRef.current, editPointsOverlayRef.current);
+      updateEditPointsOverlay(map, propsRef.current.points, propsRef.current.selectedPointId, rangeDeleteSelectionRef.current, editPointsOverlayRef.current, isSelectionAssistActive(propsRef.current));
     }
   };
 
@@ -299,6 +310,7 @@ export default function RouteMap(props: RouteMapProps) {
     map.on('error', handleMapError);
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {
       if (propsRef.current.rangeDeleteMode) return;
+      if (isEditSelectionMode(propsRef.current)) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id === 'string') propsRef.current.onSelectPoint(id);
     });
@@ -314,10 +326,12 @@ export default function RouteMap(props: RouteMapProps) {
         propsRef.current.onSelectPoint(nearest?.id ?? null);
         return;
       }
-      if (propsRef.current.editMode && !propsRef.current.addMode) {
-        const nearest = findNearestRoutePoint(map, propsRef.current.points, event.point);
+      if (isEditSelectionMode(propsRef.current)) {
+        if (propsRef.current.showRaw && map.queryRenderedFeatures(event.point, { layers: ['raw-points'] }).length) return;
+        const candidates = findNearbyRoutePointCandidates(map, propsRef.current.points, event.point);
+        propsRef.current.onSelectionCandidates(candidates.ids);
         // onSelectPoint also clears the raw selection in App; do not clear it again afterward.
-        if (nearest) propsRef.current.onSelectPoint(nearest.id);
+        if (candidates.nearestId) propsRef.current.onSelectPoint(candidates.nearestId);
         return;
       }
       if (!propsRef.current.addMode) return;
@@ -374,7 +388,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (!props.rangeDeleteMode || pointsChanged) clearRangeDeleteSelection();
     else if (!rangeDeleteDragRef.current) rangeDeleteSelectionRef.current = new Set(props.rangeDeletePointIds);
     if (!map || !overlay || !props.editMode || isPreviewing) return;
-    const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, rangeDeleteSelectionRef.current, overlay);
+    const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, rangeDeleteSelectionRef.current, overlay, isSelectionAssistActive(props));
     redraw();
     map.on('move', redraw);
     map.on('resize', redraw);
@@ -382,7 +396,7 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('move', redraw);
       map.off('resize', redraw);
     };
-  }, [props.points, props.selectedPointId, props.editMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
+  }, [props.points, props.selectedPointId, props.editMode, props.addMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -418,10 +432,14 @@ export default function RouteMap(props: RouteMapProps) {
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
     {props.editMode && !isPreviewing && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
+      <path className="selected-route-before" />
+      <path className="selected-route-after" />
       <path className="edit-points-original" />
       <path className="edit-points-manual" />
-      <path className="edit-points-selected" />
+      <path className="edit-points-before" />
+      <path className="edit-points-after" />
       <path className="edit-points-range-selected" />
+      <path className="edit-points-selected" />
     </svg>}
     {props.editMode && props.rangeDeleteMode && !isPreviewing && <>
       <div
@@ -664,7 +682,7 @@ function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latit
   marker.removeAttribute('display');
 }
 
-function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point'], maxDistance = 28): RoutePoint | null {
+function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point'], maxDistance = MAX_POINT_SELECTION_DISTANCE): RoutePoint | null {
   let nearest: RoutePoint | null = null;
   let nearestDistance = maxDistance;
   for (const point of points) {
@@ -676,6 +694,25 @@ function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoin
     }
   }
   return nearest;
+}
+
+function findNearbyRoutePointCandidates(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point']): { ids: string[]; nearestId: string | null } {
+  const nearby: Array<{ id: string; distance: number }> = [];
+  let nearestId: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const point of points) {
+    const screenPoint = map.project([point.longitude, point.latitude]);
+    const distance = Math.hypot(screenPoint.x - clickPoint.x, screenPoint.y - clickPoint.y);
+    if (distance > MAX_POINT_SELECTION_DISTANCE) continue;
+    nearby.push({ id: point.id, distance });
+    if (distance < bestDistance) {
+      nearestId = point.id;
+      bestDistance = distance;
+    }
+  }
+  if (!nearestId) return { ids: [], nearestId: null };
+  const candidateDistance = Math.min(MAX_POINT_SELECTION_DISTANCE, bestDistance + OVERLAP_CANDIDATE_PADDING);
+  return { ids: nearby.filter((candidate) => candidate.distance <= candidateDistance).map((candidate) => candidate.id), nearestId };
 }
 
 function pointerPositionInElement(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElement) {
@@ -729,23 +766,46 @@ function updateEditPointsOverlay(
   selectedPointId: string | null,
   rangeDeletePointIds: ReadonlySet<string>,
   overlay: SVGSVGElement,
+  selectionAssistActive: boolean,
 ) {
   const original: string[] = [];
   const manual: string[] = [];
+  const before: string[] = [];
+  const after: string[] = [];
   const rangeSelected: string[] = [];
   let selected = '';
+  const selectedIndex = selectionAssistActive ? points.findIndex((point) => point.id === selectedPointId) : -1;
+  const beforeStart = Math.max(0, selectedIndex - 10);
+  const afterEnd = Math.min(points.length - 1, selectedIndex + 10);
   // Batch circles into paths instead of creating a DOM element for every route point.
-  for (const point of points) {
+  for (const [index, point] of points.entries()) {
     const screen = map.project([point.longitude, point.latitude]);
     const rangeDeleteSelected = rangeDeletePointIds.has(point.id);
     const radius = rangeDeleteSelected ? 9 : point.id === selectedPointId ? 10 : 7;
     const circle = `M${screen.x - radius},${screen.y}a${radius},${radius} 0 1,0 ${radius * 2},0a${radius},${radius} 0 1,0 ${-radius * 2},0Z`;
-    if (rangeDeleteSelected) rangeSelected.push(circle);
-    else if (point.id === selectedPointId) selected = circle;
+    if (point.id === selectedPointId) selected = circle;
+    else if (rangeDeleteSelected) rangeSelected.push(circle);
+    else if (selectedIndex >= 0 && index >= beforeStart && index < selectedIndex) before.push(circle);
+    else if (selectedIndex >= 0 && index > selectedIndex && index <= afterEnd) after.push(circle);
     else (point.original ? original : manual).push(circle);
   }
-  overlay.children[0].setAttribute('d', original.join(' '));
-  overlay.children[1].setAttribute('d', manual.join(' '));
-  overlay.children[2].setAttribute('d', selected);
-  overlay.children[3].setAttribute('d', rangeSelected.join(' '));
+  setEditOverlayPath(overlay, 'selected-route-before', selectedIndex >= 0 ? projectedRoutePath(map, points.slice(beforeStart, selectedIndex + 1)) : '');
+  setEditOverlayPath(overlay, 'selected-route-after', selectedIndex >= 0 ? projectedRoutePath(map, points.slice(selectedIndex, afterEnd + 1)) : '');
+  setEditOverlayPath(overlay, 'edit-points-original', original.join(' '));
+  setEditOverlayPath(overlay, 'edit-points-manual', manual.join(' '));
+  setEditOverlayPath(overlay, 'edit-points-before', before.join(' '));
+  setEditOverlayPath(overlay, 'edit-points-after', after.join(' '));
+  setEditOverlayPath(overlay, 'edit-points-range-selected', rangeSelected.join(' '));
+  setEditOverlayPath(overlay, 'edit-points-selected', selected);
+}
+
+function projectedRoutePath(map: MapLibreMap, points: RoutePoint[]): string {
+  return splitRouteByDay(points).filter((segment) => segment.length >= 2).map((segment) => segment.map((point, index) => {
+    const screen = map.project([point.longitude, point.latitude]);
+    return `${index === 0 ? 'M' : 'L'}${screen.x.toFixed(1)},${screen.y.toFixed(1)}`;
+  }).join(' ')).join(' ');
+}
+
+function setEditOverlayPath(overlay: SVGSVGElement, className: string, path: string) {
+  overlay.querySelector<SVGPathElement>(`.${className}`)?.setAttribute('d', path);
 }

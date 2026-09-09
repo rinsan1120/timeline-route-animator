@@ -37,6 +37,7 @@ export default function App() {
   const [showRaw, setShowRaw] = useState(false);
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+  const [selectionCandidateIds, setSelectionCandidateIds] = useState<string[]>([]);
   const [annotationLabel, setAnnotationLabel] = useState('');
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
@@ -73,6 +74,10 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
+  const selectedPointIndex = selectedPointId ? points.findIndex((point) => point.id === selectedPointId) : -1;
+  const selectionCandidateIndex = selectedPointId ? selectionCandidateIds.indexOf(selectedPointId) : -1;
+  const showSelectionCandidateSwitcher = editMode && !addMode && !rangeDeleteMode && previewProgress === null
+    && selectionCandidateIds.length >= 2 && selectionCandidateIndex >= 0;
   const dayMarkers = useMemo(() => (workspaceMode === 'plan'
     ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
     : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => ({ ...marker, placement: dayMarkerPlacements[workspaceMode === 'plan' ? marker.pointId : marker.date!] })), [dayMarkerPlacements, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
@@ -91,6 +96,13 @@ export default function App() {
       ? (selectedDayMarker ? planDayNotes[selectedDayMarker.pointId] ?? '' : '')
       : (selectedDayMarker?.date ? dayMarkerNotes[selectedDayMarker.date] ?? '' : ''));
   }, [workspaceMode, selectedDayMarker?.pointId, selectedDayMarker?.date, dayMarkerNotes, planDayNotes]);
+
+  const selectAdjacentCandidate = (offset: -1 | 1) => {
+    if (!selectionCandidateIds.length || selectionCandidateIndex < 0) return;
+    const nextIndex = (selectionCandidateIndex + offset + selectionCandidateIds.length) % selectionCandidateIds.length;
+    setSelectedPointId(selectionCandidateIds[nextIndex]);
+    setSelectedRaw(null);
+  };
 
   const setAnnotationPlacement = (id: string, placement?: PopupPlacement) => {
     dispatch({ type: 'commit', points: points.map((point) => {
@@ -217,6 +229,7 @@ export default function App() {
         dispatch({ type: 'load', points: message.routePoints });
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
+        setSelectionCandidateIds([]);
         setSelectedRaw(null);
         setRangeDeletePointIds([]);
         setAnimationStartPointId(null);
@@ -279,7 +292,12 @@ export default function App() {
 
   useEffect(() => {
     setRangeDeletePointIds([]);
+    setSelectionCandidateIds([]);
   }, [points]);
+
+  useEffect(() => {
+    if (!editMode || addMode || rangeDeleteMode) setSelectionCandidateIds([]);
+  }, [editMode, addMode, rangeDeleteMode]);
 
   useEffect(() => {
     if (editMode) return;
@@ -302,6 +320,7 @@ export default function App() {
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
+    setSelectionCandidateIds([]);
     try {
       const buffer = await readTimelineFile(file);
       const worker = workerRef.current;
@@ -331,6 +350,7 @@ export default function App() {
     setSelectedRaw(null);
     setDayMarkerNotes({});
     setSelectedPointId(null);
+    setSelectionCandidateIds([]);
     setAnnotationLabel('');
     setDayMarkerNoteInput('');
     setAnimationStartPointId(null);
@@ -513,7 +533,12 @@ export default function App() {
               <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
             </div>
             {workspaceMode === 'timeline' && <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>}
-            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
+            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>全{points.length}点中 {selectedPointIndex + 1}番目</span><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
+              {showSelectionCandidateSwitcher && <div className="selection-candidate-switcher">
+                <button type="button" aria-label="前の候補" onClick={() => selectAdjacentCandidate(-1)}>‹</button>
+                <span>候補 {selectionCandidateIndex + 1} / {selectionCandidateIds.length}</span>
+                <button type="button" aria-label="次の候補" onClick={() => selectAdjacentCandidate(1)}>›</button>
+              </div>}
               {editMode && <>
                 {selectedPoint.annotation?.placement && <button className="secondary-button" onClick={() => setAnnotationPlacement(selectedPoint.id)}>バルーン位置をリセット</button>}
                 {selectedDayMarker?.placement && <button className="secondary-button" onClick={() => setDayPlacement(selectedPoint.id)}>DAY位置をリセット</button>}
@@ -643,7 +668,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewZoomMode={overviewZoomMode} overviewCustomZoom={overviewCustomZoom} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewZoomMode={overviewZoomMode} overviewCustomZoom={overviewCustomZoom} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
@@ -652,7 +677,7 @@ export default function App() {
             <button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>
             <button className={rangeDeleteMode ? 'active' : ''} onClick={toggleRangeDeleteMode}><span>▧</span>範囲削除</button>
             {rangeDeleteMode && <button disabled={!rangeDeletePointIds.length} onClick={commitRangeDelete}><span>⌫</span>{rangeDeletePointIds.length ? `${rangeDeletePointIds.length}点削除` : '選択を削除'}</button>}
-            <button disabled={!selectedPoint} onClick={() => { if (selectedPointId) dispatch({ type: 'commit', points: deletePoint(points, selectedPointId) }); setSelectedPointId(null); }}><span>⌫</span>削除</button>
+            <button disabled={!selectedPoint} onClick={() => { if (selectedPointId) dispatch({ type: 'commit', points: deletePoint(points, selectedPointId) }); setSelectedPointId(null); setSelectionCandidateIds([]); }}><span>⌫</span>削除</button>
             <i />
             <button disabled={!history.past.length} onClick={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }}><span>↶</span>元に戻す</button>
             <button disabled={!history.future.length} onClick={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }}><span>↷</span>やり直す</button>

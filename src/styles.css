@@ -53,6 +53,9 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .detail-card { margin-top: 14px; padding: 12px; border-radius: 8px; background: #f4f7f8; display: grid; gap: 4px; font-size: 10px; color: #5c6a7c; position: relative; }
 .detail-card strong { color: #22344a; }
 .detail-card code { font-size: 9px; overflow-wrap: anywhere; }
+.selection-candidate-switcher { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 6px; margin-top: 8px; }
+.selection-candidate-switcher span { color: #334155; font-size: 11px; font-weight: 700; text-align: center; }
+.selection-candidate-switcher button { min-width: 44px; min-height: 44px; border: 1px solid #ccd5de; border-radius: 7px; color: #283c55; background: white; font-size: 22px; line-height: 1; cursor: pointer; }
 .annotation-editor { display: grid; gap: 8px; margin-top: 10px; }
 .annotation-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
 .annotation-editor button { min-height: 44px; }
@@ -126,6 +129,10 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .edit-points-overlay path { stroke: #10233f; stroke-width: 2; }
 .edit-points-original { fill: #ffffff; }
 .edit-points-manual { fill: #2dd4bf; }
+.edit-points-overlay .selected-route-before { fill: none; stroke: #22d3ee; stroke-width: 7px; stroke-linecap: round; stroke-linejoin: round; opacity: .75; }
+.edit-points-overlay .selected-route-after { fill: none; stroke: #a78bfa; stroke-width: 4px; stroke-linecap: round; stroke-linejoin: round; opacity: .95; }
+.edit-points-overlay .edit-points-before { fill: #22d3ee; }
+.edit-points-overlay .edit-points-after { fill: #a78bfa; }
 .edit-points-overlay .edit-points-selected { fill: #3b82f6; stroke-width: 3; }
 .edit-points-overlay .edit-points-range-selected { fill: #ef4444; stroke: #7f1d1d; stroke-width: 3; }
 .range-delete-overlay { position: absolute; z-index: 3; inset: 0; cursor: crosshair; touch-action: none; }
