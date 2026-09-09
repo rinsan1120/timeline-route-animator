@@ -49,8 +49,8 @@ export const GSI_VECTOR_CONFIG = {
 
   appearance: {
     // falseで公式std.jsonの色をそのまま使う。trueで下のcolorsを安全に分類できるレイヤだけへ適用する。
-    // まず公式スタイルの表示を優先するため、初期値はfalseとする。
-    useCustomPalette: false,
+    // アプリのルート表示と調和する配色を使うため、カスタムパレットを有効にする。
+    useCustomPalette: true,
   },
 
   colors: {
@@ -61,13 +61,15 @@ export const GSI_VECTOR_CONFIG = {
     // coastlineの線色。濃くすると海岸線の輪郭が強く見える。
     coastline: '#a8c8d8',
     // road source-layerのmotorway === 1に使う高速道路色。ルート線より控えめな緑系とする。
-    motorway: '#8eb59a',
-    // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡い赤系とする。
-    nationalRoad: '#d9a0a5',
-    // road source-layerのrdCtg === 1に使う都道府県道色。国道より一段弱い色にする。
-    prefecturalRoad: '#c8b98c',
-    // road source-layerのその他道路に使う線色。濃くすると市区町村道や細街路が目立つ。
-    otherRoad: '#cbd0d4',
+    motorway: '#5F8F6B',
+    // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい青灰色とする。
+    nationalRoad: '#587C9A',
+    // road source-layerのrdCtg === 1に使う都道府県道色。国道より一段弱い濃い灰色にする。
+    prefecturalRoad: '#666C72',
+    // road source-layerのその他道路に使う線色。市区町村道や細街路は控えめな灰色とする。
+    otherRoad: '#A8ADB2',
+    // metadataのline-roleがoutlineの道路レイヤに使う輪郭色。道路本体との境界を明確にする。
+    roadOutline: '#555B61',
     // railway source-layerの線色。濃くすると鉄道が道路より強く見えるため控えめにする。
     railway: '#929ba3',
     // boundary source-layerの行政界色。濃くすると都道府県界・市区町村界が目立つ。
@@ -121,6 +123,10 @@ export const GSI_VECTOR_CONFIG = {
   labels: {
     // 国道番号（transp.ftCode === 2901）の公式レイヤ群を表示するか。Zoom帯・text-field・icon-imageは公式定義を維持する。
     showNationalRouteNumbers: true,
+    // 国道番号の表示を開始するZoom。小さい値ほど広域表示から見える。
+    // タイルに対象地物が含まれないZoomでは、この値を下げても表示されない。
+    // ブラウザ地図左下の「Zoom x.x」を確認しながら調整する。
+    nationalRouteNumberMinZoom: 8,
     // 高速道路・都市高速道路番号（transp.ftCode === 2903/2904）の公式レイヤ群を表示するか。
     showExpresswayRouteNumbers: true,
     // 公式spriteの道路番号icon-size倍率。1で公式値、大きくすると各Zoom帯の差を保ったまま大きくなる。
@@ -131,6 +137,9 @@ export const GSI_VECTOR_CONFIG = {
     showPrefectureNames: true,
     // 市区町村名の公式注記レイヤを表示するか。Zoom別の注記構成は変更しない。
     showMunicipalityNames: true,
+    // 市区町村名を一般注記より前面へ配置し、伊勢崎市などの自治体名を優先表示する。
+    // タイルに存在しない市区町村名を新たに生成するものではない。
+    prioritizeMunicipalityNames: true,
     // 公称町字名・集落名等の公式注記レイヤを表示するか。
     showMajorPlaceNames: true,
     // 山・湖・河川・海等の公式注記レイヤを表示するか。
@@ -158,7 +167,7 @@ export const GSI_VECTOR_CONFIG = {
     // waterarea・river・lake・coastlineの表示。falseで水域と水系を除外する。
     water: true,
     // boundary source-layerの表示。falseで都道府県界・市区町村界を除外する。
-    boundaries: true,
+    boundaries: false,
     // transp.ftCode === 2901の国道番号表示。falseで国道番号記号を除外する。
     nationalRouteNumbers: true,
     // transp.ftCode === 2903/2904の高速道路番号表示。falseで高速道路番号記号を除外する。

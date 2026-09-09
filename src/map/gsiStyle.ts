@@ -39,6 +39,12 @@ function isRouteNumberLayer(layer: StyleLayer, codes: number[]): boolean {
     && filterContainsValue((layer as MutableLayer).filter, 'ftCode', new Set(codes));
 }
 
+function isMunicipalityLabelLayer(layer: StyleLayer): boolean {
+  return layer.type === 'symbol'
+    && sourceLayerOf(layer) === 'label'
+    && metadataPathOf(layer) === '注記-市区町村';
+}
+
 function shouldKeepLayer(layer: StyleLayer): boolean {
   const sourceLayer = sourceLayerOf(layer);
   if (sourceLayer === 'contour' && !visibility.contours) return false;
@@ -108,6 +114,12 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   if (isRouteNumberLayer(cloned, [2901, 2903, 2904])) {
     scaleProperty(cloned.layout, 'icon-size', labels.routeNumberIconScale);
   }
+  if (isRouteNumberLayer(cloned, [2901])) {
+    cloned.minzoom = Math.min(cloned.minzoom ?? labels.nationalRouteNumberMinZoom, labels.nationalRouteNumberMinZoom);
+  }
+  if (labels.prioritizeMunicipalityNames && isMunicipalityLabelLayer(cloned)) {
+    cloned.layout = { ...cloned.layout, 'text-allow-overlap': true };
+  }
 
   if (!appearance.useCustomPalette || !cloned.paint) return cloned;
   const paint = cloned.paint;
@@ -129,7 +141,9 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
       prefecturalRoad: colors.prefecturalRoad,
       otherRoad: colors.otherRoad,
     };
-    paint['line-color'] = roadColors[category];
+    paint['line-color'] = cloned.metadata?.['line-role'] === 'outline'
+      ? colors.roadOutline
+      : roadColors[category];
   }
   if ((sourceLayer === 'label' || sourceLayer === 'symbol') && cloned.type === 'symbol' && paint['text-color']) {
     paint['text-color'] = NATURAL_LABEL_PATH.test(path)
@@ -143,12 +157,34 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   return cloned;
 }
 
+function orderConfiguredLayers(layersToOrder: StyleLayer[]): StyleLayer[] {
+  const otherLayers: StyleLayer[] = [];
+  const municipalityLayers: StyleLayer[] = [];
+  const routeNumberLayers: StyleLayer[] = [];
+
+  for (const layer of layersToOrder) {
+    if (isRouteNumberLayer(layer, [2901, 2903, 2904])) {
+      routeNumberLayers.push(layer);
+    } else if (labels.prioritizeMunicipalityNames && isMunicipalityLabelLayer(layer)) {
+      municipalityLayers.push(layer);
+    } else {
+      otherLayers.push(layer);
+    }
+  }
+
+  return [...otherLayers, ...municipalityLayers, ...routeNumberLayers];
+}
+
 const officialSource = GSI_OFFICIAL_STYLE.sources[GSI_OFFICIAL_SOURCE_ID];
 if (!officialSource || officialSource.type !== 'vector') {
   throw new Error('地理院地図Vectorの公式ソース定義が見つかりません。');
 }
 
 export const GSI_ATTRIBUTION = source.attributionText;
+
+const configuredLayers = orderConfiguredLayers(
+  GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance),
+);
 
 export const GSI_STYLE: StyleSpecification = {
   ...GSI_OFFICIAL_STYLE,
@@ -166,6 +202,6 @@ export const GSI_STYLE: StyleSpecification = {
   },
   layers: [
     { id: 'gsi-background', type: 'background', paint: { 'background-color': colors.background } },
-    ...GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance),
+    ...configuredLayers,
   ],
 };
