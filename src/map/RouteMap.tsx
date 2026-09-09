@@ -9,7 +9,7 @@ import DayMarkerOverlay from './DayMarkerOverlay';
 import EndpointMarkerOverlay from './EndpointMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
-import { sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
+import { FOLLOW_VIEWPORT, sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
 
 function routeCollection(segments: RoutePoint[][]) {
@@ -108,6 +108,7 @@ export default function RouteMap(props: RouteMapProps) {
   const rangeDeletePointsRef = useRef(props.points);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapZoom, setMapZoom] = useState(10);
+  const [followViewport, setFollowViewport] = useState(() => getFollowPreviewViewport(0, 0));
   const propsRef = useRef(props);
   propsRef.current = props;
   const isPreviewing = props.previewProgress !== null;
@@ -216,6 +217,21 @@ export default function RouteMap(props: RouteMapProps) {
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     };
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
+    const updateFollowViewport = () => {
+      const container = map.getContainer();
+      setFollowViewport(getFollowPreviewViewport(container.clientWidth, container.clientHeight));
+      const current = propsRef.current;
+      const preview = getPreviewState(current);
+      if (current.cameraMode !== 'follow' || current.previewProgress === null || !preview?.cameraCenter) return;
+      const introProgress = getPreviewIntroProgress(current);
+      if (current.introZoomEnabled && introProgress !== null && previewTargetCameraRef.current) {
+        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, true);
+      } else {
+        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
+      }
+    };
+    map.on('resize', updateFollowViewport);
+    updateFollowViewport();
     let genericMapErrorReported = false;
     const handleMapError = (event: ErrorEvent) => {
       if (!event.error) return;
@@ -255,9 +271,9 @@ export default function RouteMap(props: RouteMapProps) {
       const introProgress = getPreviewIntroProgress(propsRef.current);
       if (previewing && propsRef.current.introZoomEnabled && previewTargetCameraRef.current
         && (propsRef.current.cameraMode === 'overview' || introProgress !== null)) {
-        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress);
+        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, propsRef.current.cameraMode === 'follow');
       } else if (preview?.cameraCenter) {
-        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
+        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
       }
       refreshMap(map, propsRef.current, preview);
       if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) applyOverviewPreviewCamera(map, propsRef.current);
@@ -310,6 +326,7 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('style.load', initializeMap);
       map.off('move', redrawOverlay);
       map.off('zoom', updateZoomDisplay);
+      map.off('resize', updateFollowViewport);
       map.off('error', handleMapError);
       selectedMarkerRef.current?.remove();
       map.remove();
@@ -329,8 +346,8 @@ export default function RouteMap(props: RouteMapProps) {
     if (previewStarting && props.introZoomEnabled) previewTargetCameraRef.current = getPreviewTargetCamera(map, props);
     const introProgress = getPreviewIntroProgress(props);
     if (isPreviewing && props.introZoomEnabled && previewTargetCameraRef.current
-      && (props.cameraMode === 'overview' || introProgress !== null)) applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress);
-    else if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
+      && (props.cameraMode === 'overview' || introProgress !== null)) applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, props.cameraMode === 'follow');
+    else if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
     refreshMap(map, props, preview);
     map.resize();
     map.triggerRepaint();
@@ -417,7 +434,10 @@ export default function RouteMap(props: RouteMapProps) {
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     {props.routeMarkerMode === 'day' && <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
+    {isPreviewing && props.cameraMode === 'follow' && <div className="video-preview-frame-overlay" aria-hidden="true">
+      <div className="video-preview-frame" style={{ width: followViewport.width, height: followViewport.height, left: followViewport.left, top: followViewport.top }} />
+    </div>}
+    <div className="map-zoom" aria-hidden="true">Zoom {(getFollowPreviewVideoZoom(props, mapRef.current) ?? mapZoom).toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -502,11 +522,32 @@ function applyOverviewPreviewCamera(map: MapLibreMap, props: RouteMapProps) {
   if (target) restoreMapCamera(map, target);
 }
 
-function applyIntroPreviewCamera(map: MapLibreMap, target: MapCameraSnapshot, introProgress: number | null) {
+function applyIntroPreviewCamera(map: MapLibreMap, target: MapCameraSnapshot, introProgress: number | null, follow = false) {
   const zoom = introProgress === null
     ? target.zoom
     : interpolateIntroZoom(getIntroStartZoom(target.zoom, map.getMinZoom()), target.zoom, introProgress);
-  map.jumpTo({ center: [target.longitude, target.latitude], zoom, bearing: target.bearing, pitch: target.pitch });
+  map.jumpTo({ center: [target.longitude, target.latitude], zoom: follow ? toFollowPreviewMapZoom(map, zoom) : zoom, bearing: target.bearing, pitch: target.pitch });
+}
+
+function getFollowPreviewViewport(containerWidth: number, containerHeight: number) {
+  const valid = Number.isFinite(containerWidth) && Number.isFinite(containerHeight) && containerWidth > 0 && containerHeight > 0;
+  const scale = valid ? Math.min(containerWidth / FOLLOW_VIEWPORT.width, containerHeight / FOLLOW_VIEWPORT.height) : 1;
+  const width = FOLLOW_VIEWPORT.width * scale;
+  const height = FOLLOW_VIEWPORT.height * scale;
+  return { scale, width, height, left: valid ? (containerWidth - width) / 2 : 0, top: valid ? (containerHeight - height) / 2 : 0 };
+}
+
+function toFollowPreviewMapZoom(map: MapLibreMap, videoZoom: number) {
+  const container = map.getContainer();
+  const { scale } = getFollowPreviewViewport(container.clientWidth, container.clientHeight);
+  return Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), videoZoom + Math.log2(scale)));
+}
+
+function getFollowPreviewVideoZoom(props: RouteMapProps, map: MapLibreMap | null): number | null {
+  if (props.cameraMode !== 'follow' || props.previewProgress === null || !props.followCameraPlan) return null;
+  const zoom = props.followCameraPlan.zoom;
+  const introProgress = getPreviewIntroProgress(props);
+  return introProgress === null ? zoom : interpolateIntroZoom(getIntroStartZoom(zoom, map?.getMinZoom() ?? 0), zoom, introProgress);
 }
 
 function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
