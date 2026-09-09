@@ -101,7 +101,22 @@ function roadCategory(path: string): keyof typeof roads {
   return 'otherRoad';
 }
 
-function zoomInterpolation(startZoom: number, startValue: unknown, endZoom: number, endValue: unknown): unknown[] {
+type ZoomInterpolationExpression<T extends number | string> = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  number,
+  T,
+  number,
+  T,
+];
+
+function zoomInterpolation<T extends number | string>(
+  startZoom: number,
+  startValue: T,
+  endZoom: number,
+  endValue: T,
+): ZoomInterpolationExpression<T> {
   return ['interpolate', ['linear'], ['zoom'], startZoom, startValue, endZoom, endValue];
 }
 
@@ -109,7 +124,7 @@ function applyOpacityFade(
   paint: Record<string, unknown>,
   property: string,
   opacityAtBoundary: number,
-  fadeEndZoom = zoomTransition.fadeEndZoom,
+  fadeEndZoom: number = zoomTransition.fadeEndZoom,
 ) {
   const existingOpacity = paint[property];
   if (existingOpacity === undefined) {
