@@ -373,7 +373,7 @@ export default function RouteMap(props: RouteMapProps) {
     rangeDeletePointsRef.current = props.points;
     if (!props.rangeDeleteMode || pointsChanged) clearRangeDeleteSelection();
     else if (!rangeDeleteDragRef.current) rangeDeleteSelectionRef.current = new Set(props.rangeDeletePointIds);
-    if (!map || !overlay || !props.editMode) return;
+    if (!map || !overlay || !props.editMode || isPreviewing) return;
     const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, rangeDeleteSelectionRef.current, overlay);
     redraw();
     map.on('move', redraw);
@@ -382,13 +382,13 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('move', redraw);
       map.off('resize', redraw);
     };
-  }, [props.points, props.selectedPointId, props.editMode, props.rangeDeleteMode, props.rangeDeletePointIds]);
+  }, [props.points, props.selectedPointId, props.editMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
     selectedMarkerRef.current?.remove();
     selectedMarkerRef.current = null;
-    if (!map || !props.editMode || props.rangeDeleteMode || !props.selectedPointId) return;
+    if (!map || !props.editMode || props.rangeDeleteMode || !props.selectedPointId || isPreviewing) return;
     const point = props.points.find((candidate) => candidate.id === props.selectedPointId);
     if (!point) return;
     const element = document.createElement('div');
@@ -402,7 +402,7 @@ export default function RouteMap(props: RouteMapProps) {
       propsRef.current.onMovePoint(point.id, position.lat, position.lng);
     });
     selectedMarkerRef.current = marker;
-  }, [props.selectedPointId, props.editMode, props.rangeDeleteMode, props.points]);
+  }, [props.selectedPointId, props.editMode, props.rangeDeleteMode, props.points, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -417,13 +417,13 @@ export default function RouteMap(props: RouteMapProps) {
       <path ref={routeOverlayRef} />
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
-    {props.editMode && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
+    {props.editMode && !isPreviewing && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
       <path className="edit-points-original" />
       <path className="edit-points-manual" />
       <path className="edit-points-selected" />
       <path className="edit-points-range-selected" />
     </svg>}
-    {props.editMode && props.rangeDeleteMode && <>
+    {props.editMode && props.rangeDeleteMode && !isPreviewing && <>
       <div
         className="range-delete-overlay"
         onPointerDown={handleRangeDeletePointerDown}
@@ -473,7 +473,7 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
     'circle-color': ['interpolate', ['linear'], ['get', 'accuracyMeters'], 0, '#16c79a', 50, '#f6c945', 200, '#ef476f'],
     'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-opacity': 0.8,
   } });
-  if (!map.getLayer('route-points-layer')) map.addLayer({ id: 'route-points-layer', type: 'circle', source: 'route-points', layout: { visibility: props.editMode || props.animationRangeMode ? 'visible' : 'none' }, paint: {
+  if (!map.getLayer('route-points-layer')) map.addLayer({ id: 'route-points-layer', type: 'circle', source: 'route-points', layout: { visibility: shouldShowRoutePoints(props) ? 'visible' : 'none' }, paint: {
     'circle-radius': ['case', ['get', 'selected'], 12, props.animationRangeMode ? 9 : 7],
     'circle-color': ['case', ['get', 'selected'], '#3b82f6', ['get', 'manual'], '#2dd4bf', '#ffffff'],
     'circle-stroke-color': '#10233f', 'circle-stroke-width': ['case', ['get', 'selected'], 4, 2],
@@ -583,8 +583,12 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps, preview = getPreview
   (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points, props.selectedPointId));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
-  if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode || props.animationRangeMode ? 'visible' : 'none');
+  if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', shouldShowRoutePoints(props) ? 'visible' : 'none');
   if (map.getLayer('route-points-layer')) map.setPaintProperty('route-points-layer', 'circle-radius', ['case', ['get', 'selected'], 12, props.animationRangeMode ? 9 : 7]);
+}
+
+function shouldShowRoutePoints(props: RouteMapProps): boolean {
+  return props.previewProgress === null && (props.editMode || props.animationRangeMode);
 }
 
 function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState(props)): RoutePoint[][] {
