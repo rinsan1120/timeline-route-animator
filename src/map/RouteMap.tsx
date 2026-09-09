@@ -439,7 +439,6 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(splitRouteByDay(props.points)) });
   if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points, props.selectedPointId) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
-  if (!map.getSource('preview-marker')) map.addSource('preview-marker', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#ff5d37', 'line-width': 6, 'line-opacity': 0.92 } });
   if (!map.getLayer('raw-points')) map.addLayer({ id: 'raw-points', type: 'circle', source: 'raw-positions', layout: { visibility: props.showRaw ? 'visible' : 'none' }, paint: {
     'circle-radius': ['interpolate', ['linear'], ['get', 'accuracyMeters'], 0, 4, 100, 7, 500, 10],
@@ -451,7 +450,6 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
     'circle-color': ['case', ['get', 'selected'], '#3b82f6', ['get', 'manual'], '#2dd4bf', '#ffffff'],
     'circle-stroke-color': '#10233f', 'circle-stroke-width': ['case', ['get', 'selected'], 4, 2],
   } });
-  if (!map.getLayer('preview-marker-layer')) map.addLayer({ id: 'preview-marker-layer', type: 'circle', source: 'preview-marker', paint: { 'circle-radius': 11, 'circle-color': '#ffda57', 'circle-stroke-color': '#07111f', 'circle-stroke-width': 4 } });
 }
 
 function captureMapCamera(map: MapLibreMap): MapCameraSnapshot {
@@ -528,11 +526,6 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps, preview = getPreview
   if (map.getLayer('raw-points')) map.setLayoutProperty('raw-points', 'visibility', props.showRaw ? 'visible' : 'none');
   if (map.getLayer('route-points-layer')) map.setLayoutProperty('route-points-layer', 'visibility', props.editMode || props.animationRangeMode ? 'visible' : 'none');
   if (map.getLayer('route-points-layer')) map.setPaintProperty('route-points-layer', 'circle-radius', ['case', ['get', 'selected'], 12, props.animationRangeMode ? 9 : 7]);
-  let markerFeatures: object[] = [];
-  if (preview) {
-    markerFeatures = [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [preview.markerPosition.longitude, preview.markerPosition.latitude] } }];
-  }
-  (map.getSource('preview-marker') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: markerFeatures } as never);
 }
 
 function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState(props)): RoutePoint[][] {
