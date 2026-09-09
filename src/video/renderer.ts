@@ -291,19 +291,20 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
     label = `${characters.join('')}…`;
   }
   const width = context.measureText(label).width + paddingX * 2;
-  const radius = Math.min(16 * scale, width / 4);
+  const radius = Math.min(10 * scale, width / 4);
   const pointerSize = Math.min(12 * scale, width / 8);
   const height = fontSize * 1.4 + paddingY * 2;
   const left = Math.max(margin, Math.min(WIDTH - margin - width, annotation.pixel.x - width / 2));
   const below = annotation.pixel.y - height - gap < margin;
   const top = Math.max(margin, Math.min(bottom - height - pointerSize, below ? annotation.pixel.y + gap : annotation.pixel.y - height - gap));
   const pointerX = Math.max(left + radius + pointerSize, Math.min(left + width - radius - pointerSize, annotation.pixel.x));
-  context.fillStyle = '#ffffff';
-  context.strokeStyle = '#ccd5de';
+  // Match the browser note balloon: lighter navy than DAY / START / GOAL.
+  context.fillStyle = '#2d4f73';
+  context.strokeStyle = '#ff8b68';
   context.lineWidth = 2 * scale;
-  context.shadowColor = 'rgba(7,17,31,.2)';
-  context.shadowBlur = 14 * scale;
-  context.shadowOffsetY = 4 * scale;
+  context.shadowColor = 'rgba(7,17,31,.28)';
+  context.shadowBlur = 28 * scale;
+  context.shadowOffsetY = 8 * scale;
   context.beginPath();
   context.moveTo(left + radius, top);
   if (below) {
@@ -329,7 +330,7 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.shadowBlur = 0;
   context.shadowOffsetY = 0;
   context.stroke();
-  context.fillStyle = '#10233f';
+  context.fillStyle = '#ffffff';
   context.textBaseline = 'middle';
   context.textAlign = 'left';
   context.fillText(label, left + paddingX, top + height / 2);
