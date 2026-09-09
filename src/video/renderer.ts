@@ -33,6 +33,9 @@ export interface RenderVideoOptions {
   routeMarkerMode?: RouteMarkerMode;
   cameraMode?: VideoCameraMode;
   followZoomPreset?: FollowZoomPreset;
+  followCustomZoom?: number;
+  overviewZoomMode?: 'auto' | 'custom';
+  overviewCustomZoom?: number;
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
   duration: number;
@@ -67,6 +70,11 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const bounds = new maplibregl.LngLatBounds();
     options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
     map.fitBounds(bounds, { padding: 100, maxZoom: 16, duration: 0 });
+    if (options.overviewZoomMode === 'custom') {
+      const zoom = options.overviewCustomZoom ?? 10;
+      if (!Number.isFinite(zoom) || zoom < 4 || zoom > 16) throw new Error('Zoomは4.0〜16.0で指定してください。');
+      map.jumpTo({ center: map.getCenter(), zoom, bearing: 0, pitch: 0 });
+    }
     if (isLowZoomMapView(map.getZoom())) {
       await waitForLowZoomVisualReady(map, 20_000);
     } else {
@@ -446,7 +454,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
-  const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration);
+  const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration, options.followCustomZoom);
   const initialPlayback = sampleFollowPlayback(plan, 0);
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });

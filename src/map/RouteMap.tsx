@@ -53,6 +53,8 @@ interface RouteMapProps {
   introZoomEnabled: boolean;
   revealRoute: boolean;
   cameraMode: VideoCameraMode;
+  overviewZoomMode: 'auto' | 'custom';
+  overviewCustomZoom: number;
   followCameraPlan: FollowCameraPlan | null;
   onSelectPoint: (id: string | null) => void;
   onSelectRaw: (point: RawPosition | null) => void;
@@ -258,7 +260,7 @@ export default function RouteMap(props: RouteMapProps) {
         map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: preview.zoom, bearing: 0, pitch: 0 });
       }
       refreshMap(map, propsRef.current, preview);
-      if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) fitRoute(map, propsRef.current.animationPoints, 0);
+      if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) applyOverviewPreviewCamera(map, propsRef.current);
       else if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
       else if (!previewing && propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
       wasPreviewingRef.current = previewing;
@@ -334,7 +336,7 @@ export default function RouteMap(props: RouteMapProps) {
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     updateMapDiagnostics(map, props.points);
-    if (previewStarting && !props.introZoomEnabled && !preview?.cameraCenter) fitRoute(map, props.animationPoints, 0);
+    if (previewStarting && !props.introZoomEnabled && !preview?.cameraCenter) applyOverviewPreviewCamera(map, props);
     if (previewEnding && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
     wasPreviewingRef.current = isPreviewing;
     if (previewEnding) {
@@ -487,7 +489,17 @@ function getPreviewTargetCamera(map: MapLibreMap, props: RouteMapProps): MapCame
   }
   if (!props.animationPoints.length) return null;
   fitRoute(map, props.animationPoints, 0);
-  return captureMapCamera(map);
+  const camera = captureMapCamera(map);
+  return { ...camera, zoom: props.overviewZoomMode === 'custom' ? props.overviewCustomZoom : camera.zoom };
+}
+
+function applyOverviewPreviewCamera(map: MapLibreMap, props: RouteMapProps) {
+  if (props.overviewZoomMode !== 'custom') {
+    fitRoute(map, props.animationPoints, 0);
+    return;
+  }
+  const target = getPreviewTargetCamera(map, props);
+  if (target) restoreMapCamera(map, target);
 }
 
 function applyIntroPreviewCamera(map: MapLibreMap, target: MapCameraSnapshot, introProgress: number | null) {

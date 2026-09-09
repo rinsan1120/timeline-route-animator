@@ -2,7 +2,7 @@ import type { RoutePoint } from '../timeline/types';
 import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses } from '../route/tripRoute';
 
 export type VideoCameraMode = 'overview' | 'follow';
-export type FollowZoomPreset = 'wide' | 'standard' | 'close';
+export type FollowZoomPreset = 'wide' | 'standard' | 'close' | 'custom';
 export type FollowPlaybackPhase = 'moving' | 'camera-pan' | 'day-transition';
 
 export interface GeoPosition {
@@ -46,7 +46,7 @@ export interface FollowCameraPlan {
 
 export const FOLLOW_VIEWPORT = { width: 1920, height: 1080 } as const;
 
-export const FOLLOW_ZOOM_BY_PRESET: Record<FollowZoomPreset, number> = {
+export const FOLLOW_ZOOM_BY_PRESET: Record<Exclude<FollowZoomPreset, 'custom'>, number> = {
   wide: 8,
   standard: 10,
   close: 12,
@@ -71,9 +71,10 @@ const PAN_RIGHT = 2;
 const PAN_TOP = 4;
 const PAN_BOTTOM = 8;
 
-export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPreset, duration: number): FollowCameraPlan {
+export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPreset, duration: number, customZoom = 10): FollowCameraPlan {
   if (!points.length) throw new Error('ルート追従にはルートが必要です。');
-  const zoom = FOLLOW_ZOOM_BY_PRESET[preset];
+  const zoom = preset === 'custom' ? customZoom : FOLLOW_ZOOM_BY_PRESET[preset];
+  if (!Number.isFinite(zoom) || zoom < 4 || zoom > 16) throw new Error('Zoomは4.0〜16.0で指定してください。');
   const worldSize = 512 * 2 ** zoom;
   const arrivals = tripRoutePointProgresses(points);
   const segments = splitRouteByDay(points);
