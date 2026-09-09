@@ -13,6 +13,7 @@ vi.mock('maplibre-gl', () => ({
   Map: class {
     options: any;
     fitBounds = vi.fn();
+    getZoom = vi.fn(() => 10);
     project = vi.fn(() => ({ x: 100, y: 100 }));
     getCanvas = vi.fn(() => 'map-canvas');
     remove = vi.fn();
@@ -21,6 +22,7 @@ vi.mock('maplibre-gl', () => ({
     loaded = () => false;
     areTilesLoaded = () => false;
     once = vi.fn((_event: string, callback: () => void) => queueMicrotask(callback));
+    off = vi.fn();
     constructor(options: any) { this.options = options; mocks.maps.push(this); }
   },
   LngLatBounds: class { extend() {} },
