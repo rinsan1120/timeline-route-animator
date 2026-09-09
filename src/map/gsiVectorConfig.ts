@@ -164,7 +164,7 @@ export const GSI_VECTOR_CONFIG = {
     // 国道番号の表示を開始するZoom。小さい値ほど広域表示から見える。
     // タイルに対象地物が含まれないZoomでは、この値を下げても表示されない。
     // ブラウザ地図左下の「Zoom x.x」を確認しながら調整する。
-    nationalRouteNumberMinZoom: 8,
+    nationalRouteNumberMinZoom: 4,
     // 高速道路・都市高速道路番号（transp.ftCode === 2903/2904）の公式レイヤ群を表示するか。
     showExpresswayRouteNumbers: true,
     // 公式spriteの道路番号icon-size倍率。1で公式値、大きくすると各Zoom帯の差を保ったまま大きくなる。
@@ -185,7 +185,7 @@ export const GSI_VECTOR_CONFIG = {
     // 道路名の公式注記レイヤを表示するか。falseでも道路番号は別設定で残せる。
     showRoadNames: true,
     // 鉄道路線名・駅名の公式注記レイヤを表示するか。
-    showRailwayNames: true,
+    showRailwayNames: false,
   },
 
   visibility: {
