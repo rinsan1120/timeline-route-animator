@@ -5,11 +5,13 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
+import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
+const styleReadyMaps = new WeakSet<maplibregl.Map>();
 export const VIDEO_FPS = 30;
 export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
 export const POST_ROLL_SECONDS = 3;
@@ -64,11 +66,15 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const bounds = new maplibregl.LngLatBounds();
     options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
     map.fitBounds(bounds, { padding: 100, maxZoom: 16, duration: 0 });
-    try {
-      await waitForIdle(map, 20_000);
-    } catch {
-      map.setStyle(FALLBACK_STYLE);
-      await waitForStyle(map, 5_000);
+    if (isLowZoomMapView(map.getZoom())) {
+      await waitForLowZoomVisualReady(map, 20_000);
+    } else {
+      try {
+        await waitForIdle(map, 20_000);
+      } catch {
+        map.setStyle(FALLBACK_STYLE);
+        await waitForStyle(map, 5_000);
+      }
     }
     map.triggerRepaint();
     await nextPaint();
@@ -95,6 +101,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const targetCenter = map.getCenter();
       const targetZoom = map.getZoom();
       const startZoom = getIntroStartZoom(targetZoom, map.getMinZoom());
+      map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
+      if (isLowZoomMapView(startZoom)) await waitForLowZoomVisualReady(map, 20_000);
+      else await waitForFollowMap(map, 20_000);
       const introPlayback: FollowPlaybackState = {
         phase: 'moving',
         routeProgress: 0,
@@ -110,14 +119,15 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         const introProgress = preFrames <= 1 ? 1 : frame / (preFrames - 1);
         const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
         map.jumpTo({ center: targetCenter, zoom, bearing: 0, pitch: 0 });
-        await waitForFollowMap(map, 20_000);
+        await waitForRenderedMapFrame(map, 20_000);
         drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
       map.jumpTo({ center: targetCenter, zoom: targetZoom, bearing: 0, pitch: 0 });
-      await waitForFollowMap(map, 20_000);
+      if (isLowZoomMapView(targetZoom)) await waitForLowZoomVisualReady(map, 20_000);
+      else await waitForFollowMap(map, 20_000);
     }
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
@@ -455,7 +465,13 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   let background: ImageBitmap | null = null;
   try {
     await waitForStyle(map, 20_000);
-    await waitForFollowMap(map, 20_000);
+    let lowZoomPrewarmed = false;
+    if (isLowZoomMapView(map.getZoom())) {
+      await waitForLowZoomVisualReady(map, 20_000);
+      lowZoomPrewarmed = true;
+    } else {
+      await waitForFollowMap(map, 20_000);
+    }
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
@@ -496,7 +512,16 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
       const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
       if (!background || nextBackgroundKey !== backgroundKey) {
         map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
-        await waitForFollowMap(map, 20_000);
+        if (isLowZoomMapView(playback.zoom)) {
+          if (!lowZoomPrewarmed) {
+            await waitForLowZoomVisualReady(map, 20_000);
+            lowZoomPrewarmed = true;
+          } else {
+            await waitForRenderedMapFrame(map, 20_000);
+          }
+        } else {
+          await waitForFollowMap(map, 20_000);
+        }
         context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
         const nextBackground = await createImageBitmap(canvas);
         background?.close();
@@ -598,6 +623,65 @@ function isInVideoViewport(point: { x: number; y: number }): boolean {
   return point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
 }
 
+function isLowZoomMapView(zoom: number): boolean {
+  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_VECTOR_CONFIG.lowZoomLand.maxZoom;
+}
+
+async function waitForRenderedMapFrame(map: maplibregl.Map, timeout: number): Promise<void> {
+  // style.load完了後のタイル取得を、スタイル自体の未ロードと混同しない。
+  if (!styleReadyMaps.has(map)) await waitForStyle(map, timeout);
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      map.off('render', onRender);
+    };
+    const onRender = () => {
+      cleanup();
+      resolve();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('動画用地図を描画できませんでした。'));
+    }, timeout);
+    map.on('render', onRender);
+    try {
+      map.triggerRepaint();
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+  await nextPaint();
+}
+
+async function waitForLowZoomVisualReady(map: maplibregl.Map, timeout: number): Promise<void> {
+  if (!styleReadyMaps.has(map)) await waitForStyle(map, timeout);
+  if (!(map.loaded() && map.areTilesLoaded())) {
+    // 初回Range Requestに猶予を与えるが、全タイルの完了は必須にしない。
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        map.off('idle', onReady);
+        map.off('render', onRender);
+      };
+      const onReady = () => { cleanup(); resolve(); };
+      const onRender = () => {
+        if (map.loaded() && map.areTilesLoaded()) onReady();
+      };
+      const timer = window.setTimeout(onReady, Math.min(timeout, 2_500));
+      map.on('idle', onReady);
+      map.on('render', onRender);
+      try {
+        map.triggerRepaint();
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    });
+  }
+  await waitForRenderedMapFrame(map, timeout);
+}
+
 function waitForFollowMap(map: maplibregl.Map, timeout: number): Promise<void> {
   if (map.loaded() && map.areTilesLoaded()) {
     map.triggerRepaint();
@@ -636,10 +720,26 @@ function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {
 }
 
 function waitForStyle(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (map.isStyleLoaded()) return Promise.resolve();
+  styleReadyMaps.delete(map);
+  if (map.isStyleLoaded()) {
+    styleReadyMaps.add(map);
+    return Promise.resolve();
+  }
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('動画用地図を準備できませんでした。')), timeout);
-    map.once('style.load', () => { window.clearTimeout(timer); resolve(); });
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      map.off('style.load', onLoad);
+    };
+    const onLoad = () => {
+      cleanup();
+      styleReadyMaps.add(map);
+      resolve();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('動画用地図を準備できませんでした。'));
+    }, timeout);
+    map.once('style.load', onLoad);
   });
 }
 
