@@ -4,7 +4,7 @@ import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
@@ -111,8 +111,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const targetZoom = map.getZoom();
       const startZoom = getIntroStartZoom(targetZoom, map.getMinZoom());
       map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
-      if (isLowZoomMapView(startZoom)) await waitForLowZoomVisualReady(map, 20_000);
-      else await waitForPrimaryVectorReady(map, 20_000);
+      let previousBandKey: string | null = null;
       const introPlayback: FollowPlaybackState = {
         phase: 'moving',
         routeProgress: 0,
@@ -128,15 +127,20 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         const introProgress = preFrames <= 1 ? 1 : frame / (preFrames - 1);
         const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
         map.jumpTo({ center: targetCenter, zoom, bearing: 0, pitch: 0 });
-        await waitForRenderedMapFrame(map, 20_000);
+        const bandKey = introZoomBandKey(zoom);
+        if (bandKey !== previousBandKey) {
+          await waitForIntroZoomBandReady(map, zoom, 20_000);
+          previousBandKey = bandKey;
+        } else {
+          await waitForRenderedMapFrame(map, 20_000);
+        }
         drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
       map.jumpTo({ center: targetCenter, zoom: targetZoom, bearing: 0, pitch: 0 });
-      if (isLowZoomMapView(targetZoom)) await waitForLowZoomVisualReady(map, 20_000);
-      else await waitForPrimaryVectorReady(map, 20_000);
+      await waitForIntroZoomBandReady(map, targetZoom, 20_000);
     }
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     const background = await createImageBitmap(canvas);
@@ -501,6 +505,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     const animationFrames = options.duration * VIDEO_FPS;
     const total = outputVideoFrameCount(options.duration);
     let backgroundKey = '';
+    let previousIntroBandKey: string | null = null;
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
@@ -520,9 +525,20 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         }
         : sampleFollowPlayback(plan, elapsedSeconds);
       const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
-      if (!background || nextBackgroundKey !== backgroundKey) {
+      const introFrame = options.introZoomEnabled && frame < preFrames;
+      const lastIntroFrame = introFrame && frame === preFrames - 1;
+      if (!background || nextBackgroundKey !== backgroundKey || lastIntroFrame) {
         map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
-        if (isLowZoomMapView(playback.zoom)) {
+        if (introFrame) {
+          const bandKey = introZoomBandKey(playback.zoom);
+          if (bandKey !== previousIntroBandKey || lastIntroFrame) {
+            await waitForIntroZoomBandReady(map, playback.zoom, 20_000);
+            previousIntroBandKey = bandKey;
+            if (isLowZoomMapView(playback.zoom)) lowZoomPrewarmed = true;
+          } else {
+            await waitForRenderedMapFrame(map, 20_000);
+          }
+        } else if (isLowZoomMapView(playback.zoom)) {
           if (!lowZoomPrewarmed) {
             await waitForLowZoomVisualReady(map, 20_000);
             lowZoomPrewarmed = true;
@@ -693,10 +709,23 @@ async function waitForLowZoomVisualReady(map: maplibregl.Map, timeout: number): 
 }
 
 async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): Promise<void> {
-  // view変更を反映してから、そのviewのメインsourceだけを確認する。
+  await waitForMapSourceReady(map, GSI_OFFICIAL_SOURCE_ID, timeout);
+}
+
+function introZoomBandKey(zoom: number): string {
+  return `${isLowZoomMapView(zoom) ? 'low' : 'main'}:${Math.floor(zoom)}`;
+}
+
+async function waitForIntroZoomBandReady(map: maplibregl.Map, zoom: number, timeout: number): Promise<void> {
+  await waitForPrimaryVectorReady(map, timeout);
+  if (isLowZoomMapView(zoom)) await waitForMapSourceReady(map, GSI_LOW_ZOOM_LAND_SOURCE_ID, timeout);
+}
+
+async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, timeout: number): Promise<void> {
+  // view変更を反映してから、指定sourceだけの準備完了を確認する。
   await waitForRenderedMapFrame(map, timeout);
-  if (!map.getSource(GSI_OFFICIAL_SOURCE_ID)) {
-    throw new Error('動画用のメイン地図データが見つかりません。');
+  if (!map.getSource(sourceId)) {
+    throw new Error(`動画用の地図データが見つかりません（${sourceId}）。`);
   }
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -706,7 +735,7 @@ async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): 
     };
     const checkReady = () => {
       try {
-        if (map.getSource(GSI_OFFICIAL_SOURCE_ID) && map.isSourceLoaded(GSI_OFFICIAL_SOURCE_ID)) {
+        if (map.getSource(sourceId) && map.isSourceLoaded(sourceId)) {
           cleanup();
           resolve();
         }
@@ -717,7 +746,7 @@ async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): 
     };
     const timer = window.setTimeout(() => {
       cleanup();
-      reject(new Error('動画用のメイン地図データの読み込みがタイムアウトしました。'));
+      reject(new Error(`動画用の地図データの読み込みがタイムアウトしました（${sourceId}）。`));
     }, timeout);
     map.on('sourcedata', checkReady);
     map.on('render', checkReady);

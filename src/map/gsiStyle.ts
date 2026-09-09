@@ -12,7 +12,7 @@ type MutableLayer = StyleLayer & {
 };
 
 const { source, lowZoomLand, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
-const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
+export const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
