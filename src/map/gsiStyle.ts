@@ -141,8 +141,14 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
       prefecturalRoad: colors.prefecturalRoad,
       otherRoad: colors.otherRoad,
     };
+    const roadOutlineColors = {
+      motorway: colors.motorwayOutline,
+      nationalRoad: colors.nationalRoadOutline,
+      prefecturalRoad: colors.prefecturalRoadOutline,
+      otherRoad: colors.otherRoadOutline,
+    };
     paint['line-color'] = cloned.metadata?.['line-role'] === 'outline'
-      ? colors.roadOutline
+      ? roadOutlineColors[category]
       : roadColors[category];
   }
   if ((sourceLayer === 'label' || sourceLayer === 'symbol') && cloned.type === 'symbol' && paint['text-color']) {

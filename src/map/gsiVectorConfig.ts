@@ -55,33 +55,39 @@ export const GSI_VECTOR_CONFIG = {
 
   colors: {
     // 地図全体の背景色。明るくするとアプリのオレンジ色ルートが相対的に目立つ。
-    background: '#f7f8f7',
+    background: '#F5F3F2',
     // waterarea・river・lakeに使う水域色。濃くすると海・河川・湖が強調される。
-    water: '#dcecf5',
+    water: '#D9EAF5',
     // coastlineの線色。濃くすると海岸線の輪郭が強く見える。
-    coastline: '#a8c8d8',
-    // road source-layerのmotorway === 1に使う高速道路色。ルート線より控えめな緑系とする。
-    motorway: '#5F8F6B',
-    // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい青灰色とする。
-    nationalRoad: '#587C9A',
-    // road source-layerのrdCtg === 1に使う都道府県道色。国道より一段弱い濃い灰色にする。
-    prefecturalRoad: '#666C72',
-    // road source-layerのその他道路に使う線色。市区町村道や細街路は控えめな灰色とする。
-    otherRoad: '#A8ADB2',
-    // metadataのline-roleがoutlineの道路レイヤに使う輪郭色。道路本体との境界を明確にする。
-    roadOutline: '#555B61',
+    coastline: '#B8D6E5',
+    // road source-layerのmotorway === 1に使う高速道路色。道路網の骨格になる落ち着いた青灰色とする。
+    motorway: '#879FBA',
+    // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡いベージュとする。
+    nationalRoad: '#E8DFC8',
+    // road source-layerのrdCtg === 1に使う都道府県道色。道路網を主張させない淡い青灰色とする。
+    prefecturalRoad: '#D6DDE2',
+    // road source-layerのその他道路に使う線色。市区町村道や細街路を背景へ溶け込ませる。
+    otherRoad: '#E4E8EB',
+    // 高速道路のoutline色。道路本体より一段濃い青灰色とする。
+    motorwayOutline: '#718CA5',
+    // 国道のoutline色。道路本体より一段濃いベージュとする。
+    nationalRoadOutline: '#D1C6AC',
+    // 都道府県道のoutline色。道路本体を穏やかに縁取る淡い青灰色とする。
+    prefecturalRoadOutline: '#C5CED5',
+    // その他道路のoutline色。細街路を強調しすぎない淡い灰色とする。
+    otherRoadOutline: '#D5DBDF',
     // railway source-layerの線色。濃くすると鉄道が道路より強く見えるため控えめにする。
-    railway: '#929ba3',
+    railway: '#929AA1',
     // boundary source-layerの行政界色。濃くすると都道府県界・市区町村界が目立つ。
     boundary: '#9da5ad',
     // label source-layerの都道府県名・市区町村名・主要地名の文字色。
-    placeLabel: '#4c5864',
+    placeLabel: '#596168',
     // label source-layerの山・湖・河川・海等の自然地名の文字色。
     naturalLabel: '#637783',
     // 道路名・鉄道路線名等の交通注記に使う文字色。
-    transportLabel: '#68727c',
+    transportLabel: '#687078',
     // 注記の縁取り色。背景に近づけるほど地名の文字を柔らかく見せられる。
-    labelHalo: '#ffffff',
+    labelHalo: '#FFFFFF',
     // transp source-layerの国道・高速道路番号記号内に使う文字色。spriteの濃い背景上で読める白とする。
     routeNumberText: '#ffffff',
     // visibility.buildingsを有効にした場合のbuilding source-layerの面色。
@@ -99,15 +105,15 @@ export const GSI_VECTOR_CONFIG = {
     },
     nationalRoad: {
       // roadの国道レイヤ群に対する線幅倍率。公式のZoom分割と幅員別の差は変更しない。
-      widthScale: 1,
+      widthScale: 0.9,
     },
     prefecturalRoad: {
       // roadの都道府県道レイヤ群に対する線幅倍率。1より小さくすると国道よりさらに控えめになる。
-      widthScale: 1,
+      widthScale: 0.65,
     },
     otherRoad: {
       // 市区町村道・細街路等の公式レイヤ群に対する線幅倍率。Zoomごとの出し分けは公式定義を維持する。
-      widthScale: 1,
+      widthScale: 0.55,
     },
   },
 
@@ -115,7 +121,7 @@ export const GSI_VECTOR_CONFIG = {
     // river / lake / coastlineの公式線幅倍率。大きくすると水系の線が全Zoom帯で太くなる。
     waterWidthScale: 1,
     // railway source-layerの公式線幅倍率。大きくすると公式の複線・トンネル等の構成を保ったまま太くなる。
-    railwayWidthScale: 1,
+    railwayWidthScale: 0.8,
     // boundary source-layerの公式線幅倍率。大きくすると都道府県界・市区町村界が強くなる。
     boundaryWidthScale: 1,
   },
