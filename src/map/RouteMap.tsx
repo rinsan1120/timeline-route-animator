@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
+import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent, MapSourceDataEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type DayMarker } from '../route/tripRoute';
 import { GSI_STYLE } from './gsiStyle';
+import { GSI_OFFICIAL_SOURCE_ID } from './gsiOfficialStyle';
 import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import type { AnnotationStyle } from '../route/annotationStyle';
@@ -63,6 +64,28 @@ interface MapCameraSnapshot {
   pitch: number;
 }
 
+const GSI_DIAGNOSTIC_SOURCE_LAYERS = ['road', 'waterarea', 'river', 'label', 'symbol', 'railway', 'boundary'] as const;
+const GSI_RENDER_LAYER_IDS = GSI_STYLE.layers.flatMap((layer) => (
+  (layer as { source?: string }).source === GSI_OFFICIAL_SOURCE_ID ? [layer.id] : []
+));
+
+type GsiDiagnosticValue = number | 'N/A';
+type GsiSourceStatus = 'loaded' | 'loading' | 'N/A';
+
+interface GsiDiagnostics {
+  source: GsiSourceStatus;
+  rendered: GsiDiagnosticValue;
+  sourceFeatures: Record<(typeof GSI_DIAGNOSTIC_SOURCE_LAYERS)[number], GsiDiagnosticValue>;
+  lastError: string;
+}
+
+const INITIAL_GSI_DIAGNOSTICS: GsiDiagnostics = {
+  source: 'loading',
+  rendered: 'N/A',
+  sourceFeatures: Object.fromEntries(GSI_DIAGNOSTIC_SOURCE_LAYERS.map((sourceLayer) => [sourceLayer, 'N/A'])) as GsiDiagnostics['sourceFeatures'],
+  lastError: 'None',
+};
+
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGPathElement>(null);
@@ -76,6 +99,7 @@ export default function RouteMap(props: RouteMapProps) {
   const previewTargetCameraRef = useRef<MapCameraSnapshot | null>(null);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapZoom, setMapZoom] = useState(10);
+  const [gsiDiagnostics, setGsiDiagnostics] = useState<GsiDiagnostics>(INITIAL_GSI_DIAGNOSTICS);
   const propsRef = useRef(props);
   propsRef.current = props;
   const isPreviewing = props.previewProgress !== null;
@@ -96,6 +120,36 @@ export default function RouteMap(props: RouteMapProps) {
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     };
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
+    const updateGsiDiagnostics = () => {
+      const next = collectGsiDiagnostics(map);
+      setGsiDiagnostics((current) => diagnosticsMatch(current, next) ? current : { ...current, ...next });
+    };
+    let diagnosticsTimer: number | null = null;
+    const scheduleGsiDiagnostics = () => {
+      if (diagnosticsTimer !== null) return;
+      diagnosticsTimer = window.setTimeout(() => {
+        diagnosticsTimer = null;
+        updateGsiDiagnostics();
+      }, 100);
+    };
+    const handleGsiSourceData = (event: MapSourceDataEvent) => {
+      if (event.sourceId === GSI_OFFICIAL_SOURCE_ID) scheduleGsiDiagnostics();
+    };
+    let genericMapErrorReported = false;
+    const handleMapError = (event: ErrorEvent) => {
+      if (!event.error) return;
+      const details = describeMapLibreError(event.error);
+      console.error(`[GSI MapLibre error]\n${details.consoleText}`);
+      setGsiDiagnostics((current) => current.lastError === details.displayText
+        ? current
+        : { ...current, lastError: details.displayText });
+      scheduleGsiDiagnostics();
+      if (!genericMapErrorReported) {
+        genericMapErrorReported = true;
+        // Keep the vector source and editable layers alive after individual tile failures.
+        propsRef.current.onError('地図の一部を読み込めませんでした。ネットワーク接続を確認してください。');
+      }
+    };
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
       redrawOverlay();
@@ -139,17 +193,17 @@ export default function RouteMap(props: RouteMapProps) {
       }
       redrawOverlay();
       updateZoomDisplay();
+      scheduleGsiDiagnostics();
       if (!firstLoad) map.triggerRepaint();
     };
     map.on('style.load', initializeMap);
     map.on('move', redrawOverlay);
     map.on('zoom', updateZoomDisplay);
-    map.on('error', (event: ErrorEvent) => {
-      if (event.error) {
-        // Keep the vector source and editable layers alive after individual tile failures.
-        propsRef.current.onError('地図の一部を読み込めませんでした。ネットワーク接続を確認してください。');
-      }
-    });
+    map.on('sourcedata', handleGsiSourceData);
+    map.on('idle', scheduleGsiDiagnostics);
+    map.on('moveend', scheduleGsiDiagnostics);
+    map.on('zoomend', scheduleGsiDiagnostics);
+    map.on('error', handleMapError);
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {
       const id = event.features?.[0]?.properties?.id;
       if (typeof id === 'string') propsRef.current.onSelectPoint(id);
@@ -177,10 +231,16 @@ export default function RouteMap(props: RouteMapProps) {
     });
     return () => {
       window.clearTimeout(loadTimeout);
+      if (diagnosticsTimer !== null) window.clearTimeout(diagnosticsTimer);
       resizeObserver.disconnect();
       map.off('style.load', initializeMap);
       map.off('move', redrawOverlay);
       map.off('zoom', updateZoomDisplay);
+      map.off('sourcedata', handleGsiSourceData);
+      map.off('idle', scheduleGsiDiagnostics);
+      map.off('moveend', scheduleGsiDiagnostics);
+      map.off('zoomend', scheduleGsiDiagnostics);
+      map.off('error', handleMapError);
       selectedMarkerRef.current?.remove();
       map.remove();
       mapRef.current = null;
@@ -266,11 +326,78 @@ export default function RouteMap(props: RouteMapProps) {
     </svg>}
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />
+    <div className="gsi-diagnostics" aria-live="polite">
+      <strong>GSI DIAG</strong>
+      <span>Source: {gsiDiagnostics.source}</span>
+      <span>Rendered: {gsiDiagnostics.rendered}</span>
+      <span className="gsi-diagnostics__features">
+        {GSI_DIAGNOSTIC_SOURCE_LAYERS.map((sourceLayer) => <span key={sourceLayer}>{sourceLayer}: {gsiDiagnostics.sourceFeatures[sourceLayer]}</span>)}
+      </span>
+      <span className="gsi-diagnostics__error">Last error:{'\n'}{gsiDiagnostics.lastError}</span>
+    </div>
     <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
   </>;
+}
+
+function collectGsiDiagnostics(map: MapLibreMap): Pick<GsiDiagnostics, 'source' | 'rendered' | 'sourceFeatures'> {
+  let source: GsiSourceStatus = 'N/A';
+  try {
+    source = map.getSource(GSI_OFFICIAL_SOURCE_ID)
+      ? (map.isSourceLoaded(GSI_OFFICIAL_SOURCE_ID) ? 'loaded' : 'loading')
+      : 'N/A';
+  } catch {
+    source = 'N/A';
+  }
+
+  // querySourceFeaturesは現在ロード済みタイルだけを数えるため、0でもsource-layerが存在しないとは断定できない。
+  const sourceFeatures = Object.fromEntries(GSI_DIAGNOSTIC_SOURCE_LAYERS.map((sourceLayer) => {
+    try {
+      return [sourceLayer, map.querySourceFeatures(GSI_OFFICIAL_SOURCE_ID, { sourceLayer }).length];
+    } catch {
+      return [sourceLayer, 'N/A'];
+    }
+  })) as GsiDiagnostics['sourceFeatures'];
+
+  let rendered: GsiDiagnosticValue = 'N/A';
+  try {
+    const availableLayerIds = GSI_RENDER_LAYER_IDS.filter((layerId) => Boolean(map.getLayer(layerId)));
+    rendered = availableLayerIds.length
+      ? map.queryRenderedFeatures({ layers: availableLayerIds }).length
+      : 'N/A';
+  } catch {
+    rendered = 'N/A';
+  }
+  return { source, rendered, sourceFeatures };
+}
+
+function diagnosticsMatch(
+  current: GsiDiagnostics,
+  next: Pick<GsiDiagnostics, 'source' | 'rendered' | 'sourceFeatures'>,
+): boolean {
+  return current.source === next.source
+    && current.rendered === next.rendered
+    && GSI_DIAGNOSTIC_SOURCE_LAYERS.every((sourceLayer) => current.sourceFeatures[sourceLayer] === next.sourceFeatures[sourceLayer]);
+}
+
+function describeMapLibreError(error: unknown): { consoleText: string; displayText: string } {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : null;
+  const name = error instanceof Error ? error.name : typeof record?.name === 'string' ? record.name : 'UnknownError';
+  const message = error instanceof Error ? error.message : typeof record?.message === 'string' ? record.message : String(error);
+  const details = [`name: ${name}`, `message: ${message}`];
+  for (const key of ['url', 'status', 'statusCode', 'code', 'type']) {
+    const value = record?.[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') details.push(`${key}: ${value}`);
+  }
+  const stack = error instanceof Error ? error.stack : typeof record?.stack === 'string' ? record.stack : undefined;
+  if (stack) details.push(`stack: ${stack}`);
+  const consoleText = details.join('\n');
+  return {
+    consoleText,
+    displayText: consoleText.length > 800 ? `${consoleText.slice(0, 800)}…` : consoleText,
+  };
 }
 
 function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
