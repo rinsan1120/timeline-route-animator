@@ -82,9 +82,9 @@ export const GSI_VECTOR_CONFIG = {
     // road source-layerのmotorway === 1に使う高速道路色。道路網の骨格になる落ち着いた青灰色とする。
     motorway: '#879FBA',
     // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡いベージュとする。
-    nationalRoad: '#E8DFC8',
+    nationalRoad: '#eccd7f',
     // road source-layerのrdCtg === 1に使う都道府県道色。道路網を主張させない淡い青灰色とする。
-    prefecturalRoad: '#D6DDE2',
+    prefecturalRoad: '#cfdbe4',
     // road source-layerのその他道路に使う線色。市区町村道や細街路を背景へ溶け込ませる。
     otherRoad: '#E4E8EB',
     // 高速道路のoutline色。道路本体より一段濃い青灰色とする。
