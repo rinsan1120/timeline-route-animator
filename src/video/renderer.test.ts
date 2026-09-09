@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
+import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -78,7 +79,7 @@ describe('GSI Vector video background', () => {
     const actualNationalRouteNumber = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
     expect(actualNationalRouteNumber).toMatchObject({
       filter: officialNationalRouteNumber?.filter,
-      minzoom: officialNationalRouteNumber?.minzoom,
+      minzoom: GSI_VECTOR_CONFIG.labels.nationalRouteNumberMinZoom,
       maxzoom: officialNationalRouteNumber?.maxzoom,
       layout: officialNationalRouteNumber?.layout,
     });
