@@ -312,7 +312,6 @@ export default function RouteMap(props: RouteMapProps) {
       if (propsRef.current.animationRangeMode) {
         const nearest = findNearestRoutePoint(map, propsRef.current.points, event.point);
         propsRef.current.onSelectPoint(nearest?.id ?? null);
-        propsRef.current.onSelectRaw(null);
         return;
       }
       if (propsRef.current.editMode && !propsRef.current.addMode) {

@@ -458,11 +458,6 @@ export default function App() {
     }
   };
 
-  const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, dayMarkerPlacements, endpointMarkerPlacements, workspaceMode, planDayStarts, planDayNotes, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
-  };
-
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -644,7 +639,6 @@ export default function App() {
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <a className="download-button" href={videoUrl} download={`route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`}>MP4を保存</a>}
-            {points.length > 0 && <button className="text-button" onClick={downloadProject}>編集プロジェクトJSONを保存</button>}
           </section>
         </aside>
 
@@ -675,12 +669,3 @@ function RawDetail({ point, onClose }: { point: RawPosition; onClose: () => void
 }
 
 function formatTimestamp(timestamp: string) { return timestamp.replace('T', ' ').replace(/\.\d{3}/, ''); }
-
-function downloadBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
