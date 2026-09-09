@@ -151,7 +151,7 @@ export const GSI_VECTOR_CONFIG = {
 
   lines: {
     // river / lake / coastlineの公式線幅倍率。大きくすると水系の線が全Zoom帯で太くなる。
-    waterWidthScale: 0.5,
+    waterWidthScale: 0.1,
     // railway source-layerの公式線幅倍率。大きくすると公式の複線・トンネル等の構成を保ったまま太くなる。
     railwayWidthScale: 0.8,
     // boundary source-layerの公式線幅倍率。大きくすると都道府県界・市区町村界が強くなる。
