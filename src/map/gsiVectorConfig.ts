@@ -24,7 +24,8 @@
  * Zoom:
  * - 数値が小さいほど広域表示
  * - 数値が大きいほど拡大表示
- * - minZoomを大きくすると、より拡大するまで表示されなくなる
+ * - 公式スタイルは同じ種類の地物もZoom帯ごとに複数レイヤに分割されている
+ * - カテゴリ全体を単一のminZoomで制御せず、公式のminzoom / maxzoomを維持する
  * - ブラウザ地図左下の「Zoom x.x」を確認しながら調整できる
  */
 
@@ -44,6 +45,12 @@ export const GSI_VECTOR_CONFIG = {
     attributionHtml: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>',
     // MP4左下へ描画する短い出典文字列。CanvasではHTMLを使用しない。
     attributionText: '国土地理院',
+  },
+
+  appearance: {
+    // falseで公式std.jsonの色をそのまま使う。trueで下のcolorsを安全に分類できるレイヤだけへ適用する。
+    // まず公式スタイルの表示を優先するため、初期値はfalseとする。
+    useCustomPalette: false,
   },
 
   colors: {
@@ -85,124 +92,53 @@ export const GSI_VECTOR_CONFIG = {
 
   roads: {
     motorway: {
-      // 高速道路を表示し始めるZoom。大きくすると、より拡大するまで高速道路が表示されない。
-      minZoom: 4,
-      // 高速道路の広域時の線幅。大きくすると低Zoomでも高速道路が太く見える。
-      widthAtMinZoom: 1.0,
-      // 高速道路のZoom 18時の線幅。大きくすると拡大時の高速道路が太く見える。
-      widthAtZoom18: 5.0,
+      // 公式スタイルの高速道路線幅倍率。1で公式値、大きくすると各Zoom帯の相対関係を保ったまま太くなる。
+      widthScale: 1,
     },
     nationalRoad: {
-      // 国道（road.rdCtg === 0）を表示し始めるZoom。大きくすると国道の表示開始が遅くなる。
-      minZoom: 8,
-      // 国道の表示開始Zoom時の線幅。大きくすると国道が一般道より目立つ。
-      widthAtMinZoom: 1.5,
-      // 国道のZoom 18時の線幅。大きくすると拡大時の国道が太く見える。
-      widthAtZoom18: 4.5,
+      // roadの国道レイヤ群に対する線幅倍率。公式のZoom分割と幅員別の差は変更しない。
+      widthScale: 1,
     },
     prefecturalRoad: {
-      // 都道府県道（road.rdCtg === 1）を表示し始めるZoom。大きくすると広域地図が簡潔になる。
-      minZoom: 10,
-      // 都道府県道の表示開始Zoom時の線幅。国道より細くして優先度を一段下げる。
-      widthAtMinZoom: 1.0,
-      // 都道府県道のZoom 18時の線幅。大きくすると拡大時の県道が太く見える。
-      widthAtZoom18: 3.5,
+      // roadの都道府県道レイヤ群に対する線幅倍率。1より小さくすると国道よりさらに控えめになる。
+      widthScale: 1,
     },
     otherRoad: {
-      // 幅員が比較的大きい市区町村道等を表示し始めるZoom。大きくすると背景が簡潔になる。
-      minZoom: 13,
-      // その他道路の表示開始Zoom時の線幅。大きくすると一般道が強く見える。
-      widthAtMinZoom: 0.7,
-      // その他道路のZoom 18時の線幅。大きくすると拡大時の一般道が太く見える。
-      widthAtZoom18: 2.5,
-    },
-    fineStreet: {
-      // 細街路（road.rnkWidthが小さい道路）を表示し始めるZoom。大きくすると、より拡大するまで表示されない。
-      minZoom: 15,
-      // 細街路の表示開始Zoom時の線幅。大きくすると細街路の密度感が強くなる。
-      widthAtMinZoom: 0.5,
-      // 細街路のZoom 18時の線幅。大きくすると最大拡大付近で細街路が太くなる。
-      widthAtZoom18: 1.5,
+      // 市区町村道・細街路等の公式レイヤ群に対する線幅倍率。Zoomごとの出し分けは公式定義を維持する。
+      widthScale: 1,
     },
   },
 
   lines: {
-    // river source-layerの線幅。大きくすると河川が背景上で強く見える。
-    riverWidth: 1.2,
-    // coastline source-layerの線幅。大きくすると海岸線が強調される。
-    coastlineWidth: 1.0,
-    // railway source-layerの表示開始時の線幅。大きくすると鉄道が道路より目立ちやすくなる。
-    railwayWidthAtMinZoom: 0.8,
-    // railway source-layerのZoom 18時の線幅。大きくすると拡大時の鉄道が太くなる。
-    railwayWidthAtZoom18: 2.0,
-    // 都道府県界の線幅。大きくすると都道府県境が強く見える。
-    prefectureBoundaryWidth: 1.2,
-    // 市区町村界の線幅。大きくすると市区町村境が強く見える。
-    municipalityBoundaryWidth: 0.8,
-    // visibility.contoursを有効にした場合の等高線・等深線の線幅。
-    contourWidth: 0.7,
-  },
-
-  features: {
-    // waterarea・river・lake・coastlineを表示し始めるZoom。大きくすると広域時の水系表示が減る。
-    waterMinZoom: 4,
-    // railway source-layerを表示し始めるZoom。大きくすると、より拡大するまで鉄道が表示されない。
-    railwayMinZoom: 6,
-    // 都道府県界（boundary.ftCode === 1211/51212）を表示し始めるZoom。
-    prefectureBoundaryMinZoom: 6,
-    // 市区町村界（boundary.ftCode === 1212）を表示し始めるZoom。大きくすると行政界表示が簡潔になる。
-    municipalityBoundaryMinZoom: 11,
-    // contour source-layerを表示し始めるZoom。visibility.contoursがfalseの間は表示されない。
-    contourMinZoom: 8,
-    // elevation source-layerを表示し始めるZoom。visibility.elevationがfalseの間は表示されない。
-    elevationMinZoom: 6,
-    // building source-layerを表示し始めるZoom。visibility.buildingsがfalseの間は表示されない。
-    buildingMinZoom: 13,
+    // river / lake / coastlineの公式線幅倍率。大きくすると水系の線が全Zoom帯で太くなる。
+    waterWidthScale: 1,
+    // railway source-layerの公式線幅倍率。大きくすると公式の複線・トンネル等の構成を保ったまま太くなる。
+    railwayWidthScale: 1,
+    // boundary source-layerの公式線幅倍率。大きくすると都道府県界・市区町村界が強くなる。
+    boundaryWidthScale: 1,
   },
 
   labels: {
-    // 国道番号（transp.ftCode === 2901）を表示するか。falseで国道番号記号をすべて隠す。
+    // 国道番号（transp.ftCode === 2901）の公式レイヤ群を表示するか。Zoom帯・text-field・icon-imageは公式定義を維持する。
     showNationalRouteNumbers: true,
-    // 国道番号を表示し始めるZoom。大きくすると、より拡大するまで番号が表示されない。
-    nationalRouteNumberMinZoom: 9,
-    // 高速道路・都市高速道路番号（transp.ftCode === 2903/2904）を表示するか。
+    // 高速道路・都市高速道路番号（transp.ftCode === 2903/2904）の公式レイヤ群を表示するか。
     showExpresswayRouteNumbers: true,
-    // 高速道路番号を表示し始めるZoom。大きくすると広域表示で番号が減る。
-    expresswayRouteNumberMinZoom: 8,
-    // 道路番号spriteの表示倍率。大きくすると国道・高速道路番号の記号が大きくなる。
-    routeNumberIconScale: 0.55,
-    // 道路番号内の文字サイズ。大きくすると番号を読み取りやすいが地図を覆いやすくなる。
-    routeNumberTextSize: 10,
-    // 都道府県名（label.annoCtg === 140）を表示するか。falseで都道府県注記を隠す。
+    // 公式spriteの道路番号icon-size倍率。1で公式値、大きくすると各Zoom帯の差を保ったまま大きくなる。
+    routeNumberIconScale: 1,
+    // 公式注記のtext-size倍率。1で公式値。大きくすると地名・道路番号等が全体に大きくなる。
+    textSizeScale: 1,
+    // 都道府県名の公式注記レイヤを表示するか。falseでmetadata.pathが明確に都道府県注記のレイヤだけを除外する。
     showPrefectureNames: true,
-    // 都道府県名を表示し始めるZoom。大きくすると広域時の都道府県名が減る。
-    prefectureNameMinZoom: 8,
-    // 市区町村名（label.annoCtg === 110）を表示するか。falseで市区町村注記を隠す。
+    // 市区町村名の公式注記レイヤを表示するか。Zoom別の注記構成は変更しない。
     showMunicipalityNames: true,
-    // 市区町村名を表示し始めるZoom。大きくすると、より拡大するまで表示されない。
-    municipalityNameMinZoom: 8,
-    // 公称町字名・集落名（label.annoCtg === 210/220/800）を表示するか。
+    // 公称町字名・集落名等の公式注記レイヤを表示するか。
     showMajorPlaceNames: true,
-    // 主要居住地名を表示し始めるZoom。大きくすると背景の地名密度が下がる。
-    majorPlaceNameMinZoom: 13,
-    // 山・湖・河川・海等の主要自然地名を表示するか。falseで自然地名を隠す。
+    // 山・湖・河川・海等の公式注記レイヤを表示するか。
     showNaturalNames: true,
-    // 主要自然地名を表示し始めるZoom。小さくすると広域地図にも自然地名が増える。
-    naturalNameMinZoom: 6,
-    // 道路名（label.annoCtg === 411）を表示するか。falseでも道路番号は別設定で残せる。
+    // 道路名の公式注記レイヤを表示するか。falseでも道路番号は別設定で残せる。
     showRoadNames: true,
-    // 道路名を表示し始めるZoom。大きくすると細かな道路名の表示が遅くなる。
-    roadNameMinZoom: 11,
-    // 鉄道路線名・駅名（label.annoCtg === 421/422）を表示するか。
+    // 鉄道路線名・駅名の公式注記レイヤを表示するか。
     showRailwayNames: true,
-    // 鉄道注記を表示し始めるZoom。大きくすると広域時の鉄道名が減る。
-    railwayNameMinZoom: 11,
-    // 都道府県名の文字サイズ。大きくすると広域地図上で都道府県名が目立つ。
-    prefectureTextSize: 15,
-    // 市区町村名の文字サイズ。大きくすると市区町村名が読みやすくなる。
-    municipalityTextSize: 13,
-    // 主要地名・自然地名・交通注記の基本文字サイズ。大きくすると注記全体が目立つ。
-    generalTextSize: 12,
   },
 
   visibility: {
@@ -214,7 +150,8 @@ export const GSI_VECTOR_CONFIG = {
     buildings: false,
     // landforma/landforml/landformp等の細かな地形表現。falseで湿地・砂礫地・岩・崖等を除外する。
     detailedLandforms: false,
-    // symbol source-layerの専門的地図記号。falseで三角点等、経路把握に不要な記号を除外する。
+    // symbol source-layerのうち、ftCodeで明確に識別できる三角点・水準点・電子基準点の表示。
+    // falseでもsource-layer "symbol"全体は消さず、低Zoomの主要都市等は公式のまま残す。
     mapSymbols: false,
     // railway source-layerの表示。falseで鉄道路線を背景地図から除外する。
     railways: true,

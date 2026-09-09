@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
+import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -54,7 +55,7 @@ describe('GSI Vector video background', () => {
     const map = mocks.maps[0];
     expect(mocks.maps).toHaveLength(1);
     expect(map.options.style).toBe(GSI_STYLE);
-    expect(GSI_STYLE.sources.gsi).toMatchObject({
+    expect(GSI_STYLE.sources[GSI_OFFICIAL_SOURCE_ID]).toMatchObject({
       type: 'vector',
       tiles: ['https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/{z}/{x}/{y}.pbf'],
       minzoom: 4,
@@ -67,6 +68,20 @@ describe('GSI Vector video background', () => {
       expect.objectContaining({ 'source-layer': 'elevation' }),
       expect.objectContaining({ 'source-layer': 'building' }),
     ]));
+    expect(GSI_STYLE.layers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ 'source-layer': 'road' }),
+      expect.objectContaining({ 'source-layer': 'label' }),
+      expect.objectContaining({ 'source-layer': 'symbol' }),
+      expect.objectContaining({ 'source-layer': 'transp' }),
+    ]));
+    const officialNationalRouteNumber = GSI_OFFICIAL_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349') as any;
+    const actualNationalRouteNumber = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
+    expect(actualNationalRouteNumber).toMatchObject({
+      filter: officialNationalRouteNumber?.filter,
+      minzoom: officialNationalRouteNumber?.minzoom,
+      maxzoom: officialNationalRouteNumber?.maxzoom,
+      layout: officialNationalRouteNumber?.layout,
+    });
     expect(map.once.mock.calls.map((call: any[]) => call[0])).toEqual(['style.load', 'idle']);
     expect(map.fitBounds.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[1]);
     expect(map.getCanvas).toHaveBeenCalledTimes(1);
