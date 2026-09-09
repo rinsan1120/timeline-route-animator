@@ -322,7 +322,8 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   const margin = 24;
   const bottom = HEIGHT - 70;
   const width = 300;
-  const height = marker.note ? 134 : 102;
+  const dateHeight = marker.date ? 36 : 0;
+  const height = (marker.note ? 98 : 66) + dateHeight;
   const gap = 42;
   const left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
   const below = marker.pixel.y - height - gap < margin;
@@ -361,13 +362,15 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   context.fillStyle = '#ffffff';
   context.font = '700 36px system-ui, sans-serif';
   context.fillText(`DAY ${marker.dayNumber}`, left + width / 2, top + 34);
-  context.fillStyle = '#cbd7e4';
-  context.font = '24px system-ui, sans-serif';
-  context.fillText(marker.date.replaceAll('-', '.'), left + width / 2, top + 70);
+  if (marker.date) {
+    context.fillStyle = '#cbd7e4';
+    context.font = '24px system-ui, sans-serif';
+    context.fillText(marker.date.replaceAll('-', '.'), left + width / 2, top + 70);
+  }
   if (marker.note) {
     context.fillStyle = '#ffffff';
     context.font = '26px system-ui, sans-serif';
-    context.fillText(truncateCanvasText(context, marker.note, width - 28), left + width / 2, top + 108);
+    context.fillText(truncateCanvasText(context, marker.note, width - 28), left + width / 2, top + 72 + dateHeight);
   }
   context.restore();
 }

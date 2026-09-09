@@ -65,9 +65,9 @@ export default function DayMarkerOverlay({ map, points, animationPoints, markers
   }, [map, visible]);
 
   return <div ref={containerRef} className="day-marker-overlay">
-    {visible.map((marker) => <div key={marker.date} className="day-marker" style={{ visibility: 'hidden' }}>
+    {visible.map((marker) => <div key={marker.pointId} className="day-marker" style={{ visibility: 'hidden' }}>
       <strong>DAY {marker.dayNumber}</strong>
-      <time>{marker.date.replaceAll('-', '.')}</time>
+      {marker.date && <time>{marker.date.replaceAll('-', '.')}</time>}
       {marker.note && <span>{marker.note}</span>}
     </div>)}
   </div>;

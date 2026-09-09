@@ -3,7 +3,7 @@ import { distanceMeters, interpolateRoute, nearestSegmentIndex, routeDistance, r
 
 export interface DayMarker {
   dayNumber: number;
-  date: string;
+  date?: string;
   pointId: string;
   note?: string;
 }
@@ -46,6 +46,19 @@ export function deriveDayMarkers(points: RoutePoint[], notes: Record<string, str
     dates.add(date);
     const note = notes[date]?.trim();
     markers.push({ dayNumber: firstDate ? calendarDayDifference(firstDate, date) + 1 : markers.length + 1, date, pointId: point.id, ...(note ? { note } : {}) });
+  }
+  return markers;
+}
+
+export function derivePlanDayMarkers(points: RoutePoint[], dayStarts: string[], notes: Record<string, string>): DayMarker[] {
+  const starts = new Set(dayStarts);
+  const markers: DayMarker[] = [];
+  // ルート順に走査し、削除中の地点は無視する。IDは保持されるためUndoで境界も復活する。
+  for (const [index, point] of points.entries()) {
+    if (index !== 0 && !starts.has(point.id)) continue;
+    starts.delete(point.id);
+    const note = notes[point.id]?.trim();
+    markers.push({ dayNumber: markers.length + 1, pointId: point.id, ...(note ? { note } : {}) });
   }
   return markers;
 }

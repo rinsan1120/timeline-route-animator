@@ -181,7 +181,7 @@ export const GSI_VECTOR_CONFIG = {
     // 公称町字名・集落名等の公式注記レイヤを表示するか。
     showMajorPlaceNames: true,
     // 山・湖・河川・海等の公式注記レイヤを表示するか。
-    showNaturalNames: true,
+    showNaturalNames: false,
     // 道路名の公式注記レイヤを表示するか。falseでも道路番号は別設定で残せる。
     showRoadNames: true,
     // 鉄道路線名・駅名の公式注記レイヤを表示するか。

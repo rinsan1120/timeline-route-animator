@@ -5,7 +5,7 @@ import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
-import { deriveDayMarkers, tripRouteDistance } from './route/tripRoute';
+import { deriveDayMarkers, derivePlanDayMarkers, tripRouteDistance } from './route/tripRoute';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
@@ -34,6 +34,8 @@ export default function App() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [annotationLabel, setAnnotationLabel] = useState('');
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
+  const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
+  const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
   const [dayMarkerNoteInput, setDayMarkerNoteInput] = useState('');
   const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
@@ -61,14 +63,24 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
-  const dayMarkers = useMemo(() => deriveDayMarkers(points, dayMarkerNotes, startDate), [points, dayMarkerNotes, startDate]);
+  const dayMarkers = useMemo(() => workspaceMode === 'plan'
+    ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
+    : deriveDayMarkers(points, dayMarkerNotes, startDate), [workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
   const selectedDayMarker = dayMarkers.find((marker) => marker.pointId === selectedPointId) ?? null;
+  const selectedPlanDayNumber = useMemo(() => {
+    if (workspaceMode !== 'plan' || !selectedPointId) return null;
+    const selectedIndex = points.findIndex((point) => point.id === selectedPointId);
+    const starts = new Set(dayMarkers.map((marker) => marker.pointId));
+    return 1 + points.slice(0, selectedIndex).filter((point) => starts.has(point.id)).length;
+  }, [workspaceMode, selectedPointId, points, dayMarkers]);
   useEffect(() => {
     setAnnotationLabel(selectedPoint?.annotation?.label ?? '');
   }, [selectedPoint?.id, selectedPoint?.annotation?.label]);
   useEffect(() => {
-    setDayMarkerNoteInput(selectedDayMarker ? dayMarkerNotes[selectedDayMarker.date] ?? '' : '');
-  }, [selectedDayMarker?.date, dayMarkerNotes]);
+    setDayMarkerNoteInput(workspaceMode === 'plan'
+      ? (selectedDayMarker ? planDayNotes[selectedDayMarker.pointId] ?? '' : '')
+      : (selectedDayMarker?.date ? dayMarkerNotes[selectedDayMarker.date] ?? '' : ''));
+  }, [workspaceMode, selectedDayMarker?.pointId, selectedDayMarker?.date, dayMarkerNotes, planDayNotes]);
 
   const saveAnnotation = () => {
     if (!selectedPoint) return;
@@ -98,19 +110,25 @@ export default function App() {
     if (!selectedDayMarker) return;
     const note = dayMarkerNoteInput.trim();
     if (!note || Array.from(note).length > 40) {
-      setError('日付マーカーの補足は1〜40文字で入力してください。');
+      setError(workspaceMode === 'plan' ? 'DAYマーカーの補足は1〜40文字で入力してください。' : '日付マーカーの補足は1〜40文字で入力してください。');
       return;
     }
-    setDayMarkerNotes((current) => ({ ...current, [selectedDayMarker.date]: note }));
+    const key = workspaceMode === 'plan' ? selectedDayMarker.pointId : selectedDayMarker.date;
+    if (!key) return;
+    const setNotes = workspaceMode === 'plan' ? setPlanDayNotes : setDayMarkerNotes;
+    setNotes((current) => ({ ...current, [key]: note }));
     setDayMarkerNoteInput(note);
     setError('');
   };
 
   const removeDayMarkerNote = () => {
     if (!selectedDayMarker) return;
-    setDayMarkerNotes((current) => {
+    const key = workspaceMode === 'plan' ? selectedDayMarker.pointId : selectedDayMarker.date;
+    if (!key) return;
+    const setNotes = workspaceMode === 'plan' ? setPlanDayNotes : setDayMarkerNotes;
+    setNotes((current) => {
       const next = { ...current };
-      delete next[selectedDayMarker.date];
+      delete next[key];
       return next;
     });
     setDayMarkerNoteInput('');
@@ -141,6 +159,8 @@ export default function App() {
         setBusy(false);
       } else if (message.type === 'loaded') {
         setWorkspaceMode('timeline');
+        setPlanDayStarts([]);
+        setPlanDayNotes({});
         setDates(message.dates);
         setStartDate(message.dates[0]);
         setEndDate(message.dates[0]);
@@ -150,6 +170,8 @@ export default function App() {
         worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
       } else {
         setWorkspaceMode('timeline');
+        setPlanDayStarts([]);
+        setPlanDayNotes({});
         dispatch({ type: 'load', points: message.routePoints });
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
@@ -253,6 +275,8 @@ export default function App() {
   const startPlanMode = () => {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
     setWorkspaceMode('plan');
+    setPlanDayStarts([]);
+    setPlanDayNotes({});
     dispatch({ type: 'load', points: [] });
     setDates([]);
     setStartDate('');
@@ -391,7 +415,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, workspaceMode, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, workspaceMode, planDayStarts, planDayNotes, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -460,9 +484,14 @@ export default function App() {
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
                 {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
               </div>}
-              {editMode && routeMarkerMode === 'day' && selectedDayMarker && <div className="day-marker-editor">
-                <strong>DAY {selectedDayMarker.dayNumber} · {selectedDayMarker.date.replaceAll('-', '.')}</strong>
-                <label htmlFor="day-marker-note">日付マーカーの補足（最大40文字）</label>
+              {workspaceMode === 'plan' && editMode && <div className="day-marker-editor plan-day-editor">
+                <strong>計画DAY</strong>
+                {!selectedDayMarker && <button className="secondary-button" onClick={() => setPlanDayStarts((current) => [...new Set([...current, selectedPoint.id])])}>ここからDAY {selectedPlanDayNumber}</button>}
+                {selectedDayMarker && selectedPoint.id !== points[0]?.id && <button className="secondary-button" onClick={() => setPlanDayStarts((current) => current.filter((id) => id !== selectedPoint.id))}>DAY {selectedDayMarker.dayNumber}設定を解除</button>}
+              </div>}
+              {editMode && (workspaceMode === 'plan' || routeMarkerMode === 'day') && selectedDayMarker && <div className="day-marker-editor">
+                <strong>DAY {selectedDayMarker.dayNumber}{selectedDayMarker.date && ` · ${selectedDayMarker.date.replaceAll('-', '.')}`}</strong>
+                <label htmlFor="day-marker-note">{workspaceMode === 'plan' ? 'DAY' : '日付'}マーカーの補足（最大40文字）</label>
                 <input id="day-marker-note" type="text" value={dayMarkerNoteInput} onChange={(event) => setDayMarkerNoteInput(event.currentTarget.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="○○ホテル" />
                 <button className="secondary-button" disabled={!dayMarkerNoteInput.trim() || Array.from(dayMarkerNoteInput.trim()).length > 40} onClick={saveDayMarkerNote}>{selectedDayMarker.note ? '変更' : '設定'}</button>
                 {selectedDayMarker.note && <button className="secondary-button" onClick={removeDayMarkerNote}>削除</button>}
