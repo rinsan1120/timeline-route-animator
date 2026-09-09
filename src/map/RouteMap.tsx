@@ -75,6 +75,7 @@ export default function RouteMap(props: RouteMapProps) {
   const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
   const previewTargetCameraRef = useRef<MapCameraSnapshot | null>(null);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [mapZoom, setMapZoom] = useState(10);
   const propsRef = useRef(props);
   propsRef.current = props;
   const isPreviewing = props.previewProgress !== null;
@@ -94,6 +95,7 @@ export default function RouteMap(props: RouteMapProps) {
       const preview = getPreviewState(propsRef.current);
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     };
+    const updateZoomDisplay = () => setMapZoom(map.getZoom());
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
       redrawOverlay();
@@ -136,13 +138,15 @@ export default function RouteMap(props: RouteMapProps) {
         previewTargetCameraRef.current = null;
       }
       redrawOverlay();
+      updateZoomDisplay();
       if (!firstLoad) map.triggerRepaint();
     };
     map.on('style.load', initializeMap);
     map.on('move', redrawOverlay);
+    map.on('zoom', updateZoomDisplay);
     map.on('error', (event: ErrorEvent) => {
       if (event.error) {
-        // Keep the raster source and editable layers alive after individual tile failures.
+        // Keep the vector source and editable layers alive after individual tile failures.
         propsRef.current.onError('地図の一部を読み込めませんでした。ネットワーク接続を確認してください。');
       }
     });
@@ -176,6 +180,7 @@ export default function RouteMap(props: RouteMapProps) {
       resizeObserver.disconnect();
       map.off('style.load', initializeMap);
       map.off('move', redrawOverlay);
+      map.off('zoom', updateZoomDisplay);
       selectedMarkerRef.current?.remove();
       map.remove();
       mapRef.current = null;
@@ -261,6 +266,7 @@ export default function RouteMap(props: RouteMapProps) {
     </svg>}
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />
+    <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}

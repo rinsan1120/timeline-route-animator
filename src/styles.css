@@ -101,6 +101,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .progress-card button { border: 0; background: none; color: #8b5960; grid-column: 1 / -1; font-size: 10px; }
 .map-stage { position: relative; min-width: 0; min-height: 0; background: #dce5e7; }
 .map { position: absolute; inset: 0; }
+.map-zoom { position: absolute; z-index: 6; left: 10px; bottom: 10px; padding: 3px 6px; color: #334155; background: rgba(255,255,255,.78); border-radius: 4px; font-size: 10px; line-height: 1.2; pointer-events: none; }
 .route-overlay { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .route-overlay path { fill: none; stroke: var(--orange); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 2px 2px rgba(7,17,31,.22)); }
 .route-overlay .preview-marker { fill: #ffda57; stroke: #07111f; stroke-width: 4; animation: preview-marker-pulse 1.8s ease-in-out infinite; }

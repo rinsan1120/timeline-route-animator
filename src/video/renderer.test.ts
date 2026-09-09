@@ -35,8 +35,8 @@ vi.mock('mediabunny', () => ({
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
-describe('GSI video background', () => {
-  it('loads the shared raster style, fits before waiting for tiles and reuses one capture for every frame', async () => {
+describe('GSI Vector video background', () => {
+  it('loads the shared vector style, fits before waiting for tiles and reuses one capture for every frame', async () => {
     const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
     const createImageBitmap = vi.fn(async () => mocks.bitmap);
     vi.stubGlobal('window', { VideoEncoder: class {}, setTimeout, clearTimeout });
@@ -54,7 +54,19 @@ describe('GSI video background', () => {
     const map = mocks.maps[0];
     expect(mocks.maps).toHaveLength(1);
     expect(map.options.style).toBe(GSI_STYLE);
-    expect(GSI_STYLE.sources.gsi).toMatchObject({ type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 18 });
+    expect(GSI_STYLE.sources.gsi).toMatchObject({
+      type: 'vector',
+      tiles: ['https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/{z}/{x}/{y}.pbf'],
+      minzoom: 4,
+      maxzoom: 16,
+    });
+    expect(GSI_STYLE.glyphs).toBe('https://maps.gsi.go.jp/xyz/noto-jp/{fontstack}/{range}.pbf');
+    expect(GSI_STYLE.sprite).toBe('https://gsi-cyberjapan.github.io/gsivectortile-mapbox-gl-js/sprite/std');
+    expect(GSI_STYLE.layers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ 'source-layer': 'contour' }),
+      expect.objectContaining({ 'source-layer': 'elevation' }),
+      expect.objectContaining({ 'source-layer': 'building' }),
+    ]));
     expect(map.once.mock.calls.map((call: any[]) => call[0])).toEqual(['style.load', 'idle']);
     expect(map.fitBounds.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[1]);
     expect(map.getCanvas).toHaveBeenCalledTimes(1);
