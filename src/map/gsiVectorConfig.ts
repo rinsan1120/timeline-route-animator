@@ -47,6 +47,19 @@ export const GSI_VECTOR_CONFIG = {
     attributionText: '国土地理院',
   },
 
+  lowZoomLand: {
+    // trueで低Zoomの海背景と陸地面の補完を有効にする。
+    enabled: true,
+    // Zoom 8未満の陸地面だけを補完する国土地理院optimal_bvmap PMTiles。
+    pmtilesUrl: 'https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles',
+    // optimal_bvmapで行政区画面を格納しているsource-layer。
+    sourceLayer: 'AdmArea',
+    // 補助レイヤを使用する最小Zoom。
+    minZoom: 4,
+    // このZoom未満で表示する。Zoom 8からはexperimental_bvmapだけへ戻す。
+    maxZoom: 8,
+  },
+
   appearance: {
     // falseで公式std.jsonの色をそのまま使う。trueで下のcolorsを安全に分類できるレイヤだけへ適用する。
     // アプリのルート表示と調和する配色を使うため、カスタムパレットを有効にする。

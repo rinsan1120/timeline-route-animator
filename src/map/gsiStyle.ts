@@ -11,7 +11,8 @@ type MutableLayer = StyleLayer & {
   'source-layer'?: string;
 };
 
-const { source, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const { source, lowZoomLand, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
@@ -314,9 +315,34 @@ export const GSI_STYLE: StyleSpecification = {
       maxzoom: source.maxZoom,
       attribution: source.attributionHtml,
     },
+    ...(lowZoomLand.enabled ? {
+      [GSI_LOW_ZOOM_LAND_SOURCE_ID]: {
+        type: 'vector' as const,
+        url: `pmtiles://${lowZoomLand.pmtilesUrl}`,
+        minzoom: source.minZoom,
+        maxzoom: source.maxZoom,
+      },
+    } : {}),
   },
   layers: [
-    { id: 'gsi-background', type: 'background', paint: { 'background-color': colors.background } },
+    {
+      id: 'gsi-background',
+      type: 'background',
+      paint: {
+        'background-color': lowZoomLand.enabled
+          ? ['step', ['zoom'], colors.background, lowZoomLand.minZoom, colors.water, lowZoomLand.maxZoom, colors.background]
+          : colors.background,
+      },
+    },
+    ...(lowZoomLand.enabled ? [{
+      id: 'gsi-lowzoom-land',
+      type: 'fill' as const,
+      source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      'source-layer': lowZoomLand.sourceLayer,
+      minzoom: lowZoomLand.minZoom,
+      maxzoom: lowZoomLand.maxZoom,
+      paint: { 'fill-color': colors.background },
+    }] : []),
     ...configuredLayers,
   ],
 };

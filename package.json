@@ -13,9 +13,10 @@
     "@vitejs/plugin-react": "latest",
     "maplibre-gl": "latest",
     "mediabunny": "latest",
-    "vite": "latest",
+    "pmtiles": "^4.5.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
