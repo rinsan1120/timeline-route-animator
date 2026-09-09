@@ -222,7 +222,7 @@ export default function RouteMap(props: RouteMapProps) {
       setFollowViewport(getFollowPreviewViewport(container.clientWidth, container.clientHeight));
       const current = propsRef.current;
       const preview = getPreviewState(current);
-      if (current.cameraMode !== 'follow' || current.previewProgress === null || !preview?.cameraCenter) return;
+      if (current.cameraMode !== 'follow' || current.previewProgress === null || !preview?.cameraCenter || preview.zoom === undefined) return;
       const introProgress = getPreviewIntroProgress(current);
       if (current.introZoomEnabled && introProgress !== null && previewTargetCameraRef.current) {
         applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, true);
@@ -272,7 +272,7 @@ export default function RouteMap(props: RouteMapProps) {
       if (previewing && propsRef.current.introZoomEnabled && previewTargetCameraRef.current
         && (propsRef.current.cameraMode === 'overview' || introProgress !== null)) {
         applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, propsRef.current.cameraMode === 'follow');
-      } else if (preview?.cameraCenter) {
+      } else if (preview?.cameraCenter && preview.zoom !== undefined) {
         map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
       }
       refreshMap(map, propsRef.current, preview);
@@ -347,7 +347,7 @@ export default function RouteMap(props: RouteMapProps) {
     const introProgress = getPreviewIntroProgress(props);
     if (isPreviewing && props.introZoomEnabled && previewTargetCameraRef.current
       && (props.cameraMode === 'overview' || introProgress !== null)) applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, props.cameraMode === 'follow');
-    else if (preview?.cameraCenter) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
+    else if (preview?.cameraCenter && preview.zoom !== undefined) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
     refreshMap(map, props, preview);
     map.resize();
     map.triggerRepaint();
