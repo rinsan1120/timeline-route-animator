@@ -23,6 +23,8 @@ export default function App() {
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
   const previewEndTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
+  const minAvailableDate = dates.at(-1) ?? '';
+  const maxAvailableDate = dates[0] ?? '';
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [from, setFrom] = useState('00:00');
@@ -446,12 +448,12 @@ export default function App() {
             {workspaceMode === 'timeline' ? <>
             <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'Timeline JSONを読み込んでください'}</p></div></div>
             <div className="date-grid">
-              <label>開始日<select value={startDate} disabled={!dates.length || busy} onChange={(event) => {
+              <label>開始日<input type="date" value={startDate} min={minAvailableDate} max={maxAvailableDate} disabled={!dates.length || busy} onChange={(event) => {
                 const value = event.target.value;
                 setStartDate(value);
-                if (!endDate || value > endDate) setEndDate(value);
-              }}>{dates.map((item) => <option key={item} value={item}>{item.replaceAll('-', ' / ')}</option>)}</select></label>
-              <label>終了日<select value={endDate} disabled={!dates.length || busy} onChange={(event) => setEndDate(event.target.value)}>{dates.filter((item) => item >= startDate).map((item) => <option key={item} value={item}>{item.replaceAll('-', ' / ')}</option>)}</select></label>
+                setEndDate(value);
+              }} /></label>
+              <label>終了日<input type="date" value={endDate} min={minAvailableDate} max={maxAvailableDate} disabled={!dates.length || busy} onChange={(event) => setEndDate(event.target.value)} /></label>
             </div>
             <div className="time-grid">
               <label>From<input type="time" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
