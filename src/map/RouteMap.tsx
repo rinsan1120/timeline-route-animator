@@ -34,6 +34,7 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  autoFitRouteChanges: boolean;
   annotationStyle: AnnotationStyle;
   dayMarkers: DayMarker[];
   points: RoutePoint[];
@@ -259,7 +260,7 @@ export default function RouteMap(props: RouteMapProps) {
       refreshMap(map, propsRef.current, preview);
       if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) fitRoute(map, propsRef.current.animationPoints, 0);
       else if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
-      else if (!previewing) fitRoute(map, propsRef.current.points, 0);
+      else if (!previewing && propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
       wasPreviewingRef.current = previewing;
       if (!previewing) {
         previewCameraSnapshotRef.current = null;
@@ -382,9 +383,10 @@ export default function RouteMap(props: RouteMapProps) {
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!props.autoFitRouteChanges) return;
     if (!map || !loadedRef.current || props.points.length === 0) return;
     fitRoute(map, props.points, 500);
-  }, [props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
+  }, [props.autoFitRouteChanges, props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
 
   return <>
     <div className={`map ${props.addMode ? 'map--adding' : ''}`} ref={containerRef} />

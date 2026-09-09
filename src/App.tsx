@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import RouteMap from './map/RouteMap';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
-import { addPoint, deletePoint, movePoint } from './route/editor';
+import { addPoint, appendPlanPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, tripRouteDistance } from './route/tripRoute';
@@ -13,8 +13,10 @@ import { INTRO_ZOOM_DURATION_SECONDS } from './video/introZoom';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
+type WorkspaceMode = 'timeline' | 'plan';
 
 export default function App() {
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -138,6 +140,7 @@ export default function App() {
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
+        setWorkspaceMode('timeline');
         setDates(message.dates);
         setStartDate(message.dates[0]);
         setEndDate(message.dates[0]);
@@ -146,6 +149,7 @@ export default function App() {
         setNotice(`${message.dates.length}日分の日付を検出しました。`);
         worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
       } else {
+        setWorkspaceMode('timeline');
         dispatch({ type: 'load', points: message.routePoints });
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
@@ -246,8 +250,40 @@ export default function App() {
     }
   };
 
+  const startPlanMode = () => {
+    if (workspaceMode === 'plan' || busy || videoProgress) return;
+    setWorkspaceMode('plan');
+    dispatch({ type: 'load', points: [] });
+    setDates([]);
+    setStartDate('');
+    setEndDate('');
+    setFileName('');
+    setRawPositions([]);
+    setShowRaw(false);
+    setSelectedRaw(null);
+    setDayMarkerNotes({});
+    setSelectedPointId(null);
+    setAnnotationLabel('');
+    setDayMarkerNoteInput('');
+    setAnimationStartPointId(null);
+    setAnimationEndPointId(null);
+    setRangeDeleteMode(false);
+    setRangeDeletePointIds([]);
+    setMapMode('edit');
+    setAddMode(true);
+    setPreviewProgress(null);
+    setFollowCameraPlan(null);
+    setVideoUrl('');
+    setError('');
+    setNotice('');
+    if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+    routeLoadedNoticeTimerRef.current = null;
+  };
+
   const commitAdd = (latitude: number, longitude: number) => {
-    const next = addPoint(points, latitude, longitude);
+    const next = workspaceMode === 'plan'
+      ? appendPlanPoint(points, latitude, longitude)
+      : addPoint(points, latitude, longitude);
     dispatch({ type: 'commit', points: next });
     setSelectedPointId(next.find((point) => !points.some((old) => old.id === point.id))?.id ?? null);
   };
@@ -355,7 +391,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, workspaceMode, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, followZoomPreset, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -367,9 +403,14 @@ export default function App() {
           <h1>Timeline Route Animator</h1>
           <p>移動の軌跡を、一本の映像へ。</p>
         </div>
-        <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-          <span>JSONを開く</span><small>端末内で処理</small>
-        </button>
+        <div className="topbar-actions">
+          <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+            <span>JSONを開く</span><small>端末内で処理</small>
+          </button>
+          <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
+            <span>計画モード</span><small>地図から作成</small>
+          </button>
+        </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.currentTarget.value = ''; }} />
       </header>
 
@@ -378,6 +419,7 @@ export default function App() {
       <div className="workspace">
         <aside className="control-panel">
           <section className="panel-section source-section">
+            {workspaceMode === 'timeline' ? <>
             <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'Timeline JSONを読み込んでください'}</p></div></div>
             <div className="date-grid">
               <label>開始日<select value={startDate} disabled={!dates.length || busy} onChange={(event) => {
@@ -394,6 +436,10 @@ export default function App() {
             </div>
             <p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p>
             <button className="secondary-button wide" disabled={!startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
+            </> : <>
+              <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
+              <p className="range-note">「編集」→「連続追加」で地点を追加できます。</p>
+            </>}
           </section>
 
           <section className="panel-section">
@@ -403,7 +449,7 @@ export default function App() {
               <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
               <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
             </div>
-            <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>
+            {workspaceMode === 'timeline' && <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>}
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
               {editMode && <div className="annotation-editor">
                 <label htmlFor="annotation-label">地点ラベル（最大30文字）</label>
@@ -432,7 +478,7 @@ export default function App() {
               </div>
               <button className="text-button" onClick={resetAnimationRange}>全ルートを使用</button>
             </div>}
-            {selectedRaw && <RawDetail point={selectedRaw} onClose={() => setSelectedRaw(null)} />}
+            {workspaceMode === 'timeline' && selectedRaw && <RawDetail point={selectedRaw} onClose={() => setSelectedRaw(null)} />}
           </section>
 
           <section className="panel-section video-section">
@@ -492,8 +538,8 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
-          {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
+          <RouteMap autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
           {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
@@ -505,7 +551,7 @@ export default function App() {
             <i />
             <button disabled={!history.past.length} onClick={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }}><span>↶</span>元に戻す</button>
             <button disabled={!history.future.length} onClick={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }}><span>↷</span>やり直す</button>
-            <button disabled={!history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>
+            <button disabled={workspaceMode === 'plan' ? !points.length : !history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>
           </nav>}
         </section>
       </div>

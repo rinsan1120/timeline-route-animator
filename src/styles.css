@@ -13,7 +13,9 @@ button { touch-action: manipulation; }
 .brand-copy { line-height: 1; }
 .brand-copy h1 { font-size: 18px; letter-spacing: .015em; margin: 0 0 8px; }
 .brand-copy p { font-size: 11px; color: #91a0b2; margin: 0; letter-spacing: .05em; }
-.file-button { margin-left: auto; min-width: 156px; min-height: 48px; border: 1px solid #405169; border-radius: 9px; background: #142b45; color: white; display: flex; align-items: center; justify-content: center; flex-direction: column; cursor: pointer; }
+.topbar-actions { margin-left: auto; display: flex; gap: 10px; }
+.file-button { min-width: 156px; min-height: 48px; border: 1px solid #405169; border-radius: 9px; background: #142b45; color: white; display: flex; align-items: center; justify-content: center; flex-direction: column; cursor: pointer; }
+.file-button.plan-button { background: transparent; }
 .file-button span { font-size: 13px; font-weight: 700; }
 .file-button small { color: #9dadbf; font-size: 9px; margin-top: 2px; }
 .privacy-note { height: 32px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; color: #55677c; background: #e8edf1; border-bottom: 1px solid #d8dee4; }
@@ -128,6 +130,8 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .empty-map h2 { margin: 20px 0 6px; font-size: 20px; }
 .empty-map p { margin: 0 0 20px; color: #6d7b88; font-size: 12px; }
 .empty-map button { pointer-events: auto; border: 0; border-radius: 8px; padding: 12px 20px; background: var(--orange); color: white; font-weight: 700; cursor: pointer; }
+.empty-map-actions { display: flex; gap: 10px; justify-content: center; }
+.empty-map .plan-button { background: #fff; color: var(--navy); border: 1px solid #d8dee4; }
 .loading-overlay { position: absolute; z-index: 5; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: white; font-size: 13px; background: rgba(7,17,31,.66); }
 .spinner { width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -145,7 +149,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 @media (max-width: 760px) {
   body { overflow: auto; }
   .app-shell { height: 100dvh; min-height: 620px; }
-  .topbar { height: 65px; padding: 0 13px; gap: 10px; }
+  .topbar { height: auto; min-height: 65px; padding: 10px 13px; gap: 10px; flex-wrap: wrap; }
   .brand-mark { width: 37px; height: 37px; }
   .brand-mark::before { width: 16px; height: 16px; left: 8px; top: 8px; }
   .brand-copy h1 { font-size: 14px; }
