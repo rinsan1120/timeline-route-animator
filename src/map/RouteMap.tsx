@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
@@ -41,6 +41,8 @@ interface RouteMapProps {
   editMode: boolean;
   animationRangeMode: boolean;
   addMode: boolean;
+  rangeDeleteMode: boolean;
+  rangeDeletePointIds: string[];
   selectedPointId: string | null;
   previewProgress: number | null;
   previewDuration: number;
@@ -52,6 +54,7 @@ interface RouteMapProps {
   onSelectRaw: (point: RawPosition | null) => void;
   onAddPoint: (latitude: number, longitude: number) => void;
   onMovePoint: (id: string, latitude: number, longitude: number) => void;
+  onRangeDeleteSelection: (ids: string[]) => void;
   onError: (message: string) => void;
 }
 
@@ -63,23 +66,134 @@ interface MapCameraSnapshot {
   pitch: number;
 }
 
+interface RangeSelectionRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface RangeDeleteDrag {
+  pointerId: number;
+  startX: number;
+  startY: number;
+}
+
+const MIN_RANGE_DELETE_DRAG_PIXELS = 4;
+
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGPathElement>(null);
   const previewMarkerRef = useRef<SVGCircleElement>(null);
   const editPointsOverlayRef = useRef<SVGSVGElement>(null);
+  const rangeDeleteBoxRef = useRef<HTMLDivElement>(null);
+  const rangeDeleteHintRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const wasPreviewingRef = useRef(false);
   const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
   const previewTargetCameraRef = useRef<MapCameraSnapshot | null>(null);
+  const rangeDeleteDragRef = useRef<RangeDeleteDrag | null>(null);
+  const rangeDeleteRectRef = useRef<RangeSelectionRect | null>(null);
+  const rangeDeletePendingRectRef = useRef<RangeSelectionRect | null>(null);
+  const rangeDeleteFrameRef = useRef<number | null>(null);
+  const rangeDeleteSelectionRef = useRef<Set<string>>(new Set());
+  const rangeDeletePointsRef = useRef(props.points);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapZoom, setMapZoom] = useState(10);
   const propsRef = useRef(props);
   propsRef.current = props;
   const isPreviewing = props.previewProgress !== null;
   const previewState = getPreviewState(props);
+
+  const cancelRangeDeleteFrame = () => {
+    if (rangeDeleteFrameRef.current === null) return;
+    cancelAnimationFrame(rangeDeleteFrameRef.current);
+    rangeDeleteFrameRef.current = null;
+  };
+
+  const showRangeDeleteSelection = (rect: RangeSelectionRect): string[] => {
+    rangeDeleteRectRef.current = rect;
+    setRangeDeleteBox(rangeDeleteBoxRef.current, rect);
+    const map = mapRef.current;
+    const ids = map ? findPointsInScreenRect(map, propsRef.current.points, rect) : [];
+    rangeDeleteSelectionRef.current = new Set(ids);
+    updateRangeDeleteHint(rangeDeleteHintRef.current, ids.length);
+    if (map && editPointsOverlayRef.current) {
+      updateEditPointsOverlay(map, propsRef.current.points, null, rangeDeleteSelectionRef.current, editPointsOverlayRef.current);
+    }
+    return ids;
+  };
+
+  const clearRangeDeleteSelection = () => {
+    cancelRangeDeleteFrame();
+    rangeDeleteDragRef.current = null;
+    rangeDeletePendingRectRef.current = null;
+    rangeDeleteRectRef.current = null;
+    rangeDeleteSelectionRef.current = new Set();
+    setRangeDeleteBox(rangeDeleteBoxRef.current, null);
+    updateRangeDeleteHint(rangeDeleteHintRef.current, 0);
+    const map = mapRef.current;
+    if (map && editPointsOverlayRef.current) {
+      updateEditPointsOverlay(map, propsRef.current.points, propsRef.current.selectedPointId, rangeDeleteSelectionRef.current, editPointsOverlayRef.current);
+    }
+  };
+
+  const handleRangeDeletePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!props.rangeDeleteMode || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    const position = pointerPositionInElement(event, event.currentTarget);
+    clearRangeDeleteSelection();
+    rangeDeleteDragRef.current = { pointerId: event.pointerId, startX: position.x, startY: position.y };
+    propsRef.current.onRangeDeleteSelection([]);
+    const rect = selectionRect(position.x, position.y, position.x, position.y);
+    rangeDeleteRectRef.current = rect;
+    setRangeDeleteBox(rangeDeleteBoxRef.current, rect);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleRangeDeletePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = rangeDeleteDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const position = pointerPositionInElement(event, event.currentTarget);
+    rangeDeletePendingRectRef.current = selectionRect(drag.startX, drag.startY, position.x, position.y);
+    if (rangeDeleteFrameRef.current !== null) return;
+    rangeDeleteFrameRef.current = requestAnimationFrame(() => {
+      rangeDeleteFrameRef.current = null;
+      const rect = rangeDeletePendingRectRef.current;
+      if (rect) showRangeDeleteSelection(rect);
+    });
+  };
+
+  const handleRangeDeletePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = rangeDeleteDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    cancelRangeDeleteFrame();
+    rangeDeleteDragRef.current = null;
+    rangeDeletePendingRectRef.current = null;
+    const position = pointerPositionInElement(event, event.currentTarget);
+    const rect = selectionRect(drag.startX, drag.startY, position.x, position.y);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (rect.right - rect.left < MIN_RANGE_DELETE_DRAG_PIXELS || rect.bottom - rect.top < MIN_RANGE_DELETE_DRAG_PIXELS) {
+      clearRangeDeleteSelection();
+      propsRef.current.onRangeDeleteSelection([]);
+      return;
+    }
+    propsRef.current.onRangeDeleteSelection(showRangeDeleteSelection(rect));
+  };
+
+  const handleRangeDeletePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = rangeDeleteDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    rangeDeleteDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    clearRangeDeleteSelection();
+    propsRef.current.onRangeDeleteSelection([]);
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -157,14 +271,17 @@ export default function RouteMap(props: RouteMapProps) {
     map.on('zoom', updateZoomDisplay);
     map.on('error', handleMapError);
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {
+      if (propsRef.current.rangeDeleteMode) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id === 'string') propsRef.current.onSelectPoint(id);
     });
     map.on('click', 'raw-points', (event: MapLayerMouseEvent) => {
+      if (propsRef.current.rangeDeleteMode) return;
       const id = event.features?.[0]?.properties?.id;
       propsRef.current.onSelectRaw(propsRef.current.rawPositions.find((point) => point.id === id) ?? null);
     });
     map.on('click', (event: MapMouseEvent) => {
+      if (propsRef.current.rangeDeleteMode) return;
       if (propsRef.current.animationRangeMode) {
         const nearest = findNearestRoutePoint(map, propsRef.current.points, event.point);
         propsRef.current.onSelectPoint(nearest?.id ?? null);
@@ -193,6 +310,8 @@ export default function RouteMap(props: RouteMapProps) {
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => () => cancelRangeDeleteFrame(), []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -223,8 +342,12 @@ export default function RouteMap(props: RouteMapProps) {
   useEffect(() => {
     const map = mapRef.current;
     const overlay = editPointsOverlayRef.current;
+    const pointsChanged = rangeDeletePointsRef.current !== props.points;
+    rangeDeletePointsRef.current = props.points;
+    if (!props.rangeDeleteMode || pointsChanged) clearRangeDeleteSelection();
+    else if (!rangeDeleteDragRef.current) rangeDeleteSelectionRef.current = new Set(props.rangeDeletePointIds);
     if (!map || !overlay || !props.editMode) return;
-    const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, overlay);
+    const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, rangeDeleteSelectionRef.current, overlay);
     redraw();
     map.on('move', redraw);
     map.on('resize', redraw);
@@ -232,13 +355,13 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('move', redraw);
       map.off('resize', redraw);
     };
-  }, [props.points, props.selectedPointId, props.editMode]);
+  }, [props.points, props.selectedPointId, props.editMode, props.rangeDeleteMode, props.rangeDeletePointIds]);
 
   useEffect(() => {
     const map = mapRef.current;
     selectedMarkerRef.current?.remove();
     selectedMarkerRef.current = null;
-    if (!map || !props.editMode || !props.selectedPointId) return;
+    if (!map || !props.editMode || props.rangeDeleteMode || !props.selectedPointId) return;
     const point = props.points.find((candidate) => candidate.id === props.selectedPointId);
     if (!point) return;
     const element = document.createElement('div');
@@ -252,7 +375,7 @@ export default function RouteMap(props: RouteMapProps) {
       propsRef.current.onMovePoint(point.id, position.lat, position.lng);
     });
     selectedMarkerRef.current = marker;
-  }, [props.selectedPointId, props.editMode, props.points]);
+  }, [props.selectedPointId, props.editMode, props.rangeDeleteMode, props.points]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -270,7 +393,20 @@ export default function RouteMap(props: RouteMapProps) {
       <path className="edit-points-original" />
       <path className="edit-points-manual" />
       <path className="edit-points-selected" />
+      <path className="edit-points-range-selected" />
     </svg>}
+    {props.editMode && props.rangeDeleteMode && <>
+      <div
+        className="range-delete-overlay"
+        onPointerDown={handleRangeDeletePointerDown}
+        onPointerMove={handleRangeDeletePointerMove}
+        onPointerUp={handleRangeDeletePointerUp}
+        onPointerCancel={handleRangeDeletePointerCancel}
+      >
+        <div ref={rangeDeleteBoxRef} className="range-delete-box" />
+      </div>
+      <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
+    </>}
     <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />
     <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
@@ -482,19 +618,74 @@ function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoin
   return nearest;
 }
 
-function updateEditPointsOverlay(map: MapLibreMap, points: RoutePoint[], selectedPointId: string | null, overlay: SVGSVGElement) {
+function pointerPositionInElement(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElement) {
+  const bounds = element.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(bounds.width, event.clientX - bounds.left)),
+    y: Math.max(0, Math.min(bounds.height, event.clientY - bounds.top)),
+  };
+}
+
+function selectionRect(startX: number, startY: number, currentX: number, currentY: number): RangeSelectionRect {
+  return {
+    left: Math.min(startX, currentX),
+    top: Math.min(startY, currentY),
+    right: Math.max(startX, currentX),
+    bottom: Math.max(startY, currentY),
+  };
+}
+
+function setRangeDeleteBox(element: HTMLDivElement | null, rect: RangeSelectionRect | null) {
+  if (!element) return;
+  if (!rect) {
+    element.style.display = 'none';
+    return;
+  }
+  element.style.display = 'block';
+  element.style.left = `${rect.left}px`;
+  element.style.top = `${rect.top}px`;
+  element.style.width = `${rect.right - rect.left}px`;
+  element.style.height = `${rect.bottom - rect.top}px`;
+}
+
+function updateRangeDeleteHint(element: HTMLDivElement | null, count: number) {
+  if (element) element.textContent = count ? `${count}点を選択中` : 'ドラッグして削除したいポイントを囲ってください';
+}
+
+function findPointsInScreenRect(map: MapLibreMap, points: RoutePoint[], rect: RangeSelectionRect): string[] {
+  const ids: string[] = [];
+  for (const point of points) {
+    const screen = map.project([point.longitude, point.latitude]);
+    if (screen.x >= rect.left && screen.x <= rect.right && screen.y >= rect.top && screen.y <= rect.bottom) {
+      ids.push(point.id);
+    }
+  }
+  return ids;
+}
+
+function updateEditPointsOverlay(
+  map: MapLibreMap,
+  points: RoutePoint[],
+  selectedPointId: string | null,
+  rangeDeletePointIds: ReadonlySet<string>,
+  overlay: SVGSVGElement,
+) {
   const original: string[] = [];
   const manual: string[] = [];
+  const rangeSelected: string[] = [];
   let selected = '';
   // Batch circles into paths instead of creating a DOM element for every route point.
   for (const point of points) {
     const screen = map.project([point.longitude, point.latitude]);
-    const radius = point.id === selectedPointId ? 10 : 7;
+    const rangeDeleteSelected = rangeDeletePointIds.has(point.id);
+    const radius = rangeDeleteSelected ? 9 : point.id === selectedPointId ? 10 : 7;
     const circle = `M${screen.x - radius},${screen.y}a${radius},${radius} 0 1,0 ${radius * 2},0a${radius},${radius} 0 1,0 ${-radius * 2},0Z`;
-    if (point.id === selectedPointId) selected = circle;
+    if (rangeDeleteSelected) rangeSelected.push(circle);
+    else if (point.id === selectedPointId) selected = circle;
     else (point.original ? original : manual).push(circle);
   }
   overlay.children[0].setAttribute('d', original.join(' '));
   overlay.children[1].setAttribute('d', manual.join(' '));
   overlay.children[2].setAttribute('d', selected);
+  overlay.children[3].setAttribute('d', rangeSelected.join(' '));
 }

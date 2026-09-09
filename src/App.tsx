@@ -36,6 +36,8 @@ export default function App() {
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
   const [addMode, setAddMode] = useState(false);
+  const [rangeDeleteMode, setRangeDeleteMode] = useState(false);
+  const [rangeDeletePointIds, setRangeDeletePointIds] = useState<string[]>([]);
   const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
   const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(10);
@@ -146,6 +148,7 @@ export default function App() {
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
         setSelectedRaw(null);
+        setRangeDeletePointIds([]);
         setAnimationStartPointId(null);
         setAnimationEndPointId(null);
         setBusy(false);
@@ -196,12 +199,24 @@ export default function App() {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
       event.preventDefault();
       dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
+      setRangeDeletePointIds([]);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+
+  useEffect(() => {
+    setRangeDeletePointIds([]);
+  }, [points]);
+
+  useEffect(() => {
+    if (editMode) return;
+    setAddMode(false);
+    setRangeDeleteMode(false);
+    setRangeDeletePointIds([]);
+  }, [editMode]);
 
   useEffect(() => {
     const startMissing = animationStartPointId && !points.some((point) => point.id === animationStartPointId);
@@ -233,6 +248,35 @@ export default function App() {
     const next = addPoint(points, latitude, longitude);
     dispatch({ type: 'commit', points: next });
     setSelectedPointId(next.find((point) => !points.some((old) => old.id === point.id))?.id ?? null);
+  };
+
+  const selectEditTool = () => {
+    setAddMode(false);
+    setRangeDeleteMode(false);
+    setRangeDeletePointIds([]);
+  };
+
+  const toggleAddMode = () => {
+    setAddMode((current) => !current);
+    setRangeDeleteMode(false);
+    setRangeDeletePointIds([]);
+  };
+
+  const toggleRangeDeleteMode = () => {
+    setAddMode(false);
+    setRangeDeleteMode((current) => !current);
+    setRangeDeletePointIds([]);
+    setSelectedPointId(null);
+    setSelectedRaw(null);
+  };
+
+  const commitRangeDelete = () => {
+    if (!rangeDeletePointIds.length) return;
+    const selectedIds = new Set(rangeDeletePointIds);
+    dispatch({ type: 'commit', points: points.filter((point) => !selectedIds.has(point.id)) });
+    setRangeDeletePointIds([]);
+    setSelectedPointId(null);
+    setSelectedRaw(null);
   };
 
   const setAnimationStart = () => {
@@ -353,9 +397,9 @@ export default function App() {
           <section className="panel-section">
             <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="mode-switch">
-              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); }}>表示</button>
+              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
               <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
-              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); }}>アニメ範囲</button>
+              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
             </div>
             <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
@@ -442,18 +486,20 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onError={setError} />
+          <RouteMap annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {!points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むと、ここにルートが現れます。</p><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
           {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
-            <button className={!addMode ? 'active' : ''} onClick={() => setAddMode(false)}><span>⌖</span>選択</button>
-            <button className={addMode ? 'active' : ''} onClick={() => setAddMode((value) => !value)}><span>＋</span>連続追加</button>
+            <button className={!addMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>
+            <button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>
+            <button className={rangeDeleteMode ? 'active' : ''} onClick={toggleRangeDeleteMode}><span>▧</span>範囲削除</button>
+            {rangeDeleteMode && <button disabled={!rangeDeletePointIds.length} onClick={commitRangeDelete}><span>⌫</span>{rangeDeletePointIds.length ? `${rangeDeletePointIds.length}点削除` : '選択を削除'}</button>}
             <button disabled={!selectedPoint} onClick={() => { if (selectedPointId) dispatch({ type: 'commit', points: deletePoint(points, selectedPointId) }); setSelectedPointId(null); }}><span>⌫</span>削除</button>
             <i />
-            <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo' })}><span>↶</span>元に戻す</button>
-            <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo' })}><span>↷</span>やり直す</button>
-            <button disabled={!history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); }}><span>↺</span>初期状態</button>
+            <button disabled={!history.past.length} onClick={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }}><span>↶</span>元に戻す</button>
+            <button disabled={!history.future.length} onClick={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }}><span>↷</span>やり直す</button>
+            <button disabled={!history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>
           </nav>}
         </section>
       </div>
