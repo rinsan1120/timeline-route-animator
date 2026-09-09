@@ -1,3 +1,4 @@
+import type { PopupPlacement } from '../popup/placement';
 export interface RoutePoint {
   id: string;
   latitude: number;
@@ -5,7 +6,7 @@ export interface RoutePoint {
   timestamp?: string;
   source: 'timelinePath' | 'manual';
   original: boolean;
-  annotation?: { label: string };
+  annotation?: { label: string; placement?: PopupPlacement };
 }
 
 export interface RawPosition {

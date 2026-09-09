@@ -1,3 +1,5 @@
+import { bindPopupDrag, positionManualPopup } from '../popup/browserPlacement';
+import type { PopupPlacement } from '../popup/placement';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
@@ -6,6 +8,8 @@ import type { AnnotationStyle } from '../route/annotationStyle';
 import type { CSSProperties } from 'react';
 
 interface AnnotationOverlayProps {
+  draggable: boolean;
+  onPlacement: (id: string, placement: PopupPlacement) => void;
   map: MapLibreMap | null;
   points: RoutePoint[];
   animationPoints: RoutePoint[];
@@ -15,7 +19,7 @@ interface AnnotationOverlayProps {
   annotationStyle: AnnotationStyle;
 }
 
-export default function AnnotationOverlay({ map, points, animationPoints, editMode, previewProgress, reachedPointIndex = null, annotationStyle }: AnnotationOverlayProps) {
+export default function AnnotationOverlay({ draggable, onPlacement, map, points, animationPoints, editMode, previewProgress, reachedPointIndex = null, annotationStyle }: AnnotationOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const arrivals = useMemo(() => {
     const progresses = tripRoutePointProgresses(animationPoints);
@@ -50,20 +54,24 @@ export default function AnnotationOverlay({ map, points, animationPoints, editMo
         const inset = 10 * annotationStyle.balloonScale;
         element.style.setProperty('--pointer-left', `${Math.max(inset, Math.min(balloonWidth - inset, projected.x - left))}px`);
         element.dataset.placement = below ? 'below' : 'above';
+        positionManualPopup(element, container, projected, point.annotation?.placement, 8);
         element.style.visibility = 'visible';
       });
     };
     positionBalloons();
+    const cleanups = draggable ? visible.map((point, index) => bindPopupDrag(container.children[index] as HTMLDivElement, container, () => map.project([point.longitude, point.latitude]), (placement) => onPlacement(point.id, placement), positionBalloons, 8)) : [];
     map.on('move', positionBalloons);
     map.on('resize', positionBalloons);
     return () => {
+      cleanups.forEach((cleanup) => cleanup());
       map.off('move', positionBalloons);
       map.off('resize', positionBalloons);
     };
-  }, [map, visible, annotationStyle]);
+  }, [draggable, onPlacement, map, visible, annotationStyle]);
 
   return <div ref={containerRef} className="annotation-overlay" style={{ '--balloon-scale': annotationStyle.balloonScale, '--font-scale': annotationStyle.fontScale } as CSSProperties}>
     {visible.map((point) => <div key={point.id} className="annotation-balloon" style={{ visibility: 'hidden' }}>
+      <svg className="popup-connector" aria-hidden="true"><line /></svg>
       <span>{point.annotation!.label}</span>
     </div>)}
   </div>;

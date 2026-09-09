@@ -1,7 +1,9 @@
+import type { PopupPlacement } from '../popup/placement';
 import type { RoutePoint } from '../timeline/types';
 import { distanceMeters, interpolateRoute, nearestSegmentIndex, routeDistance, routePointProgresses, type InterpolatedPosition } from './geometry';
 
 export interface DayMarker {
+  placement?: PopupPlacement;
   dayNumber: number;
   date?: string;
   pointId: string;

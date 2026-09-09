@@ -179,3 +179,11 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
   .file-button { min-width: 88px; }
   .file-button span { font-size: 11px; }
 }
+
+.popup-connector { display: none; position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.popup-connector line { stroke: #ff8b68; stroke-width: 2; }
+.popup-connector circle { fill: #ff5d37; stroke: white; stroke-width: 2; }
+[data-manual='true'] > .popup-connector { display: block; }
+.annotation-balloon[data-manual='true']::after, .day-marker[data-manual='true']::before, .day-marker[data-manual='true']::after { display: none; }
+.annotation-balloon[data-draggable='true'], .day-marker[data-draggable='true'] { pointer-events: auto; touch-action: none; cursor: grab; user-select: none; }
+.annotation-balloon[data-dragging='true'], .day-marker[data-dragging='true'] { cursor: grabbing; }

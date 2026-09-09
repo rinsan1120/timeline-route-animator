@@ -1,8 +1,13 @@
+import { bindPopupDrag, positionManualPopup } from '../popup/browserPlacement';
+import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from '../popup/placement';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
 
 interface EndpointMarkerOverlayProps {
+  draggable: boolean;
+  onPlacement: (id: EndpointMarkerLabel, placement: PopupPlacement) => void;
+  placements: EndpointMarkerPlacements;
   map: MapLibreMap | null;
   animationPoints: RoutePoint[];
   previewProgress: number | null;
@@ -14,7 +19,7 @@ interface EndpointMarker {
   point: RoutePoint;
 }
 
-export default function EndpointMarkerOverlay({ map, animationPoints, previewProgress, reachedPointIndex = null }: EndpointMarkerOverlayProps) {
+export default function EndpointMarkerOverlay({ draggable, onPlacement, placements, map, animationPoints, previewProgress, reachedPointIndex = null }: EndpointMarkerOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => {
     const start = animationPoints[0];
@@ -52,20 +57,24 @@ export default function EndpointMarkerOverlay({ map, animationPoints, previewPro
         element.style.top = `${top}px`;
         element.style.setProperty('--day-marker-anchor-x', `${Math.max(12, Math.min(markerWidth - 12, projected.x - left))}px`);
         element.dataset.placement = below ? 'below' : 'above';
+        positionManualPopup(element, container, projected, placements[marker.label], 54);
         element.style.visibility = 'visible';
       });
     };
     positionMarkers();
+    const cleanups = draggable ? visible.map((marker, index) => bindPopupDrag(container.children[index] as HTMLDivElement, container, () => map.project([marker.point.longitude, marker.point.latitude]), (placement) => onPlacement(marker.label, placement), positionMarkers, 54)) : [];
     map.on('move', positionMarkers);
     map.on('resize', positionMarkers);
     return () => {
+      cleanups.forEach((cleanup) => cleanup());
       map.off('move', positionMarkers);
       map.off('resize', positionMarkers);
     };
-  }, [map, visible]);
+  }, [draggable, onPlacement, placements, map, visible]);
 
   return <div ref={containerRef} className="day-marker-overlay endpoint-marker-overlay">
     {visible.map((marker) => <div key={marker.label} className="day-marker endpoint-marker" style={{ visibility: 'hidden' }}>
+      <svg className="popup-connector" aria-hidden="true"><line /><circle r="5" /></svg>
       <strong>{marker.label}</strong>
     </div>)}
   </div>;

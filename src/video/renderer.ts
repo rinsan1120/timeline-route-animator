@@ -1,3 +1,4 @@
+import { nearestPointOnRect, placedPopupRect, type PopupPlacement, type EndpointMarkerPlacements } from '../popup/placement';
 import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
@@ -28,6 +29,7 @@ export function outputVideoFrameCount(duration: number): number {
 
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
+  endpointMarkerPlacements?: EndpointMarkerPlacements;
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
   routeMarkerMode?: RouteMarkerMode;
@@ -134,7 +136,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.revealRoute);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -147,7 +149,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
     const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
-      ? [{ label: point.annotation.label, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
+      ? [{ label: point.annotation.label, placement: point.annotation.placement, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
     const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], arrivalProgress: arrivals[pointIndex] }];
@@ -169,7 +171,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {});
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -197,6 +199,7 @@ function drawFrame(
   dayMarkers: VideoDayMarker[],
   routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
+  endpointMarkerPlacements: EndpointMarkerPlacements,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -247,9 +250,9 @@ function drawFrame(
       if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker);
     }
   } else if (routeMarkerMode === 'start-goal') {
-    if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START');
+    if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
     const goalPixel = pixels.at(-1);
-    if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL');
+    if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
   }
 
   context.fillStyle = 'rgba(255,255,255,.9)';
@@ -260,6 +263,7 @@ function drawFrame(
 }
 
 interface VideoAnnotation {
+  placement?: PopupPlacement;
   label: string;
   pixel: { x: number; y: number };
   arrivalProgress: number;
@@ -298,10 +302,22 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   const radius = Math.min(10 * scale, width / 4);
   const pointerSize = Math.min(12 * scale, width / 8);
   const height = fontSize * 1.4 + paddingY * 2;
-  const left = Math.max(margin, Math.min(WIDTH - margin - width, annotation.pixel.x - width / 2));
+  let left = Math.max(margin, Math.min(WIDTH - margin - width, annotation.pixel.x - width / 2));
   const below = annotation.pixel.y - height - gap < margin;
-  const top = Math.max(margin, Math.min(bottom - height - pointerSize, below ? annotation.pixel.y + gap : annotation.pixel.y - height - gap));
+  let top = Math.max(margin, Math.min(bottom - height - pointerSize, below ? annotation.pixel.y + gap : annotation.pixel.y - height - gap));
+  if (annotation.placement) {
+    ({ left, top } = placedPopupRect(annotation.pixel, annotation.placement, width, height, WIDTH, bottom, margin));
+  }
   const pointerX = Math.max(left + radius + pointerSize, Math.min(left + width - radius - pointerSize, annotation.pixel.x));
+  if (annotation.placement) {
+    const edge = nearestPointOnRect({ left, top, width, height }, annotation.pixel);
+    context.strokeStyle = '#ff8b68';
+    context.lineWidth = 2 * scale;
+    context.beginPath();
+    context.moveTo(edge.x, edge.y);
+    context.lineTo(annotation.pixel.x, annotation.pixel.y);
+    context.stroke();
+  }
   // Match the browser note balloon: lighter navy than DAY / START / GOAL.
   context.fillStyle = '#2d4f73';
   context.strokeStyle = '#ff8b68';
@@ -311,7 +327,7 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.shadowOffsetY = 8 * scale;
   context.beginPath();
   context.moveTo(left + radius, top);
-  if (below) {
+  if (!annotation.placement && below) {
     context.lineTo(pointerX - pointerSize, top);
     context.lineTo(pointerX, top - pointerSize);
     context.lineTo(pointerX + pointerSize, top);
@@ -320,7 +336,7 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.quadraticCurveTo(left + width, top, left + width, top + radius);
   context.lineTo(left + width, top + height - radius);
   context.quadraticCurveTo(left + width, top + height, left + width - radius, top + height);
-  if (!below) {
+  if (!annotation.placement && !below) {
     context.lineTo(pointerX + pointerSize, top + height);
     context.lineTo(pointerX, top + height + pointerSize);
     context.lineTo(pointerX - pointerSize, top + height);
@@ -349,15 +365,21 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   const dateHeight = marker.date ? 36 : 0;
   const height = (marker.note ? 98 : 66) + dateHeight;
   const gap = 42;
-  const left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
+  let left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
   const below = marker.pixel.y - height - gap < margin;
-  const top = Math.max(margin, Math.min(bottom - height, below ? marker.pixel.y + gap : marker.pixel.y - height - gap));
+  let top = Math.max(margin, Math.min(bottom - height, below ? marker.pixel.y + gap : marker.pixel.y - height - gap));
+  if (marker.placement) {
+    ({ left, top } = placedPopupRect(marker.pixel, marker.placement, width, height, WIDTH, bottom, margin));
+  }
   const anchorX = Math.max(left + 18, Math.min(left + width - 18, marker.pixel.x));
 
   context.strokeStyle = '#ff8b68';
   context.lineWidth = 5;
   context.beginPath();
-  context.moveTo(anchorX, below ? top : top + height);
+  const connectorStart = marker.placement
+    ? nearestPointOnRect({ left, top, width, height }, marker.pixel)
+    : { x: anchorX, y: below ? top : top + height };
+  context.moveTo(connectorStart.x, connectorStart.y);
   context.lineTo(marker.pixel.x, marker.pixel.y);
   context.stroke();
   context.beginPath();
@@ -399,22 +421,28 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   context.restore();
 }
 
-function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL') {
+function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL', placement?: PopupPlacement) {
   context.save();
   const margin = 24;
   const bottom = HEIGHT - 70;
   const width = 230;
   const height = 78;
   const gap = 42;
-  const left = Math.max(margin, Math.min(WIDTH - margin - width, pixel.x - width / 2));
+  let left = Math.max(margin, Math.min(WIDTH - margin - width, pixel.x - width / 2));
   const below = pixel.y - height - gap < margin;
-  const top = Math.max(margin, Math.min(bottom - height, below ? pixel.y + gap : pixel.y - height - gap));
+  let top = Math.max(margin, Math.min(bottom - height, below ? pixel.y + gap : pixel.y - height - gap));
+  if (placement) {
+    ({ left, top } = placedPopupRect(pixel, placement, width, height, WIDTH, bottom, margin));
+  }
   const anchorX = Math.max(left + 18, Math.min(left + width - 18, pixel.x));
 
   context.strokeStyle = '#ff8b68';
   context.lineWidth = 5;
   context.beginPath();
-  context.moveTo(anchorX, below ? top : top + height);
+  const connectorStart = placement
+    ? nearestPointOnRect({ left, top, width, height }, pixel)
+    : { x: anchorX, y: below ? top : top + height };
+  context.moveTo(connectorStart.x, connectorStart.y);
   context.lineTo(pixel.x, pixel.y);
   context.stroke();
   context.beginPath();
@@ -554,7 +582,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         background = nextBackground;
         backgroundKey = nextBackgroundKey;
       }
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {});
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -579,6 +607,7 @@ function drawFollowFrame(
   dayMarkers: FollowVideoDayMarker[],
   routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
+  endpointMarkerPlacements: EndpointMarkerPlacements,
   revealRoute = true,
 ) {
   context.drawImage(background, 0, 0);
@@ -613,7 +642,7 @@ function drawFollowFrame(
     if (!point.annotation?.label) continue;
     const pixel = map.project([point.longitude, point.latitude]);
     if (!isInVideoViewport(pixel)) continue;
-    drawAnnotation(context, { label: point.annotation.label, pixel, arrivalProgress: 0 }, annotationStyle);
+    drawAnnotation(context, { label: point.annotation.label, placement: point.annotation.placement, pixel, arrivalProgress: 0 }, annotationStyle);
   }
 
   if (routeMarkerMode === 'day') {
@@ -626,11 +655,11 @@ function drawFollowFrame(
     }
   } else if (routeMarkerMode === 'start-goal') {
     const startPixel = map.project([points[0].longitude, points[0].latitude]);
-    if (isInVideoViewport(startPixel)) drawEndpointMarker(context, startPixel, 'START');
+    if (isInVideoViewport(startPixel)) drawEndpointMarker(context, startPixel, 'START', endpointMarkerPlacements.START);
     if (playback.reachedPointIndex >= points.length - 1) {
       const goal = points.at(-1)!;
       const goalPixel = map.project([goal.longitude, goal.latitude]);
-      if (isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL');
+      if (isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
     }
   }
 

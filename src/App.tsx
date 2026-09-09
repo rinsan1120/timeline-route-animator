@@ -1,3 +1,4 @@
+import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
@@ -16,6 +17,8 @@ type MapMode = 'display' | 'edit' | 'animation-range';
 type WorkspaceMode = 'timeline' | 'plan';
 
 export default function App() {
+  const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
+  const [endpointMarkerPlacements, setEndpointMarkerPlacements] = useState<EndpointMarkerPlacements>({});
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,9 +73,9 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
-  const dayMarkers = useMemo(() => workspaceMode === 'plan'
+  const dayMarkers = useMemo(() => (workspaceMode === 'plan'
     ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
-    : deriveDayMarkers(points, dayMarkerNotes, startDate), [workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
+    : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => ({ ...marker, placement: dayMarkerPlacements[workspaceMode === 'plan' ? marker.pointId : marker.date!] })), [dayMarkerPlacements, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
   const selectedDayMarker = dayMarkers.find((marker) => marker.pointId === selectedPointId) ?? null;
   const selectedPlanDayNumber = useMemo(() => {
     if (workspaceMode !== 'plan' || !selectedPointId) return null;
@@ -89,6 +92,36 @@ export default function App() {
       : (selectedDayMarker?.date ? dayMarkerNotes[selectedDayMarker.date] ?? '' : ''));
   }, [workspaceMode, selectedDayMarker?.pointId, selectedDayMarker?.date, dayMarkerNotes, planDayNotes]);
 
+  const setAnnotationPlacement = (id: string, placement?: PopupPlacement) => {
+    dispatch({ type: 'commit', points: points.map((point) => {
+      if (point.id !== id || !point.annotation) return point;
+      const { placement: previous, ...annotation } = point.annotation;
+      return { ...point, annotation: { ...annotation, ...(placement ? { placement } : {}) } };
+    }) });
+    setSelectedPointId(id);
+  };
+  const setDayPlacement = (id: string, placement?: PopupPlacement) => {
+    const marker = dayMarkers.find((item) => item.pointId === id);
+    const key = workspaceMode === 'plan' ? id : marker?.date;
+    if (!key) return;
+    setDayMarkerPlacements((current) => {
+      const next = { ...current };
+      if (placement) next[key] = placement;
+      else delete next[key];
+      return next;
+    });
+    setSelectedPointId(id);
+  };
+  const setEndpointPlacement = (label: EndpointMarkerLabel, placement?: PopupPlacement) => {
+    setEndpointMarkerPlacements((current) => {
+      const next = { ...current };
+      if (placement) next[label] = placement;
+      else delete next[label];
+      return next;
+    });
+    setSelectedPointId((label === 'START' ? animationPoints[0] : animationPoints.at(-1))?.id ?? null);
+  };
+
   const saveAnnotation = () => {
     if (!selectedPoint) return;
     const label = annotationLabel.trim();
@@ -97,7 +130,7 @@ export default function App() {
       return;
     }
     if (selectedPoint.annotation?.label !== label) {
-      dispatch({ type: 'commit', points: points.map((point) => point.id === selectedPoint.id ? { ...point, annotation: { label } } : point) });
+      dispatch({ type: 'commit', points: points.map((point) => point.id === selectedPoint.id ? { ...point, annotation: { ...point.annotation, label } } : point) });
     }
     setAnnotationLabel(label);
     setError('');
@@ -165,6 +198,8 @@ export default function App() {
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
+        setDayMarkerPlacements({});
+        setEndpointMarkerPlacements({});
         setWorkspaceMode('timeline');
         setPlanDayStarts([]);
         setPlanDayNotes({});
@@ -282,6 +317,8 @@ export default function App() {
   const startPlanMode = () => {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
     setWorkspaceMode('plan');
+    setDayMarkerPlacements({});
+    setEndpointMarkerPlacements({});
     setPlanDayStarts([]);
     setPlanDayNotes({});
     dispatch({ type: 'load', points: [] });
@@ -408,7 +445,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, routeMarkerMode, duration, revealRoute: true, cameraMode, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, endpointMarkerPlacements, routeMarkerMode, duration, revealRoute: true, cameraMode, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -422,7 +459,7 @@ export default function App() {
   };
 
   const downloadProject = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, workspaceMode, planDayStarts, planDayNotes, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 1, dayMarkerPlacements, endpointMarkerPlacements, workspaceMode, planDayStarts, planDayNotes, sourceFileName: fileName, date: startDate, from, to, dateRange: { startDate, endDate, from, to }, dayMarkerNotes, editedRoute: points, animationRange: { startPointId: animationStartPointId ?? points[0]?.id ?? null, endPointId: animationEndPointId ?? points.at(-1)?.id ?? null }, video: { width: 1920, height: 1080, fps: 30, duration, revealRoute: true, cameraMode, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, introZoomEnabled, annotationStyle, routeMarkerMode } }, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `route-project-${startDate || 'untitled'}${endDate && endDate !== startDate ? `-${endDate}` : ''}.json`);
   };
 
@@ -482,6 +519,12 @@ export default function App() {
             </div>
             {workspaceMode === 'timeline' && <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>}
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
+              {editMode && <>
+                {selectedPoint.annotation?.placement && <button className="secondary-button" onClick={() => setAnnotationPlacement(selectedPoint.id)}>バルーン位置をリセット</button>}
+                {selectedDayMarker?.placement && <button className="secondary-button" onClick={() => setDayPlacement(selectedPoint.id)}>DAY位置をリセット</button>}
+                {selectedPoint.id === animationPoints[0]?.id && endpointMarkerPlacements.START && <button className="secondary-button" onClick={() => setEndpointPlacement('START')}>START位置をリセット</button>}
+                {selectedPoint.id === animationPoints.at(-1)?.id && endpointMarkerPlacements.GOAL && <button className="secondary-button" onClick={() => setEndpointPlacement('GOAL')}>GOAL位置をリセット</button>}
+              </>}
               {editMode && <div className="annotation-editor">
                 <label htmlFor="annotation-label">地点ラベル（最大30文字）</label>
                 <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
@@ -606,7 +649,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap overviewZoomMode={overviewZoomMode} overviewCustomZoom={overviewCustomZoom} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewZoomMode={overviewZoomMode} overviewCustomZoom={overviewCustomZoom} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}

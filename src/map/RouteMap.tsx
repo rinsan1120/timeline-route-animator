@@ -1,3 +1,4 @@
+import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from '../popup/placement';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
@@ -34,6 +35,10 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  endpointMarkerPlacements: EndpointMarkerPlacements;
+  onAnnotationPlacement: (id: string, placement: PopupPlacement) => void;
+  onDayPlacement: (id: string, placement: PopupPlacement) => void;
+  onEndpointPlacement: (id: EndpointMarkerLabel, placement: PopupPlacement) => void;
   autoFitRouteChanges: boolean;
   annotationStyle: AnnotationStyle;
   dayMarkers: DayMarker[];
@@ -431,9 +436,9 @@ export default function RouteMap(props: RouteMapProps) {
       </div>
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
-    <AnnotationOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    {props.routeMarkerMode === 'day' && <DayMarkerOverlay map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {isPreviewing && props.cameraMode === 'follow' && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: followViewport.width, height: followViewport.height, left: followViewport.left, top: followViewport.top }} />
     </div>}
