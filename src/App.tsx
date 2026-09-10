@@ -7,7 +7,7 @@ import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
-import { deriveDayMarkers, derivePlanDayMarkers, tripRouteDistance } from './route/tripRoute';
+import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
@@ -191,7 +191,9 @@ export default function App() {
     setError('');
   };
 
-  const distance = useMemo(() => tripRouteDistance(points), [points]);
+  const planDistances = useMemo(() => workspaceMode === 'plan'
+    ? planRouteDistances(points, planDayStarts) : null, [workspaceMode, points, planDayStarts]);
+  const distance = useMemo(() => planDistances?.totalMeters ?? tripRouteDistance(points), [points, planDistances]);
   const animationPoints = useMemo(() => {
     if (points.length < 2) return points;
     const startIndex = animationStartPointId ? points.findIndex((point) => point.id === animationStartPointId) : 0;
@@ -595,12 +597,18 @@ export default function App() {
           </section>
 
           <section className="panel-section">
-            <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
+            <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="mode-switch">
               <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
               <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
               <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
             </div>
+            {planDistances && <div className="detail-card">
+              <strong>概算距離</strong>
+              {planDistances.days.map((day) => <span key={day.pointId}>DAY {day.dayNumber}　約 {formatDistance(day.distanceMeters)}</span>)}
+              <strong>合計　約 {formatDistance(planDistances.totalMeters)}</strong>
+              <span>※ ポイント間の地表上の直線距離の合計です。道路に沿った走行距離ではありません。</span>
+            </div>}
             {workspaceMode === 'timeline' && <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>}
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>全{points.length}点中 {selectedPointIndex + 1}番目</span><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
               {showSelectionCandidateSwitcher && <div className="selection-candidate-switcher">

@@ -65,6 +65,24 @@ export function derivePlanDayMarkers(points: RoutePoint[], dayStarts: string[], 
   return markers;
 }
 
+export function planRouteDistances(points: RoutePoint[], dayStarts: string[]) {
+  const days = derivePlanDayMarkers(points, dayStarts, {}).map((marker) => ({
+    dayNumber: marker.dayNumber,
+    pointId: marker.pointId,
+    distanceMeters: 0,
+  }));
+  let dayIndex = -1;
+  for (let index = 0; index < points.length; index += 1) {
+    if (points[index].id === days[dayIndex + 1]?.pointId) {
+      dayIndex += 1;
+      // A new DAY starts here; omit the connection from the previous DAY.
+    } else if (dayIndex >= 0 && index > 0) {
+      days[dayIndex].distanceMeters += distanceMeters(points[index - 1], points[index]);
+    }
+  }
+  return { days, totalMeters: days.reduce((total, day) => total + day.distanceMeters, 0) };
+}
+
 function calendarDayDifference(startDate: string, endDate: string): number {
   return Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86_400_000);
 }
