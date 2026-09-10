@@ -10,9 +10,10 @@ import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
+import { overviewPaddingForViewport, overviewZoomForViewport, VIDEO_VIEWPORT, type ViewportSize } from './overviewCamera';
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
+const WIDTH = VIDEO_VIEWPORT.width;
+const HEIGHT = VIDEO_VIEWPORT.height;
 const styleReadyMaps = new WeakSet<maplibregl.Map>();
 export const VIDEO_FPS = 30;
 export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
@@ -38,6 +39,7 @@ export interface RenderVideoOptions {
   followCustomZoom?: number;
   overviewZoomMode?: 'auto' | 'custom';
   overviewCustomZoom?: number;
+  overviewReferenceViewport?: ViewportSize;
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
   duration: number;
@@ -61,6 +63,8 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
+  const overviewReferenceViewport = options.overviewReferenceViewport ?? VIDEO_VIEWPORT;
+  const overviewZoomOffset = overviewZoomForViewport(0, overviewReferenceViewport, VIDEO_VIEWPORT);
 
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
@@ -71,11 +75,17 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     await waitForStyle(map, 20_000);
     const bounds = new maplibregl.LngLatBounds();
     options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
-    map.fitBounds(bounds, { padding: 100, maxZoom: 16, duration: 0 });
+    map.fitBounds(bounds, {
+      padding: overviewPaddingForViewport(overviewReferenceViewport, VIDEO_VIEWPORT),
+      maxZoom: overviewZoomForViewport(16, overviewReferenceViewport, VIDEO_VIEWPORT),
+      duration: 0,
+    });
+    let overviewReferenceZoom = map.getZoom() - overviewZoomOffset;
     if (options.overviewZoomMode === 'custom') {
       const zoom = options.overviewCustomZoom ?? 10;
       if (!Number.isFinite(zoom) || zoom < 4 || zoom > 16) throw new Error('Zoomは4.0〜16.0で指定してください。');
-      map.jumpTo({ center: map.getCenter(), zoom, bearing: 0, pitch: 0 });
+      overviewReferenceZoom = zoom;
+      map.jumpTo({ center: map.getCenter(), zoom: overviewZoomForViewport(zoom, overviewReferenceViewport, VIDEO_VIEWPORT), bearing: 0, pitch: 0 });
     }
     if (isLowZoomMapView(map.getZoom())) {
       await waitForLowZoomVisualReady(map, 20_000);
@@ -111,7 +121,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     if (options.introZoomEnabled) {
       const targetCenter = map.getCenter();
       const targetZoom = map.getZoom();
-      const startZoom = getIntroStartZoom(targetZoom, map.getMinZoom());
+      const startZoom = overviewZoomForViewport(getIntroStartZoom(overviewReferenceZoom, map.getMinZoom()), overviewReferenceViewport, VIDEO_VIEWPORT);
       map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
       let previousBandKey: string | null = null;
       const introPlayback: FollowPlaybackState = {

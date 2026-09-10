@@ -12,6 +12,7 @@ import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { FOLLOW_VIEWPORT, sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
+import { OVERVIEW_FIT_PADDING, type ViewportSize } from '../video/overviewCamera';
 
 function routeCollection(segments: RoutePoint[][]) {
   return {
@@ -61,6 +62,7 @@ interface RouteMapProps {
   overviewZoomMode: 'auto' | 'custom';
   overviewCustomZoom: number;
   followCameraPlan: FollowCameraPlan | null;
+  onMapViewportChange: (viewport: ViewportSize) => void;
   onSelectPoint: (id: string | null) => void;
   onSelectionCandidates: (ids: string[]) => void;
   onSelectRaw: (point: RawPosition | null) => void;
@@ -235,6 +237,7 @@ export default function RouteMap(props: RouteMapProps) {
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
     const updateFollowViewport = () => {
       const container = map.getContainer();
+      propsRef.current.onMapViewportChange({ width: container.clientWidth, height: container.clientHeight });
       setFollowViewport(getFollowPreviewViewport(container.clientWidth, container.clientHeight));
       const current = propsRef.current;
       const preview = getPreviewState(current);
@@ -582,7 +585,7 @@ function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
     map.easeTo({ center: [points[0].longitude, points[0].latitude], zoom: 16, duration });
     return;
   }
-  map.fitBounds(bounds, { padding: { top: 72, right: 44, bottom: 92, left: 44 }, maxZoom: 16, duration });
+  map.fitBounds(bounds, { padding: OVERVIEW_FIT_PADDING, maxZoom: 16, duration });
 }
 
 function updateMapDiagnostics(map: MapLibreMap, points: RoutePoint[]) {
