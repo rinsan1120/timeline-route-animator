@@ -1,6 +1,7 @@
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
+import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR } from './plan/planFile';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, deletePoint, movePoint } from './route/editor';
@@ -23,6 +24,7 @@ export default function App() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const planFileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const mapViewportRef = useRef<ViewportSize | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
@@ -370,6 +372,64 @@ export default function App() {
     routeLoadedNoticeTimerRef.current = null;
   };
 
+  const savePlan = () => {
+    if (workspaceMode !== 'plan' || !points.length || busy) return;
+    try {
+      downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements });
+      setError('');
+    } catch {
+      setError('計画データを保存できませんでした。もう一度お試しください。');
+    }
+  };
+
+  const loadPlan = async (file: File) => {
+    if (workspaceMode !== 'plan' || busy || videoProgress || previewProgress !== null) return;
+    setBusy(true);
+    try {
+      const saved = parsePlanFile(await file.text());
+      // A video export may have started while the file was being read.
+      if (abortRef.current) {
+        setError('動画生成が終了してから、作業を再開してください。');
+        return;
+      }
+      setWorkspaceMode('plan');
+      dispatch({ type: 'load', points: saved.points });
+      setPlanDayStarts(saved.planDayStarts);
+      setPlanDayNotes(saved.planDayNotes);
+      setDayMarkerPlacements(saved.dayMarkerPlacements);
+      setEndpointMarkerPlacements({});
+      setSelectedPointId(null);
+      setSelectionCandidateIds([]);
+      setSelectedRaw(null);
+      setRangeDeletePointIds([]);
+      setAnimationStartPointId(null);
+      setAnimationEndPointId(null);
+      setPreviewProgress(null);
+      setFollowCameraPlan(null);
+      setVideoUrl('');
+      setAnnotationLabel('');
+      setDayMarkerNoteInput('');
+      setRangeDeleteMode(false);
+      setAddMode(false);
+      setMapMode('edit');
+      setRawPositions([]);
+      setShowRaw(false);
+      setDayMarkerNotes({});
+      setDates([]);
+      setStartDate('');
+      setEndDate('');
+      setFileName('');
+      setError('');
+      if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+      routeLoadedNoticeTimerRef.current = null;
+      setNotice('計画データを復元しました。編集を続けられます。');
+    } catch {
+      setError(PLAN_FILE_ERROR);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const commitAdd = (latitude: number, longitude: number) => {
     const next = workspaceMode === 'plan'
       ? appendPlanPoint(points, latitude, longitude)
@@ -524,6 +584,13 @@ export default function App() {
             </> : <>
               <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
               <p className="range-note">「編集」→「連続追加」で地点を追加できます。</p>
+              <button className="secondary-button wide" disabled={!points.length || busy} onClick={savePlan}>作業を保存</button>
+              <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => planFileInputRef.current?.click()}>作業を再開</button>
+              <input ref={planFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                if (file) void loadPlan(file);
+              }} />
             </>}
           </section>
 
