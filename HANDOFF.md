@@ -4,17 +4,16 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub mainとローカルHEADが `d3b9419783762629306cb4abf2364f7122149732` で一致することを確認後、計画モードのDAY別概算距離・合計表示を追加。今回の変更は未コミット。前回の計画JSON保存・再開はmainに含まれている。
+GitHub mainとローカルHEADが `6f8b0a2bbf17d6d933f415497e45ab22e98301cb` で一致することを確認後、計画モードの概算距離HUDを追加。今回の変更は未コミット。計画JSON保存・再開とStep 02のDAY別概算距離は基準mainに実装済み。
 
 ## Completed
 
-- `src/plan/planFile.ts`に専用JSON（format/version付き）の生成・ダウンロード・全体検証を実装。
-- `src/App.tsx`の計画モードStep 01に「作業を保存」「作業を再開」と独立したファイル入力を追加。
-- points（地点バルーンを含む）、planDayStarts、planDayNotes、dayMarkerPlacementsを保存・復元。ポイントIDは維持。
-- 復元時はhistoryReducerのloadを使用し、選択・アニメ範囲・プレビュー・生成済み動画等をリセットして編集モードへ戻す。
-- `src/route/tripRoute.ts`に計画用距離関数を追加。既存DAYマーカーと同じ境界判定を利用し、DAY間の接続距離を除外する。
-- 計画モードのStep 02にDAY別概算距離と合計を表示し、見出しも同じ合計を使用。points・planDayStartsから導出し、編集・Undo/Redo・DAY変更・JSON復元に追随する構成。
-- READMEに概算距離の説明を追加。Timeline側の距離計算・動画設定・地図描画・計画JSON処理は今回変更していない。
+- `src/route/planDistanceProgress.ts`に計画全体の距離モデルと現在地点の距離算出を追加。既存planRouteDistancesのDAY境界・最終値、distanceMeters、interpolateTripRouteを再利用。
+- `src/video/distanceHud.ts`にHUD設定・レイアウト・位置clamp・km書式・共通Canvas描画を追加。
+- `src/map/DistanceHudOverlay.tsx`に動画フレーム基準のHUD表示とドラッグ配置を追加。編集時は最終値、プレビュー時は現在距離を表示。
+- Appの計画モードStep 03にON/OFF（初期OFF）、50〜200%サイズ、位置リセットを追加。計画開始・JSON復元時は初期値へ戻す。JSON形式は未変更。
+- 全体表示・導入ズーム・追従MP4へフレームごとのHUD描画を追加。バルーン等の後、attributionの前に描画。
+- READMEにHUD操作説明を追加。
 
 ## In Progress
 
@@ -22,24 +21,27 @@ GitHub mainとローカルHEADが `d3b9419783762629306cb4abf2364f7122149732` で
 
 ## Known Issues
 
-- 今回の実装について実行時の確認は未実施。新たな不具合・テスト失敗・ビルド警告の有無は未確認。
-- READMEには今回の距離表示・保存機能以外に過去の仕様説明が残っている。今回、無関係なドキュメント整理は行っていない。
+- 実行時の確認は未実施。新たな不具合・テスト失敗・ビルド警告の有無は未確認。
+- READMEには今回と無関係な過去の仕様説明が残っている。今回、大規模な整理はしていない。
 
 ## Next Actions
 
-1. 複数DAYの計画ルートでDAY間の接続距離が除外され、DAY別合計とStep 02見出しが一致することを確認する。
-2. ポイント編集・範囲削除・Undo/Redo・DAY追加/解除・計画JSON復元で距離が更新されること、単一点DAYが0 mになることを確認する。
-3. ユーザー確認後、今回の4ファイルをレビューしてコミット・pushする。
+1. HUD ONで編集時の値がStep 02と一致し、プレビュー・全体表示MP4・追従MP4で同一地点の距離が一致することを確認する。
+2. DAY境界、途中開始/終了のアニメ範囲、導入ズーム、camera-pan、day-transition、POST ROLLで加算・停止が正しいことを確認する。
+3. ドラッグ・画面リサイズ・サイズ変更時のclamp、DAY数が多い場合の全体縮小、出典表示を確認する。
+4. TimelineモードとHUD OFFで非表示になること、計画作業再開でHUD設定のみ初期化されることを確認後、差分をレビューしてコミット・pushする。
 
 ## Verification
 
 - GitHub main: `git ls-remote`でHEADとの一致を確認。
-- コード差分: 既存distanceMetersの再利用、DAY境界との一致、空ルート・単一点・連続DAY開始点の扱い、useMemo依存配列、Timeline計算の維持を確認。
+- コード差分: DAY境界・全計画ID対応・区間補間・描画順・初期化・プレビューと動画の共通モデル・変更範囲を確認。
+- `git diff --check`: 問題なし。
 - 単体テスト・ビルド・lint/typecheck・ブラウザ・Android/iPhone・Pages・実MP4生成: 未実施（実装とコード確認のみとのユーザー指定）。
 
 ## Important Context
 
-- 未コミット変更: `src/App.tsx`、`src/route/tripRoute.ts`、`README.md`、`HANDOFF.md`。
-- 既存編集処理が削除済み地点のDAY情報を保持するため、計画JSONでも未参照のDAYキーを削除せず保存・復元する。
+- 未コミット変更: App.tsx、RouteMap.tsx、renderer.ts、styles.css、README.md、HANDOFF.md。新規: planDistanceProgress.ts、distanceHud.ts、DistanceHudOverlay.tsx。
+- カメラ計算・タイル待機・既存planRouteDistances・計画JSON形式は変更していない。
+- HUDの座標は動画左上基準。既存followViewportを全体表示/編集時にもHUD用フレームとして再利用し、地理座標とは独立している。
+- HUDパネルはブラウザでもCanvas描画し、MP4と描画関数・寸法・等幅数字を共有する。
 - `gsiVectorConfig.ts`の色はユーザーが調整するため、指示なく戻さない。
-- 古い引継ぎ記録にあった未デプロイ状態や過去の検証結果は、現在の状態の証拠として扱わない。

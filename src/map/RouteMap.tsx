@@ -8,6 +8,8 @@ import { GSI_STYLE } from './gsiStyle';
 import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import EndpointMarkerOverlay from './EndpointMarkerOverlay';
+import DistanceHudOverlay from './DistanceHudOverlay';
+import type { DistanceHudOptions, DistanceHudPlacement } from '../video/distanceHud';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { FOLLOW_VIEWPORT, sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
@@ -36,6 +38,9 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  distanceHud?: DistanceHudOptions;
+  distanceHudDraggable?: boolean;
+  onDistanceHudPlacement?: (placement: DistanceHudPlacement) => void;
   endpointMarkerPlacements: EndpointMarkerPlacements;
   onAnnotationPlacement: (id: string, placement: PopupPlacement) => void;
   onDayPlacement: (id: string, placement: PopupPlacement) => void;
@@ -429,7 +434,7 @@ export default function RouteMap(props: RouteMapProps) {
   }, [props.autoFitRouteChanges, props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
 
   return <>
-    <div className={`map ${props.addMode ? 'map--adding' : ''}`} ref={containerRef} />
+    <div className={`map ${props.addMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <path ref={routeOverlayRef} />
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
@@ -459,9 +464,12 @@ export default function RouteMap(props: RouteMapProps) {
     <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {isPreviewing && props.cameraMode === 'follow' && <div className="video-preview-frame-overlay" aria-hidden="true">
+    {(isPreviewing && props.cameraMode === 'follow' || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: followViewport.width, height: followViewport.height, left: followViewport.left, top: followViewport.top }} />
     </div>}
+    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={props.distanceHud} viewport={followViewport}
+      routeProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex}
+      draggable={!isPreviewing && !!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
     <div className="map-zoom" aria-hidden="true">Zoom {(getFollowPreviewVideoZoom(props, mapRef.current) ?? mapZoom).toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}

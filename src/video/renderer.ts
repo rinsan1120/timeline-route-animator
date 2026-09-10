@@ -11,6 +11,8 @@ import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 import { overviewPaddingForViewport, overviewZoomForViewport, VIDEO_VIEWPORT, type ViewportSize } from './overviewCamera';
+import { planRouteDistanceProgress } from '../route/planDistanceProgress';
+import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 
 const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
@@ -30,6 +32,7 @@ export function outputVideoFrameCount(duration: number): number {
 
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
+  distanceHud?: DistanceHudOptions;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
@@ -146,7 +149,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -181,7 +184,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {});
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -210,6 +213,7 @@ function drawFrame(
   routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
   endpointMarkerPlacements: EndpointMarkerPlacements,
+  distanceHud?: DistanceHudOptions,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -265,6 +269,7 @@ function drawFrame(
     if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
   }
 
+  if (distanceHud?.settings.enabled) drawDistanceHud(context, planRouteDistanceProgress(distanceHud.model, progress), distanceHud);
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
@@ -574,7 +579,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {});
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -602,6 +607,7 @@ function drawFollowFrame(
   annotationStyle: AnnotationStyle,
   endpointMarkerPlacements: EndpointMarkerPlacements,
   revealRoute = true,
+  distanceHud?: DistanceHudOptions,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -656,6 +662,7 @@ function drawFollowFrame(
     }
   }
 
+  if (distanceHud?.settings.enabled) drawDistanceHud(context, planRouteDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), distanceHud);
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';

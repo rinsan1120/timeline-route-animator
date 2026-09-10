@@ -112,6 +112,14 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .map-stage { position: relative; min-width: 0; min-height: 0; background: #dce5e7; }
 .map { position: absolute; inset: 0; }
 .map-zoom { position: absolute; z-index: 6; left: 10px; bottom: 10px; padding: 3px 6px; color: #334155; background: rgba(255,255,255,.78); border-radius: 4px; font-size: 10px; line-height: 1.2; pointer-events: none; }
+.distance-hud-overlay { position: absolute; z-index: 6; inset: 0; overflow: hidden; pointer-events: none; }
+.distance-hud-controls { margin-top: 16px; }
+.distance-hud-size { display: block; margin-top: 12px; }
+.distance-hud-size span { float: right; }
+.distance-hud-size input { display: block; width: 100%; min-height: 44px; accent-color: var(--orange); }
+.map--distance-hud .maplibregl-ctrl-bottom-right { z-index: 7; }
+.distance-hud-panel { position: absolute; transform-origin: top left; touch-action: none; user-select: none; font-variant-numeric: tabular-nums; }
+.distance-hud-panel canvas { display: block; pointer-events: none; }
 .video-preview-frame-overlay { position: absolute; z-index: 5; inset: 0; overflow: hidden; pointer-events: none; }
 .video-preview-frame { position: absolute; outline: 1px solid rgba(255,255,255,.65); box-shadow: 0 0 0 9999px rgba(7,17,31,.4); pointer-events: none; }
 .video-preview-frame-overlay ~ .map-status { z-index: 6; }
