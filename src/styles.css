@@ -41,15 +41,17 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .mode-switch button, .duration-options button, .video-mode-options button, .follow-zoom-options button, .route-marker-options button { flex: 1; height: 34px; border: 0; border-radius: 6px; background: transparent; color: #7e8a99; font-size: 11px; font-weight: 700; cursor: pointer; }
 .mode-switch button.active, .duration-options button.active, .video-mode-options button.active, .follow-zoom-options button.active, .route-marker-options button.active { color: #172b44; background: white; box-shadow: 0 1px 5px rgba(17,33,53,.12); }
 .route-marker-options button { min-width: 0; padding: 0 4px; white-space: nowrap; }
-.toggle-row { display: flex; align-items: center; margin-top: 18px; cursor: pointer; }
+.toggle-row { position: relative; display: flex; align-items: center; margin-top: 18px; cursor: pointer; }
 .toggle-row > span { display: flex; flex-direction: column; }
 .toggle-row strong { color: #26384f; font-size: 11px; }
 .toggle-row small { color: #98a4b1; font-weight: 400; margin-top: 3px; font-size: 9px; }
-.toggle-row input { position: absolute; opacity: 0; }
+/* Keep the focus target inside its label and the control-panel scroll area. */
+.toggle-row input[type='checkbox'] { position: absolute; top: 50%; right: 18px; width: 1px; height: 1px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; }
 .toggle-row i { margin-left: auto; width: 36px; height: 21px; border-radius: 20px; background: #cbd2d9; position: relative; transition: .2s; }
 .toggle-row i::after { content: ''; position: absolute; width: 15px; height: 15px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: .2s; box-shadow: 0 1px 3px #75808b; }
 .toggle-row input:checked + i { background: var(--orange); }
 .toggle-row input:checked + i::after { transform: translateX(15px); }
+.toggle-row input:focus-visible + i { outline: 2px solid var(--navy); outline-offset: 3px; }
 .detail-card { margin-top: 14px; padding: 12px; border-radius: 8px; background: #f4f7f8; display: grid; gap: 4px; font-size: 10px; color: #5c6a7c; position: relative; }
 .detail-card strong { color: #22344a; }
 .detail-card code { font-size: 9px; overflow-wrap: anywhere; }
