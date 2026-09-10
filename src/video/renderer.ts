@@ -4,6 +4,7 @@ import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstE
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
+import { DAY_MARKER_COLORS, DAY_MARKER_FONT_FAMILY, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
@@ -149,7 +150,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.overviewReferenceViewport);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -184,7 +185,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.overviewReferenceViewport);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -214,6 +215,7 @@ function drawFrame(
   annotationStyle: AnnotationStyle,
   endpointMarkerPlacements: EndpointMarkerPlacements,
   distanceHud?: DistanceHudOptions,
+  dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -261,7 +263,7 @@ function drawFrame(
 
   if (routeMarkerMode === 'day') {
     for (const dayMarker of dayMarkers) {
-      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker);
+      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayMarkerReferenceViewport);
     }
   } else if (routeMarkerMode === 'start-goal') {
     if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
@@ -372,66 +374,66 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.restore();
 }
 
-function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker) {
+function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, referenceViewport: ViewportSize) {
   context.save();
-  const margin = 24;
-  const bottom = HEIGHT - 70;
-  const width = 300;
-  const dateHeight = marker.date ? 36 : 0;
-  const height = (marker.note ? 98 : 66) + dateHeight;
-  const gap = 42;
+  const { width, height, style, rows } = dayMarkerLayout(marker, context, referenceViewport);
+  const margin = style.margin;
+  const bottom = HEIGHT - style.bottomMargin;
+  const gap = style.anchorGap;
   let left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
   const below = marker.pixel.y - height - gap < margin;
   let top = Math.max(margin, Math.min(bottom - height, below ? marker.pixel.y + gap : marker.pixel.y - height - gap));
   if (marker.placement) {
     ({ left, top } = placedPopupRect(marker.pixel, marker.placement, width, height, WIDTH, bottom, margin));
   }
-  const anchorX = Math.max(left + 18, Math.min(left + width - 18, marker.pixel.x));
-
-  context.strokeStyle = '#ff8b68';
-  context.lineWidth = 5;
+  const connector = dayMarkerConnector({ left, top, width, height }, marker.pixel, Boolean(marker.placement), below, style);
+  context.strokeStyle = DAY_MARKER_COLORS.outline;
+  context.lineWidth = connector.width;
+  context.lineCap = 'butt';
   context.beginPath();
-  const connectorStart = marker.placement
-    ? nearestPointOnRect({ left, top, width, height }, marker.pixel)
-    : { x: anchorX, y: below ? top : top + height };
-  context.moveTo(connectorStart.x, connectorStart.y);
-  context.lineTo(marker.pixel.x, marker.pixel.y);
+  context.moveTo(connector.start.x, connector.start.y);
+  context.lineTo(connector.end.x, connector.end.y);
   context.stroke();
   context.beginPath();
-  context.arc(marker.pixel.x, marker.pixel.y, 10, 0, Math.PI * 2);
-  context.fillStyle = '#ff5d37';
+  context.arc(connector.dot.x, connector.dot.y, connector.radius, 0, Math.PI * 2);
+  context.fillStyle = DAY_MARKER_COLORS.anchor;
   context.fill();
-  context.lineWidth = 4;
-  context.strokeStyle = '#ffffff';
+  context.lineWidth = style.anchorBorder;
+  context.strokeStyle = DAY_MARKER_COLORS.text;
   context.stroke();
 
-  context.shadowColor = 'rgba(7,17,31,.28)';
-  context.shadowBlur = 18;
-  context.shadowOffsetY = 5;
-  context.fillStyle = '#102c4b';
-  context.fillRect(left, top, width, height);
+  context.shadowColor = DAY_MARKER_COLORS.shadow;
+  context.shadowBlur = style.shadowBlur;
+  context.shadowOffsetY = style.shadowOffsetY;
+  context.fillStyle = DAY_MARKER_COLORS.background;
+  context.beginPath();
+  context.roundRect(left, top, width, height, style.radius);
+  context.fill();
   context.shadowBlur = 0;
   context.shadowOffsetY = 0;
-  context.lineWidth = 4;
-  context.strokeStyle = '#ff8b68';
-  context.strokeRect(left, top, width, height);
-  context.fillStyle = '#ff8b68';
-  context.fillRect(left, top, width, 7);
+  context.lineWidth = style.border;
+  context.strokeStyle = DAY_MARKER_COLORS.outline;
+  // The browser has a uniform rounded border, not a separate thick top accent.
+  context.beginPath();
+  context.roundRect(left + style.border / 2, top + style.border / 2,
+    width - style.border, height - style.border, Math.max(0, style.radius - style.border / 2));
+  context.stroke();
 
-  context.textAlign = 'center';
+  context.textAlign = 'left';
   context.textBaseline = 'middle';
-  context.fillStyle = '#ffffff';
-  context.font = '700 36px system-ui, sans-serif';
-  context.fillText(`DAY ${marker.dayNumber}`, left + width / 2, top + 34);
-  if (marker.date) {
-    context.fillStyle = '#cbd7e4';
-    context.font = '24px system-ui, sans-serif';
-    context.fillText(marker.date.replaceAll('-', '.'), left + width / 2, top + 70);
-  }
-  if (marker.note) {
-    context.fillStyle = '#ffffff';
-    context.font = '26px system-ui, sans-serif';
-    context.fillText(truncateCanvasText(context, marker.note, width - 28), left + width / 2, top + 72 + dateHeight);
+  for (const row of rows) {
+    context.fillStyle = row.color;
+    context.font = `${row.weight} ${row.fontSize}px ${DAY_MARKER_FONT_FAMILY}`;
+    const x = left + (width - row.textWidth) / 2;
+    if (!row.spacing) {
+      context.fillText(row.text, x, top + row.y);
+    } else {
+      let prefix = '';
+      Array.from(row.text).forEach((character, index) => {
+        context.fillText(character, x + context.measureText(prefix).width + index * row.spacing, top + row.y);
+        prefix += character;
+      });
+    }
   }
   context.restore();
 }
@@ -487,13 +489,6 @@ function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: numbe
   context.font = '700 36px system-ui, sans-serif';
   context.fillText(label, left + width / 2, top + height / 2 + 3);
   context.restore();
-}
-
-function truncateCanvasText(context: CanvasRenderingContext2D, value: string, maxWidth: number): string {
-  if (context.measureText(value).width <= maxWidth) return value;
-  const characters = Array.from(value);
-  while (characters.length && context.measureText(`${characters.join('')}…`).width > maxWidth) characters.pop();
-  return `${characters.join('')}…`;
 }
 
 async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob> {
@@ -579,7 +574,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.overviewReferenceViewport);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -608,6 +603,7 @@ function drawFollowFrame(
   endpointMarkerPlacements: EndpointMarkerPlacements,
   revealRoute = true,
   distanceHud?: DistanceHudOptions,
+  dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -650,7 +646,7 @@ function drawFollowFrame(
       const point = points[dayMarker.pointIndex];
       const pixel = map.project([point.longitude, point.latitude]);
       if (!isInVideoViewport(pixel)) continue;
-      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 });
+      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayMarkerReferenceViewport);
     }
   } else if (routeMarkerMode === 'start-goal') {
     const startPixel = map.project([points[0].longitude, points[0].latitude]);

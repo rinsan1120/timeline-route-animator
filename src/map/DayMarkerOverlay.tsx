@@ -1,9 +1,10 @@
 import { bindPopupDrag, positionManualPopup } from '../popup/browserPlacement';
-import type { PopupPlacement } from '../popup/placement';
+import { popupDisplayScale, type PopupPlacement } from '../popup/placement';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
 import { tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
+import { DAY_MARKER_COLORS, DAY_MARKER_FONT_FAMILY, dayMarkerConnector, dayMarkerLayout, dayMarkerStyle } from '../route/dayMarkerStyle';
 
 interface DayMarkerOverlayProps {
   draggable: boolean;
@@ -36,11 +37,42 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!map || !container) return;
+    const measureContext = document.createElement('canvas').getContext('2d');
+    if (!measureContext) return;
+    let active = true;
     const positionMarkers = () => {
+      if (!active) return;
       const width = container.clientWidth;
       const height = container.clientHeight;
+      if (width <= 0 || height <= 0) return;
+      const scale = popupDisplayScale(width, height);
+      const browserStyle = dayMarkerStyle();
       visible.forEach((marker, index) => {
         const element = container.children[index] as HTMLDivElement;
+        const layout = dayMarkerLayout(marker, measureContext, { width, height });
+        const style = layout.style;
+        Object.assign(element.style, {
+          width: `${layout.width * scale}px`, height: `${layout.height * scale}px`, minWidth: '0', maxWidth: 'none',
+          padding: `${style.paddingTop * scale}px ${style.paddingX * scale}px ${style.paddingBottom * scale}px`,
+          gap: `${style.rowGap * scale}px`, border: `${style.border * scale}px solid ${DAY_MARKER_COLORS.outline}`,
+          borderRadius: `${style.radius * scale}px`, background: DAY_MARKER_COLORS.background,
+          boxShadow: `0 ${style.shadowOffsetY * scale}px ${style.shadowBlur * scale}px ${DAY_MARKER_COLORS.shadow}`,
+          fontFamily: DAY_MARKER_FONT_FAMILY,
+        });
+        layout.rows.forEach((row) => {
+          const text = element.querySelector<HTMLElement>(row.kind === 'day' ? 'strong' : row.kind === 'date' ? 'time' : 'span')!;
+          text.textContent = row.text;
+          Object.assign(text.style, { fontSize: `${row.fontSize * scale}px`, fontWeight: String(row.weight),
+            letterSpacing: `${row.spacing * scale}px`, lineHeight: `${row.height * scale}px`, color: row.color, maxWidth: '100%' });
+        });
+        element.style.setProperty('--day-connector-width', `${style.connectorWidth * scale}px`);
+        element.style.setProperty('--day-manual-connector-width', `${style.manualConnectorWidth * scale}px`);
+        element.style.setProperty('--day-anchor-radius', `${style.anchorRadius * scale}px`);
+        element.style.setProperty('--day-manual-anchor-radius', `${style.manualAnchorRadius * scale}px`);
+        element.style.setProperty('--day-anchor-border', `${style.anchorBorder * scale}px`);
+        element.style.setProperty('--day-outline', DAY_MARKER_COLORS.outline);
+        element.style.setProperty('--day-anchor', DAY_MARKER_COLORS.anchor);
+        element.style.setProperty('--day-anchor-outline', DAY_MARKER_COLORS.text);
         const projected = map.project([marker.point.longitude, marker.point.latitude]);
         if (projected.x < 0 || projected.x > width || projected.y < 0 || projected.y > height) {
           element.style.visibility = 'hidden';
@@ -48,23 +80,37 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
         }
         const markerWidth = element.offsetWidth;
         const markerHeight = element.offsetHeight;
-        const left = Math.max(8, Math.min(width - markerWidth - 8, projected.x - markerWidth / 2));
-        const gap = 24;
-        const below = projected.y - markerHeight - gap < 8;
-        const top = Math.max(8, Math.min(height - markerHeight - 54, below ? projected.y + gap : projected.y - markerHeight - gap));
+        const left = Math.max(browserStyle.margin, Math.min(width - markerWidth - browserStyle.margin, projected.x - markerWidth / 2));
+        const gap = browserStyle.anchorGap;
+        const below = projected.y - markerHeight - gap < browserStyle.margin;
+        const top = Math.max(browserStyle.margin, Math.min(height - markerHeight - browserStyle.bottomMargin, below ? projected.y + gap : projected.y - markerHeight - gap));
         element.style.left = `${left}px`;
         element.style.top = `${top}px`;
-        element.style.setProperty('--day-marker-anchor-x', `${Math.max(12, Math.min(markerWidth - 12, projected.x - left))}px`);
+        element.style.setProperty('--day-marker-anchor-x', `${Math.max(browserStyle.anchorInset, Math.min(markerWidth - browserStyle.anchorInset, projected.x - left))}px`);
         element.dataset.placement = below ? 'below' : 'above';
-        positionManualPopup(element, container, projected, marker.placement, 54);
+        const connector = element.querySelector<SVGSVGElement>('.popup-connector')!;
+        connector.style.left = `${-element.clientLeft}px`;
+        connector.style.top = `${-element.clientTop}px`;
+        const geometry = dayMarkerConnector({ left, top, width: markerWidth, height: markerHeight }, projected, false, below, browserStyle);
+        const line = connector.querySelector('line')!;
+        line.setAttribute('x1', String(geometry.start.x - left));
+        line.setAttribute('y1', String(geometry.start.y - top));
+        line.setAttribute('x2', String(geometry.end.x - left));
+        line.setAttribute('y2', String(geometry.end.y - top));
+        const dot = connector.querySelector('circle')!;
+        dot.setAttribute('cx', String(geometry.dot.x - left));
+        dot.setAttribute('cy', String(geometry.dot.y - top));
+        positionManualPopup(element, container, projected, marker.placement, browserStyle.bottomMargin);
         element.style.visibility = 'visible';
       });
     };
     positionMarkers();
-    const cleanups = draggable ? visible.map((marker, index) => bindPopupDrag(container.children[index] as HTMLDivElement, container, () => map.project([marker.point.longitude, marker.point.latitude]), (placement) => onPlacement(marker.pointId, placement), positionMarkers, 54)) : [];
+    void document.fonts.ready.then(positionMarkers);
+    const cleanups = draggable ? visible.map((marker, index) => bindPopupDrag(container.children[index] as HTMLDivElement, container, () => map.project([marker.point.longitude, marker.point.latitude]), (placement) => onPlacement(marker.pointId, placement), positionMarkers, dayMarkerStyle().bottomMargin)) : [];
     map.on('move', positionMarkers);
     map.on('resize', positionMarkers);
     return () => {
+      active = false;
       cleanups.forEach((cleanup) => cleanup());
       map.off('move', positionMarkers);
       map.off('resize', positionMarkers);
