@@ -515,15 +515,15 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     canvasContextAttributes: { preserveDrawingBuffer: true },
   });
   let background: ImageBitmap | null = null;
+  // Failed tiles may count as loaded in MapLibre. Keep errors across camera changes.
+  let mapLoadError: Error | null = null;
+  const onMapError = () => {
+    mapLoadError = new Error('追従動画用の地図データを読み込めませんでした。ネットワーク接続を確認してください。');
+  };
+  map.on('error', onMapError);
   try {
     await waitForStyle(map, 20_000);
-    let lowZoomPrewarmed = false;
-    if (isLowZoomMapView(map.getZoom())) {
-      await waitForLowZoomVisualReady(map, 20_000);
-      lowZoomPrewarmed = true;
-    } else {
-      await waitForPrimaryVectorReady(map, 20_000);
-    }
+    await waitForFollowViewportReady(map, 20_000, () => mapLoadError, options.signal);
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
@@ -543,7 +543,6 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     const animationFrames = options.duration * VIDEO_FPS;
     const total = outputVideoFrameCount(options.duration);
     let backgroundKey = '';
-    let previousIntroBandKey: string | null = null;
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
@@ -567,31 +566,14 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
       const lastIntroFrame = introFrame && frame === preFrames - 1;
       if (!background || nextBackgroundKey !== backgroundKey || lastIntroFrame) {
         map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
-        if (introFrame) {
-          const bandKey = introZoomBandKey(playback.zoom);
-          if (bandKey !== previousIntroBandKey || lastIntroFrame) {
-            await waitForIntroZoomBandReady(map, playback.zoom, 20_000);
-            previousIntroBandKey = bandKey;
-            if (isLowZoomMapView(playback.zoom)) lowZoomPrewarmed = true;
-          } else {
-            await waitForRenderedMapFrame(map, 20_000);
-          }
-        } else if (isLowZoomMapView(playback.zoom)) {
-          if (!lowZoomPrewarmed) {
-            await waitForLowZoomVisualReady(map, 20_000);
-            lowZoomPrewarmed = true;
-          } else {
-            await waitForRenderedMapFrame(map, 20_000);
-          }
-        } else {
-          await waitForPrimaryVectorReady(map, 20_000);
-        }
+        await waitForFollowViewportReady(map, 20_000, () => mapLoadError, options.signal);
         context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
         const nextBackground = await createImageBitmap(canvas);
         background?.close();
         background = nextBackground;
         backgroundKey = nextBackgroundKey;
       }
+      if (mapLoadError) throw mapLoadError;
       drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {});
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
@@ -603,6 +585,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
     background?.close();
+    map.off('error', onMapError);
     map.remove();
     mapContainer.remove();
   }
@@ -690,6 +673,61 @@ function isInVideoViewport(point: { x: number; y: number }): boolean {
 
 function isLowZoomMapView(zoom: number): boolean {
   return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_VECTOR_CONFIG.lowZoomLand.maxZoom;
+}
+
+function waitForFollowViewportReady(
+  map: maplibregl.Map,
+  timeout: number,
+  getLoadError: () => Error | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const requiredSources: string[] = [GSI_OFFICIAL_SOURCE_ID];
+    if (isLowZoomMapView(map.getZoom())) requiredSources.push(GSI_LOW_ZOOM_LAND_SOURCE_ID);
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      map.off('idle', onIdle);
+      map.off('error', onError);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const fail = (error: unknown) => {
+      cleanup();
+      reject(error);
+    };
+    const onError = () => fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
+    const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
+    const onIdle = () => {
+      try {
+        const error = getLoadError();
+        if (error) return fail(error);
+        for (const sourceId of requiredSources) {
+          if (!map.getSource(sourceId)) return fail(new Error(`動画用の地図データが見つかりません（${sourceId}）。`));
+        }
+        if (!map.loaded() || !map.areTilesLoaded() || !requiredSources.every((sourceId) => map.isSourceLoaded(sourceId))) return;
+        cleanup();
+        resolve();
+      } catch (error) {
+        fail(error);
+      }
+    };
+    const timer = window.setTimeout(() => {
+      fail(new Error('追従動画用の地図データの読み込みがタイムアウトしました。動画生成を中止しました。'));
+    }, timeout);
+    map.on('idle', onIdle);
+    map.on('error', onError);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) return onAbort();
+    const error = getLoadError();
+    if (error) return fail(error);
+    try {
+      // jumpTo's tile selection is applied during render. Only accept a subsequent
+      // idle frame: current-viewport tiles and final symbol placement have rendered.
+      // Cached viewports proceed on that frame, without a fixed delay.
+      map.triggerRepaint();
+    } catch (error) {
+      fail(error);
+    }
+  });
 }
 
 async function waitForRenderedMapFrame(map: maplibregl.Map, timeout: number): Promise<void> {
