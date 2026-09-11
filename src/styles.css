@@ -182,11 +182,17 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .toast p { flex: 1; margin: 0; font-size: 11px; }
 .toast button { border: 0; background: none; color: inherit; font-size: 17px; cursor: pointer; }
 .edit-toolbar { position: absolute; z-index: 4; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; padding: 7px; border-radius: 12px; background: rgba(10,28,49,.95); box-shadow: 0 7px 30px rgba(0,0,0,.25); }
+.edit-toolbar-item { position: relative; display: flex; flex: 0 0 auto; }
 .edit-toolbar button { min-width: 67px; min-height: 51px; border: 0; border-radius: 8px; color: #c9d1da; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 9px; cursor: pointer; }
 .edit-toolbar button span { font-size: 18px; line-height: 1; }
 .edit-toolbar button.active { color: white; background: var(--orange); }
 .edit-toolbar button:disabled, button:disabled { opacity: .42; cursor: default; }
 .edit-toolbar i { width: 1px; background: #405066; margin: 7px 4px; }
+.edit-toolbar .help-tip--toolbar { position: absolute; z-index: 2; top: -3px; right: -3px; display: block; width: 32px; height: 32px; }
+.edit-toolbar .help-tip-button--toolbar { position: static; display: grid; width: 32px; height: 32px; min-width: 32px; min-height: 32px; margin: 0; padding: 0; color: #b9c7d5; background: transparent; }
+.edit-toolbar .help-tip-button--toolbar > span { width: 16px; height: 16px; border-color: #6f8194; color: #dce5ed; background: #263a50; font-size: 10px; }
+.edit-toolbar .help-tip-button--toolbar:focus-visible > span { outline-color: white; }
+.help-tip-panel--toolbar { position: fixed; z-index: 20; grid-column: auto; max-height: min(180px, 40vh); margin: 0; overflow-y: auto; box-shadow: 0 6px 24px rgba(7,17,31,.28); }
 
 @media (max-width: 760px) {
   body { overflow: auto; }

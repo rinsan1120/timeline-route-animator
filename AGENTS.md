@@ -251,12 +251,13 @@ Therefore:
 
 ## Contextual Help
 
-- When adding a new user-facing setting, editing item, menu item, or operation concept to the left control panel, include contextual help in the same change even when the user does not explicitly request it.
-- Add help copy to the shared help definition file; do not embed help bodies directly in `App.tsx` or other UI components.
+- When adding a new user-facing setting, editing tool, operation mode, menu item, map control, or toolbar item anywhere in the UI, evaluate contextual help as part of the implementation even when the user does not explicitly request it.
+- Add contextual help in the same change whenever a first-time user may not readily understand the feature's purpose, result, or important constraints.
+- Add help copy to the existing shared help definition file; do not embed help bodies directly in `App.tsx` or other UI components.
 - Reuse the existing `HelpTip` component by default.
 - Do not make help depend on hover. It must open and close by click or tap on both desktop and Android and remain keyboard-accessible.
-- Keep help copy concise and in Japanese, prioritizing an explanation of what the setting changes and any easily misunderstood effects.
-- Omit contextual help for a new setting or concept only when the user explicitly requests that no help be added.
+- Keep help copy concise and in Japanese. Explain what the feature is for, what happens when it is used, and any easily misunderstood constraints in terms a first-time user can understand; do not merely restate the UI label or focus on internal implementation.
+- If the user explicitly requests that no help be added, follow that instruction.
 - Do not mechanically add help to self-explanatory operations such as delete, Undo, save, or reset unless their behavior becomes complex.
 
 ---
