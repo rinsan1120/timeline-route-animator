@@ -4,7 +4,7 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub `main`、`origin/main`、ローカルHEADが `694d800` で一致することを確認後、計画モードの下部編集ツールバーへコンテキストヘルプを追加。今回の変更は未コミット。
+GitHub `main`、`origin/main`、ローカルHEADが `51fae6a` で一致することを確認後、計画モードの下部編集ツールバーヘルプを排他開閉へ変更。今回の変更は未コミット。
 
 ## Completed
 
@@ -19,10 +19,13 @@ GitHub `main`、`origin/main`、ローカルHEADが `694d800` で一致するこ
 - ツールバー用ヘルプ本文を横スクロール領域外へ表示する最小限の `toolbar` バリエーションを追加。
 - 空状態の「JSONを選択」を「JSONファイルを選択」へ変更。ファイル選択処理とヘッダー文言は変更していない。
 - `AGENTS.md` のコンテキストヘルプ規則を、左側パネル限定からユーザー向けUI全般へ拡張。
+- `HelpTip` に任意のcontrolled propsを追加し、既存の内部state方式との互換性を維持。
+- Appで開いているtoolbar用 `HelpKey` を1つだけ管理し、別の「?」を押すと現在のヘルプを閉じて新しいヘルプだけを表示。
+- 同じ「?」の再操作、編集モード終了、ツールバー非表示、Timeline／計画モード切替でtoolbarヘルプをクリア。
 
 ## Preserved Behavior
 
-- ヘルプの開閉状態は各 `HelpTip` 内の一時的なUI状態だけで、RoutePoint、計画JSON、localStorage、Undo / Redo履歴へ保存しない。
+- inlineヘルプは各 `HelpTip` 内の独立した一時stateを維持し、toolbarヘルプだけをApp内の一時stateで排他管理する。いずれもRoutePoint、計画JSON、localStorage、Undo / Redo履歴へ保存しない。
 - Timeline／計画モード、ポイント編集、DAY設定・色分け、地点停止、地点バルーン、START / GOAL、距離HUD、アニメーション範囲、プレビュー、カメラ、Zoom、MP4生成の処理は変更していない。
 - 既存のDOM ID、設定値、保存形式、`PLAN_FILE_VERSION` は変更していない。
 - ヘルプボタンは既存の `label` の外へ配置し、入力コントロールとの関連付けを維持している。
@@ -42,4 +45,5 @@ GitHub `main`、`origin/main`、ローカルHEADが `694d800` で一致するこ
 - ヘルプ文言の変更・追加は `src/help/helpContent.ts`、表示挙動の変更は `src/help/HelpTip.tsx` を使用する。
 - 新しいユーザー向け設定、編集ツール、操作モード、地図上ボタン、ツールバー項目を追加する際は、配置場所を問わずヘルプの要否を検討する。
 - ツールバーでは `variant="toolbar"` を使い、本文を横スクロール領域外へ表示する。
+- toolbarの `HelpTip` は `open` / `onOpenChange` を渡すcontrolled mode、inlineの `HelpTip` はpropsを省略するuncontrolled modeで使用する。
 - 単純な削除、Undo、保存、リセット等へは機械的にヘルプを追加しない。

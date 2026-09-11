@@ -5,17 +5,20 @@ import { HELP_CONTENT, type HelpKey } from './helpContent';
 interface HelpTipProps {
   helpKey: HelpKey;
   variant?: 'inline' | 'toolbar';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export default function HelpTip({ helpKey, variant = 'inline' }: HelpTipProps) {
-  const [open, setOpen] = useState(false);
+export default function HelpTip({ helpKey, variant = 'inline', open, onOpenChange }: HelpTipProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const [toolbarStyle, setToolbarStyle] = useState<CSSProperties>();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const content = HELP_CONTENT[helpKey];
+  const isOpen = open ?? internalOpen;
 
   useLayoutEffect(() => {
-    if (!open || variant !== 'toolbar') return;
+    if (!isOpen || variant !== 'toolbar') return;
     const updatePosition = () => {
       const button = buttonRef.current;
       if (!button) return;
@@ -34,7 +37,7 @@ export default function HelpTip({ helpKey, variant = 'inline' }: HelpTipProps) {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open, variant]);
+  }, [isOpen, variant]);
 
   const panel = <span className={`help-tip-panel${variant === 'toolbar' ? ' help-tip-panel--toolbar' : ''}`} id={panelId} role="note"
     style={variant === 'toolbar' ? toolbarStyle : undefined} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
@@ -44,11 +47,16 @@ export default function HelpTip({ helpKey, variant = 'inline' }: HelpTipProps) {
 
   return <span className={`help-tip help-tip--${variant}`}>
     <button ref={buttonRef} className={`help-tip-button${variant === 'toolbar' ? ' help-tip-button--toolbar' : ''}`} type="button"
-      aria-label={`${content.title}のヘルプを${open ? '閉じる' : '表示'}`} aria-expanded={open} aria-controls={panelId}
-      onClick={(event) => { if (variant === 'toolbar') event.stopPropagation(); setOpen((current) => !current); }}
+      aria-label={`${content.title}のヘルプを${isOpen ? '閉じる' : '表示'}`} aria-expanded={isOpen} aria-controls={panelId}
+      onClick={(event) => {
+        if (variant === 'toolbar') event.stopPropagation();
+        const nextOpen = !isOpen;
+        if (open === undefined) setInternalOpen(nextOpen);
+        onOpenChange?.(nextOpen);
+      }}
       onPointerDown={(event) => { if (variant === 'toolbar') event.stopPropagation(); }}>
       <span aria-hidden="true">?</span>
     </button>
-    {open && (variant === 'toolbar' ? createPortal(panel, document.body) : panel)}
+    {isOpen && (variant === 'toolbar' ? createPortal(panel, document.body) : panel)}
   </span>;
 }
