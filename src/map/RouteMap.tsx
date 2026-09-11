@@ -14,7 +14,7 @@ import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { sampleFollowOutputPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
-import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera, type ViewportSize } from '../video/overviewCamera';
+import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera } from '../video/overviewCamera';
 import { samplePlaybackTimeline, type PlaybackTimeline } from '../video/playbackTimeline';
 import { colorRouteSegments, type DayRouteSegment } from '../route/dayRouteColor';
 
@@ -76,7 +76,6 @@ interface RouteMapProps {
   cameraMode: VideoCameraMode;
   overviewCamera: VideoCamera | null;
   followCameraPlan: FollowCameraPlan | null;
-  onMapViewportChange: (viewport: ViewportSize) => void;
   onSelectPoint: (id: string | null) => void;
   onSelectionCandidates: (ids: string[]) => void;
   onSelectRaw: (point: RawPosition | null) => void;
@@ -252,7 +251,6 @@ export default function RouteMap(props: RouteMapProps) {
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
     const updateVideoViewport = () => {
       const container = map.getContainer();
-      propsRef.current.onMapViewportChange({ width: container.clientWidth, height: container.clientHeight });
       setVideoViewport(getVideoPreviewViewport(container.clientWidth, container.clientHeight));
       const current = propsRef.current;
       if (wasPreviewingRef.current) applyVideoPreviewCamera(map, current);

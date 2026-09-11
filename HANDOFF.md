@@ -4,7 +4,18 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHubから取得した最新 `origin/main` とローカルHEADが `bb716545b146db464e093a8d10c9c083a7584127` で一致することを確認し、走行距離HUDをTimelineモードにも拡張。今回の変更は未コミット。
+GitHubから取得した最新 `origin/main` とローカルHEADが `9236ed9951b6fb3eedfd97441f7f03a3c767bd7a` で一致することを確認し、DAYマーカーの端末viewport依存を修正。今回の変更は未コミット。
+
+## DAY marker video sizing fix (2026-09-11)
+
+- `dayMarkerStyle()`／`dayMarkerLayout()` は1920×1080動画用の固定論理寸法を返す。幅・高さ・文字・border・connector・anchor・shadowへ端末viewportの逆補正を適用しない。
+- 通常編集のCSS寸法維持は `dayMarkerEditingLayout()` に分離。編集時のドラッグ処理・保存済み `PopupPlacement` の1920×1080基準offsetは維持。
+- 動画プレビューではDAYマーカー層を1920×1080でレイアウトし、動画フレームと同じ倍率・余白で層全体を縮小。地図投影点をこの論理座標へ変換する。
+- rendererのoverview／follow／開始時ズーム／通常フレームが同じ固定レイアウトを使用。`dayMarkerReferenceViewport` と、その専用経路だったAppの `mapViewportRef`／RouteMapの通知を削除。
+- DAY色、内容、距離HUD、地点バルーン、START／GOAL、カメラ、Zoom、タイル取得、動画形式には変更なし。
+- `npm test`: 12ファイル・52テスト成功、任意の実データ用1ファイルはスキップ。異なるviewport／DPRでの論理寸法、編集サイズ維持、補足文幅を回帰テストで確認。
+- `npm run build`: TypeScript／Viteビルド成功（チャンクサイズ警告あり）。`git diff --check`: 問題なし。
+- ユーザー指定に従い、ブラウザ操作・実機確認・実MP4生成は未実施。テストのrenderer／エンコーダはモック。
 
 ## Distance HUD extension (2026-09-11)
 

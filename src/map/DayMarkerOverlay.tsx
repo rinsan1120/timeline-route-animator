@@ -1,10 +1,11 @@
+import { getVideoPreviewViewport, VIDEO_VIEWPORT } from '../video/overviewCamera';
 import { bindPopupDrag, positionManualPopup } from '../popup/browserPlacement';
 import { popupDisplayScale, type PopupPlacement } from '../popup/placement';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
 import { tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout, dayMarkerStyle } from '../route/dayMarkerStyle';
+import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerEditingLayout, dayMarkerLayout, dayMarkerStyle } from '../route/dayMarkerStyle';
 
 interface DayMarkerOverlayProps {
   draggable: boolean;
@@ -20,6 +21,7 @@ interface DayMarkerOverlayProps {
 
 export default function DayMarkerOverlay({ draggable, onPlacement, map, points, animationPoints, markers, dayColorsEnabled, previewProgress, reachedPointIndex = null }: DayMarkerOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isPreviewing = previewProgress !== null;
   const visible = useMemo(() => {
     const pointsById = new Map(points.map((point) => [point.id, point]));
     const markerPoints = markers.flatMap((marker) => {
@@ -43,6 +45,15 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
     let active = true;
     const positionMarkers = () => {
       if (!active) return;
+      const mapContainer = map.getContainer();
+      const viewport = getVideoPreviewViewport(mapContainer.clientWidth, mapContainer.clientHeight);
+      // Render preview in video coordinates, then shrink the entire overlay once.
+      // Editing keeps its existing CSS sizes and placement conversion.
+      Object.assign(container.style, isPreviewing ? {
+        width: `${VIDEO_VIEWPORT.width}px`, height: `${VIDEO_VIEWPORT.height}px`,
+        left: `${viewport.left}px`, top: `${viewport.top}px`,
+        transform: `scale(${viewport.scale})`, transformOrigin: 'top left',
+      } : { width: '', height: '', left: '', top: '', transform: '', transformOrigin: '' });
       const width = container.clientWidth;
       const height = container.clientHeight;
       if (width <= 0 || height <= 0) return;
@@ -50,7 +61,8 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
       const browserStyle = dayMarkerStyle();
       visible.forEach((marker, index) => {
         const element = container.children[index] as HTMLDivElement;
-        const layout = dayMarkerLayout(marker, measureContext, { width, height });
+        const layout = isPreviewing ? dayMarkerLayout(marker, measureContext)
+          : dayMarkerEditingLayout(marker, measureContext, { width, height });
         const style = layout.style;
         const colors = dayMarkerColors(marker.dayNumber, dayColorsEnabled);
         Object.assign(element.style, {
@@ -75,7 +87,10 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
         element.style.setProperty('--day-outline', colors.outline);
         element.style.setProperty('--day-anchor', colors.anchor);
         element.style.setProperty('--day-anchor-outline', colors.text);
-        const projected = map.project([marker.point.longitude, marker.point.latitude]);
+        const mapPoint = map.project([marker.point.longitude, marker.point.latitude]);
+        const projected = isPreviewing
+          ? { x: (mapPoint.x - viewport.left) / viewport.scale, y: (mapPoint.y - viewport.top) / viewport.scale }
+          : mapPoint;
         if (projected.x < 0 || projected.x > width || projected.y < 0 || projected.y > height) {
           element.style.visibility = 'hidden';
           return;
@@ -117,7 +132,7 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
       map.off('move', positionMarkers);
       map.off('resize', positionMarkers);
     };
-  }, [draggable, onPlacement, map, visible, dayColorsEnabled]);
+  }, [draggable, onPlacement, map, visible, dayColorsEnabled, isPreviewing]);
 
   return <div ref={containerRef} className="day-marker-overlay">
     {visible.map((marker) => <div key={marker.pointId} className="day-marker" style={{ visibility: 'hidden' }}>

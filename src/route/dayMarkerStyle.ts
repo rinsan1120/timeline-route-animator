@@ -1,10 +1,10 @@
+import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 import { nearestPointOnRect, POPUP_PLACEMENT_VIEWPORT, popupDisplayScale } from '../popup/placement';
 import { dayRouteColor } from './dayRouteColor';
 import type { DayMarker } from './tripRoute';
 
-// Preserve the existing DOM appearance. Convert CSS pixels using the actual
-// reference map viewport, rather than assuming an arbitrary browser size.
-const BROWSER_DAY_STYLE = {
+// Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
+const VIDEO_DAY_STYLE = {
   minWidth: 138, noteMaxWidth: 220, paddingX: 14, paddingTop: 10, paddingBottom: 9,
   dayFont: 14, dateFont: 10, noteFont: 11, daySpacing: 1.12, dateSpacing: 0.5,
   border: 2, radius: 5, rowGap: 2, anchorGap: 24, anchorInset: 12,
@@ -25,16 +25,29 @@ export function dayMarkerColors(dayNumber: number, dayRouteColorsEnabled: boolea
   return { ...DAY_MARKER_COLORS, outline: accent, anchor: accent };
 }
 
-export function dayMarkerStyle(reference = POPUP_PLACEMENT_VIEWPORT) {
+export function dayMarkerStyle() {
+  return { ...VIDEO_DAY_STYLE };
+}
+
+function editingStyle(reference: { width: number; height: number }) {
   const scale = 1 / popupDisplayScale(reference.width, reference.height);
-  const scaled = {} as Record<keyof typeof BROWSER_DAY_STYLE, number>;
-  for (const key of Object.keys(BROWSER_DAY_STYLE) as (keyof typeof BROWSER_DAY_STYLE)[]) scaled[key] = BROWSER_DAY_STYLE[key] * scale;
+  const scaled = {} as Record<keyof typeof VIDEO_DAY_STYLE, number>;
+  for (const key of Object.keys(VIDEO_DAY_STYLE) as (keyof typeof VIDEO_DAY_STYLE)[]) scaled[key] = VIDEO_DAY_STYLE[key] * scale;
   return scaled;
 }
 
-export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference = POPUP_PLACEMENT_VIEWPORT) {
+// Video and preview always share this device-independent layout.
+export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D) {
+  return layoutDayMarker(marker, context, VIDEO_VIEWPORT, dayMarkerStyle());
+}
+
+// Preserve readable, draggable CSS dimensions only outside video preview.
+export function dayMarkerEditingLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }) {
   if (!Number.isFinite(reference.width) || !Number.isFinite(reference.height) || reference.width <= 0 || reference.height <= 0) reference = POPUP_PLACEMENT_VIEWPORT;
-  const style = dayMarkerStyle(reference);
+  return layoutDayMarker(marker, context, reference, editingStyle(reference));
+}
+
+function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {
   const rows = [{ kind: 'day', text: `DAY ${marker.dayNumber}`, fontSize: style.dayFont, weight: 700, spacing: style.daySpacing, color: DAY_MARKER_COLORS.text },
     ...(marker.date ? [{ kind: 'date', text: marker.date.replaceAll('-', '.'), fontSize: style.dateFont, weight: 600, spacing: style.dateSpacing, color: DAY_MARKER_COLORS.date }] : []),
     ...(marker.note ? [{ kind: 'note', text: marker.note, fontSize: style.noteFont, weight: 400, spacing: 0, color: DAY_MARKER_COLORS.text }] : [])];
@@ -69,7 +82,7 @@ export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | '
   };
 }
 
-export function dayMarkerConnector(rect: { left: number; top: number; width: number; height: number }, anchor: { x: number; y: number }, manual: boolean, below: boolean, style: ReturnType<typeof dayMarkerStyle>) {
+export function dayMarkerConnector(rect: { left: number; top: number; width: number; height: number }, anchor: { x: number; y: number }, manual: boolean, below: boolean, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {
   if (manual) return { start: nearestPointOnRect(rect, anchor), end: anchor, dot: anchor, width: style.manualConnectorWidth, radius: style.manualAnchorRadius };
   const x = Math.max(rect.left + style.anchorInset, Math.min(rect.left + rect.width - style.anchorInset, anchor.x));
   const y = below ? rect.top : rect.top + rect.height;

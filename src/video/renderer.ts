@@ -11,7 +11,7 @@ import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
-import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera, type ViewportSize } from './overviewCamera';
+import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { routeDistanceProgress } from '../route/routeDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 import { buildOverviewPlaybackTimeline, samplePlaybackTimeline } from './playbackTimeline';
@@ -48,8 +48,6 @@ export interface RenderVideoOptions {
   overviewZoomMode?: 'auto' | 'custom';
   overviewCustomZoom?: number;
   overviewCamera?: VideoCamera;
-  // Browser viewport is retained only for the existing DAY marker size model.
-  dayMarkerReferenceViewport?: ViewportSize;
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
   duration: number;
@@ -146,7 +144,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.dayMarkerReferenceViewport, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -183,7 +181,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
           ? playbackTimeline.outputDurationSeconds
           : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
       const progress = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).baseElapsedSeconds / options.duration;
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayMarkerReferenceViewport, options.dayRouteColorsEnabled ?? false);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -213,7 +211,6 @@ function drawFrame(
   annotationStyle: AnnotationStyle,
   endpointMarkerPlacements: EndpointMarkerPlacements,
   distanceHud?: DistanceHudOptions,
-  dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
   dayRouteColorsEnabled = false,
 ) {
   context.drawImage(background, 0, 0);
@@ -262,7 +259,7 @@ function drawFrame(
 
   if (routeMarkerMode === 'day') {
     for (const dayMarker of dayMarkers) {
-      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayMarkerReferenceViewport, dayRouteColorsEnabled);
+      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayRouteColorsEnabled);
     }
   } else if (routeMarkerMode === 'start-goal') {
     if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
@@ -378,9 +375,9 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.restore();
 }
 
-function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, referenceViewport: ViewportSize, dayRouteColorsEnabled: boolean) {
+function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, dayRouteColorsEnabled: boolean) {
   context.save();
-  const { width, height, style, rows } = dayMarkerLayout(marker, context, referenceViewport);
+  const { width, height, style, rows } = dayMarkerLayout(marker, context);
   const colors = dayMarkerColors(marker.dayNumber, dayRouteColorsEnabled);
   const margin = style.margin;
   const bottom = HEIGHT - style.bottomMargin;
@@ -581,7 +578,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.dayMarkerReferenceViewport, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -610,7 +607,6 @@ function drawFollowFrame(
   endpointMarkerPlacements: EndpointMarkerPlacements,
   revealRoute = true,
   distanceHud?: DistanceHudOptions,
-  dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
   dayNumberByPointId: ReadonlyMap<string, number> = new Map(),
   dayRouteColorsEnabled = false,
 ) {
@@ -660,7 +656,7 @@ function drawFollowFrame(
       const point = points[dayMarker.pointIndex];
       const pixel = map.project([point.longitude, point.latitude]);
       if (!isInVideoViewport(pixel)) continue;
-      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayMarkerReferenceViewport, dayRouteColorsEnabled);
+      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayRouteColorsEnabled);
     }
   } else if (routeMarkerMode === 'start-goal') {
     const startPixel = map.project([points[0].longitude, points[0].latitude]);

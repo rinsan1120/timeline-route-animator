@@ -14,7 +14,7 @@ import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
 import { INTRO_ZOOM_DURATION_SECONDS } from './video/introZoom';
-import { createOverviewCamera, type ViewportSize } from './video/overviewCamera';
+import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
@@ -32,7 +32,6 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const planFileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const mapViewportRef = useRef<ViewportSize | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
   const previewEndTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
@@ -618,7 +617,7 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, dayNumberByPointId, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, dayMarkerReferenceViewport: mapViewportRef.current ?? undefined, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, dayNumberByPointId, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       setNotice('MP4を生成しました。端末へ保存できます。');
@@ -878,7 +877,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} onMapViewportChange={(viewport) => { mapViewportRef.current = viewport; }} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} dayNumberByPointId={dayNumberByPointId} dayRouteColorsEnabled={dayRouteColorsEnabled} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} dayNumberByPointId={dayNumberByPointId} dayRouteColorsEnabled={dayRouteColorsEnabled} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>JSONファイルを選択</span>
   <small>過去の移動履歴を取り込む</small>
