@@ -172,6 +172,9 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .empty-map h2 { margin: 20px 0 6px; font-size: 20px; }
 .empty-map p { margin: 0 0 20px; color: #6d7b88; font-size: 12px; }
 .empty-map button { pointer-events: auto; border: 0; border-radius: 8px; padding: 12px 20px; background: var(--orange); color: white; font-weight: 700; cursor: pointer; }
+.empty-map .empty-json-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+.empty-map .empty-json-button span { font-size: 13px; font-weight: 700; line-height: 1.2; }
+.empty-map .empty-json-button small { font-size: 9px; font-weight: 500; line-height: 1.2; opacity: .8; }
 .empty-map-actions { display: flex; gap: 10px; justify-content: center; }
 .empty-map .plan-button { background: #fff; color: var(--navy); border: 1px solid #d8dee4; }
 .loading-overlay { position: absolute; z-index: 5; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: white; font-size: 13px; background: rgba(7,17,31,.66); }
