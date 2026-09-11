@@ -1,4 +1,5 @@
 import { nearestPointOnRect, POPUP_PLACEMENT_VIEWPORT, popupDisplayScale } from '../popup/placement';
+import { dayRouteColor } from './dayRouteColor';
 import type { DayMarker } from './tripRoute';
 
 // Preserve the existing DOM appearance. Convert CSS pixels using the actual
@@ -17,6 +18,12 @@ export const DAY_MARKER_COLORS = {
   anchor: '#ff5d37', shadow: 'rgba(7,17,31,.28)',
 };
 export const DAY_MARKER_FONT_FAMILY = '"DM Sans", "Noto Sans JP", system-ui, sans-serif';
+
+export function dayMarkerColors(dayNumber: number, dayRouteColorsEnabled: boolean): typeof DAY_MARKER_COLORS {
+  if (!dayRouteColorsEnabled) return DAY_MARKER_COLORS;
+  const accent = dayRouteColor(dayNumber);
+  return { ...DAY_MARKER_COLORS, outline: accent, anchor: accent };
+}
 
 export function dayMarkerStyle(reference = POPUP_PLACEMENT_VIEWPORT) {
   const scale = 1 / popupDisplayScale(reference.width, reference.height);

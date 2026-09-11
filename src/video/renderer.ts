@@ -4,7 +4,7 @@ import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstE
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
-import { DAY_MARKER_COLORS, DAY_MARKER_FONT_FAMILY, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
+import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
@@ -183,7 +183,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
           ? playbackTimeline.outputDurationSeconds
           : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
       const progress = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).baseElapsedSeconds / options.duration;
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayMarkerReferenceViewport);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayMarkerReferenceViewport, options.dayRouteColorsEnabled ?? false);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -214,6 +214,7 @@ function drawFrame(
   endpointMarkerPlacements: EndpointMarkerPlacements,
   distanceHud?: DistanceHudOptions,
   dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
+  dayRouteColorsEnabled = false,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -261,7 +262,7 @@ function drawFrame(
 
   if (routeMarkerMode === 'day') {
     for (const dayMarker of dayMarkers) {
-      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayMarkerReferenceViewport);
+      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayMarkerReferenceViewport, dayRouteColorsEnabled);
     }
   } else if (routeMarkerMode === 'start-goal') {
     if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
@@ -377,9 +378,10 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: VideoAnno
   context.restore();
 }
 
-function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, referenceViewport: ViewportSize) {
+function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, referenceViewport: ViewportSize, dayRouteColorsEnabled: boolean) {
   context.save();
   const { width, height, style, rows } = dayMarkerLayout(marker, context, referenceViewport);
+  const colors = dayMarkerColors(marker.dayNumber, dayRouteColorsEnabled);
   const margin = style.margin;
   const bottom = HEIGHT - style.bottomMargin;
   const gap = style.anchorGap;
@@ -390,7 +392,7 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
     ({ left, top } = placedPopupRect(marker.pixel, marker.placement, width, height, WIDTH, bottom, margin));
   }
   const connector = dayMarkerConnector({ left, top, width, height }, marker.pixel, Boolean(marker.placement), below, style);
-  context.strokeStyle = DAY_MARKER_COLORS.outline;
+  context.strokeStyle = colors.outline;
   context.lineWidth = connector.width;
   context.lineCap = 'butt';
   context.beginPath();
@@ -399,23 +401,23 @@ function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker
   context.stroke();
   context.beginPath();
   context.arc(connector.dot.x, connector.dot.y, connector.radius, 0, Math.PI * 2);
-  context.fillStyle = DAY_MARKER_COLORS.anchor;
+  context.fillStyle = colors.anchor;
   context.fill();
   context.lineWidth = style.anchorBorder;
-  context.strokeStyle = DAY_MARKER_COLORS.text;
+  context.strokeStyle = colors.text;
   context.stroke();
 
-  context.shadowColor = DAY_MARKER_COLORS.shadow;
+  context.shadowColor = colors.shadow;
   context.shadowBlur = style.shadowBlur;
   context.shadowOffsetY = style.shadowOffsetY;
-  context.fillStyle = DAY_MARKER_COLORS.background;
+  context.fillStyle = colors.background;
   context.beginPath();
   context.roundRect(left, top, width, height, style.radius);
   context.fill();
   context.shadowBlur = 0;
   context.shadowOffsetY = 0;
   context.lineWidth = style.border;
-  context.strokeStyle = DAY_MARKER_COLORS.outline;
+  context.strokeStyle = colors.outline;
   // The browser has a uniform rounded border, not a separate thick top accent.
   context.beginPath();
   context.roundRect(left + style.border / 2, top + style.border / 2,
@@ -658,7 +660,7 @@ function drawFollowFrame(
       const point = points[dayMarker.pointIndex];
       const pixel = map.project([point.longitude, point.latitude]);
       if (!isInVideoViewport(pixel)) continue;
-      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayMarkerReferenceViewport);
+      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayMarkerReferenceViewport, dayRouteColorsEnabled);
     }
   } else if (routeMarkerMode === 'start-goal') {
     const startPixel = map.project([points[0].longitude, points[0].latitude]);

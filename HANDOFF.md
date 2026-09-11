@@ -4,7 +4,7 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub `main`、`origin/main`、ローカルHEADが `caeba3c` で一致することを確認後、コンテキストヘルプを通常情報カードと視覚的に区別できるデザインへ変更。今回の変更は未コミット。
+GitHub `main`、`origin/main`、ローカルHEADが `108f57b` で一致することを確認後、DAYマーカーのアクセントをDAYルート色へ連動。今回の変更は未コミット。
 
 ## Completed
 
@@ -24,6 +24,10 @@ GitHub `main`、`origin/main`、ローカルHEADが `caeba3c` で一致するこ
 - 同じ「?」の再操作、編集モード終了、ツールバー非表示、Timeline／計画モード切替でtoolbarヘルプをクリア。
 - inline／toolbar共通で、淡い青系背景、青灰色の枠線、左アクセント、タイトル先頭の丸囲み「?」を使用。
 - inlineヘルプだけに、ヘルプボタンとの関係を示す小さな吹き出し突起を追加。toolbarのportal／fixed配置は変更していない。
+- DAY色分け時、DAYマーカーの外枠・コネクタ・アンカーを既存の `dayRouteColor(dayNumber)` と同じ色へ変更。
+- `dayMarkerColors()` に色決定を共通化し、背景・文字・日付・影・アンカー白枠は従来デザインを維持。
+- 通常地図では既存ルートと同様に常時DAY色を使い、プレビュー／MP4では既存のStep 03トグルへ連動。
+- overview／followの両動画描画経路とブラウザ表示で共通のDAYマーカー色決定ロジックを使用。
 
 ## Preserved Behavior
 
@@ -34,10 +38,13 @@ GitHub `main`、`origin/main`、ローカルHEADが `caeba3c` で一致するこ
 - ツールバーの操作ボタンとヘルプボタンは兄弟要素で、操作ボタンのイベント処理、disabled条件、表示条件は変更していない。
 - 計画JSON、編集履歴、ルート編集ロジック、プレビュー／MP4ロジックは変更していない。
 - 今回の変更はヘルプ専用CSSのみで、開閉挙動、文言、データ構造、通常の `.detail-card` デザインは変更していない。
+- DAY色はDAY番号から都度導出し、RoutePoint、DayMarker、計画JSON、Undo / Redo履歴へ保存しない。`PLAN_FILE_VERSION` も変更していない。
 
 ## Verification
 
 - TypeScriptの `HelpKey` により、存在しないヘルプキーを `HelpTip` へ指定できない構造。
+- DAYマーカー色のOFF時互換、ON時のoutline／anchor、DAY 11循環、背景・文字・日付・影の維持をテストへ追加。
+- `npm test`: 12ファイル・41テスト成功。
 - `npm run build`: TypeScript/Viteビルド成功（既存のチャンクサイズ警告のみ）。
 - `git diff --check`: 問題なし。
 - ブラウザ表示とAndroid実機の目視確認はユーザー側で実施予定。

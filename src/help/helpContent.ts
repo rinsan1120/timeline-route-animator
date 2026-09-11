@@ -62,7 +62,7 @@ export const HELP_CONTENT = {
 
   dayRouteColors: {
     title: 'DAYごとの色分け',
-    body: '複数日のルートをDAYごとに違う色で表示し、「どこまでがDAY 1で、どこからがDAY 2か」を分かりやすくします。走行距離表示も同じ色になり、ルートと各DAYの距離を対応させて見られます。',
+    body: '複数日のルートをDAYごとに違う色で表示し、「どこまでがDAY 1で、どこからがDAY 2か」を分かりやすくします。DAYマーカーの枠線・接続線・丸印と走行距離表示も同じ色になり、各DAYを対応させて見られます。',
   },
 
   movementDuration: {

@@ -143,6 +143,7 @@ export default function RouteMap(props: RouteMapProps) {
   const [videoViewport, setVideoViewport] = useState(() => getVideoPreviewViewport(0, 0));
   const propsRef = useRef(props);
   propsRef.current = props;
+  const dayColorsEnabled = shouldUseDayColors(props);
   const isPreviewing = props.previewProgress !== null;
   const previewState = getPreviewState(props);
 
@@ -466,12 +467,12 @@ export default function RouteMap(props: RouteMapProps) {
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
     <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} dayColorsEnabled={dayColorsEnabled} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {(isPreviewing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />
     </div>}
-    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={{ ...props.distanceHud, dayColorsEnabled: !isPreviewing || props.dayRouteColorsEnabled }} viewport={videoViewport}
+    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={{ ...props.distanceHud, dayColorsEnabled }} viewport={videoViewport}
       routeProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex}
       draggable={!isPreviewing && !!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
     <div className="map-zoom" aria-hidden="true">Zoom {(getPreviewVideoCamera(props, previewState)?.zoom ?? mapZoom).toFixed(1)}</div>
@@ -607,7 +608,11 @@ function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState
   const segments = !preview ? splitRouteByDay(props.points) : props.revealRoute
     ? revealedTripRouteSegments(props.animationPoints, preview.routeProgress)
     : splitRouteByDay(props.animationPoints);
-  return colorRouteSegments(segments, props.dayNumberByPointId, props.previewProgress === null || props.dayRouteColorsEnabled);
+  return colorRouteSegments(segments, props.dayNumberByPointId, shouldUseDayColors(props));
+}
+
+function shouldUseDayColors(props: RouteMapProps): boolean {
+  return props.previewProgress === null || props.dayRouteColorsEnabled;
 }
 
 function updateRouteOverlay(

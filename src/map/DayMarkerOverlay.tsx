@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RoutePoint } from '../timeline/types';
 import { tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { DAY_MARKER_COLORS, DAY_MARKER_FONT_FAMILY, dayMarkerConnector, dayMarkerLayout, dayMarkerStyle } from '../route/dayMarkerStyle';
+import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout, dayMarkerStyle } from '../route/dayMarkerStyle';
 
 interface DayMarkerOverlayProps {
   draggable: boolean;
@@ -13,11 +13,12 @@ interface DayMarkerOverlayProps {
   points: RoutePoint[];
   animationPoints: RoutePoint[];
   markers: DayMarker[];
+  dayColorsEnabled: boolean;
   previewProgress: number | null;
   reachedPointIndex?: number | null;
 }
 
-export default function DayMarkerOverlay({ draggable, onPlacement, map, points, animationPoints, markers, previewProgress, reachedPointIndex = null }: DayMarkerOverlayProps) {
+export default function DayMarkerOverlay({ draggable, onPlacement, map, points, animationPoints, markers, dayColorsEnabled, previewProgress, reachedPointIndex = null }: DayMarkerOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => {
     const pointsById = new Map(points.map((point) => [point.id, point]));
@@ -51,12 +52,13 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
         const element = container.children[index] as HTMLDivElement;
         const layout = dayMarkerLayout(marker, measureContext, { width, height });
         const style = layout.style;
+        const colors = dayMarkerColors(marker.dayNumber, dayColorsEnabled);
         Object.assign(element.style, {
           width: `${layout.width * scale}px`, height: `${layout.height * scale}px`, minWidth: '0', maxWidth: 'none',
           padding: `${style.paddingTop * scale}px ${style.paddingX * scale}px ${style.paddingBottom * scale}px`,
-          gap: `${style.rowGap * scale}px`, border: `${style.border * scale}px solid ${DAY_MARKER_COLORS.outline}`,
-          borderRadius: `${style.radius * scale}px`, background: DAY_MARKER_COLORS.background,
-          boxShadow: `0 ${style.shadowOffsetY * scale}px ${style.shadowBlur * scale}px ${DAY_MARKER_COLORS.shadow}`,
+          gap: `${style.rowGap * scale}px`, border: `${style.border * scale}px solid ${colors.outline}`,
+          borderRadius: `${style.radius * scale}px`, background: colors.background,
+          boxShadow: `0 ${style.shadowOffsetY * scale}px ${style.shadowBlur * scale}px ${colors.shadow}`,
           fontFamily: DAY_MARKER_FONT_FAMILY,
         });
         layout.rows.forEach((row) => {
@@ -70,9 +72,9 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
         element.style.setProperty('--day-anchor-radius', `${style.anchorRadius * scale}px`);
         element.style.setProperty('--day-manual-anchor-radius', `${style.manualAnchorRadius * scale}px`);
         element.style.setProperty('--day-anchor-border', `${style.anchorBorder * scale}px`);
-        element.style.setProperty('--day-outline', DAY_MARKER_COLORS.outline);
-        element.style.setProperty('--day-anchor', DAY_MARKER_COLORS.anchor);
-        element.style.setProperty('--day-anchor-outline', DAY_MARKER_COLORS.text);
+        element.style.setProperty('--day-outline', colors.outline);
+        element.style.setProperty('--day-anchor', colors.anchor);
+        element.style.setProperty('--day-anchor-outline', colors.text);
         const projected = map.project([marker.point.longitude, marker.point.latitude]);
         if (projected.x < 0 || projected.x > width || projected.y < 0 || projected.y > height) {
           element.style.visibility = 'hidden';
@@ -115,7 +117,7 @@ export default function DayMarkerOverlay({ draggable, onPlacement, map, points, 
       map.off('move', positionMarkers);
       map.off('resize', positionMarkers);
     };
-  }, [draggable, onPlacement, map, visible]);
+  }, [draggable, onPlacement, map, visible, dayColorsEnabled]);
 
   return <div ref={containerRef} className="day-marker-overlay">
     {visible.map((marker) => <div key={marker.pointId} className="day-marker" style={{ visibility: 'hidden' }}>

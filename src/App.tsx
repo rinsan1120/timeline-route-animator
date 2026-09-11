@@ -811,7 +811,7 @@ export default function App() {
                 <HelpTip helpKey="introZoom" />
               </div>
               <div className="control-label-with-help control-label-with-help--toggle">
-                <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線と走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
+                <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線・DAYマーカー・走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="dayRouteColors" />
               </div>
             </div>
