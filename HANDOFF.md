@@ -4,43 +4,44 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub mainとローカルHEADが `0d562b987a5acee125e9a1a5e332bbc4a7460845` で一致することを確認後、動画プレビュー／MP4のカメラ不一致を修正。今回の変更は未コミット。
+GitHub mainとローカルHEADが `a45451d41759d94862cc34626f0706f3476704d3` で一致することを確認後、計画モードの「途中追加」を実装。今回の変更は未コミット。
 
 ## Completed
 
-- `overviewCamera.ts` に1920×1080基準のVideoCamera生成と中央16:9枠、Zoom縮小変換を集約。上下非対称paddingによるcenter位置も動画座標で決定。
-- Appの同一overviewCameraをRouteMap／rendererへ渡す。全体表示MP4での独立fitBounds・ブラウザ全体サイズからの逆換算を廃止。
-- 全体表示・追従プレビューで16:9枠を表示。リサイズ時も共通変換を適用し、終了時は編集カメラと通常のMapLibre制約を復元。
-- 開始時ズームは論理video zoomで補間し、プレビューの導入カメラ進行をMP4の0〜89フレームに合わせた。ルート進行・MP4フレーム数は未変更。
-- FOLLOW_VIEWPORTはVIDEO_VIEWPORTを参照。追従プランの生成・pan・DAY transitionは変更していない。
-- 既存テスト2ファイルのimport・カメラmock・期待値のみ新しい呼び出し方式へ追従。実行はしていない。
-- READMEにプレビュー枠の説明を追加。
+- 計画モードの編集ツールを「選択／連続追加／途中追加／範囲削除」の順に表示。途中追加は2点未満で無効。
+- `insertPlanPoint()` は既存の点・線分距離計算を利用し、次の点がplanDayStartsに含まれる区間を候補から除外。クリック座標のまま新しい手動点を挿入する。
+- 候補がない場合はルート・履歴を変更せず日本語エラーを表示。
+- 追加後も途中追加モードを維持し、historyReducerのcommitへ登録。既存ID、DAY情報、アニメ範囲IDは変更しない。
+- 途中追加中は通常選択・既存ポイントへの重複追加・ポイント移動ハンドル・バルーン等のドラッグを抑止。
+- 他ツールへの切替、編集終了、新規計画、計画復元、Timeline読込時に途中追加を解除。
+- READMEへ操作説明を追加。
 
 ## In Progress
 
-- 実装修正は完了。ユーザーによるプレビュー／MP4比較確認待ち。
+- 実装は完了。ユーザーによる操作確認待ち。
 
 ## Known Issues
 
-- 今回のカメラ修正と前回のDAY寸法修正の実機結果は未確認。実際の画角・配置一致を確認済みとはしていない。
+- 今回の操作結果は未実機確認。
+- 前回の動画カメラ／DAY寸法修正はmainに含まれるが、比較結果はこの作業では未確認。
 
 ## Next Actions
 
-1. ユーザー側で全体表示の自動／カスタム、開始時ズームON/OFFの16:9枠とMP4を比較する（横長・縦長のブラウザ領域）。
-2. 追従のpan／DAY transition、プレビュー中リサイズ、終了・中止時の編集カメラ復元を確認する。
-3. DAY・HUD等の配置関係を確認し、差分レビュー後にコミット・pushする。
+1. ユーザー側で途中追加を繰り返し、末尾追加との分離・DAY境界除外・既存ポイントhit時の抑止を確認する。
+2. 全区間DAY境界の場合のエラー、2点未満、Undo／Redo、ツール切替、通常のpan／zoomを確認する。
+3. DAY情報・概算距離・HUD・アニメ範囲・計画JSON再開との整合性を確認後、差分レビューしてコミット・pushする。
 
 ## Verification
 
 - GitHub main: git ls-remoteでHEADとの一致を確認。
-- コード差分: 共通カメラの伝達、paddingのcenter補正、16:9縮小率、リサイズと復元、参照の置換を確認。MapLibreの既存Mercator実装と型定義を参照。
+- コード確認: nearestSegmentIndexの既存呼出しはオプション省略時に従来の挙動を維持。追加対象の絞り込み、clickの分岐、ドラッグ抑止、初期化・解除箇所を確認。
+- 差分: addPoint／appendPlanPoint本体、DAYデータ更新、距離計算、アニメ範囲slice、JSON形式、カメラ・renderer・タイル待機・CSSは変更なし。
 - git diff --check: 問題なし。
-- テスト・ビルド・lint/typecheck・ブラウザ・実MP4生成・実機: 未実施（ユーザー指定）。
+- テスト・ビルド・lint/typecheck・ブラウザ・実機・MP4生成: 未実施（ユーザー指定）。
 
 ## Important Context
 
-- 未コミット変更: src/App.tsx、src/map/RouteMap.tsx、src/video/{overviewCamera.ts,followCamera.ts,renderer.ts,overviewCamera.test.ts,renderer.test.ts}、README.md、HANDOFF.md。
-- 不一致の原因はブラウザ全体でのfitBoundsと動画側での別fitBounds／viewport換算。今は動画カメラを算出し、ブラウザのみzoom + log2(16:9枠scale)へ変換。
-- ブラウザの枠外余剰領域でMapLibreが勝手に緯度・Zoomを制約しないよう、プレビュー中だけ動画viewport基準の制約を適用する。通常編集のfitRouteは変更していない。
-- `overviewReferenceViewport` はカメラには不要になったがDAY寸法には必要なため、`dayMarkerReferenceViewport`へ改名して同じ値を引き続き全renderer経路へ渡す。DAY・HUD・その他バルーンのデザイン／サイズ、タイル待機、計画JSONは未変更。
+- 未コミット変更: src/App.tsx、src/map/RouteMap.tsx、src/route/editor.ts、src/route/geometry.ts、README.md、HANDOFF.md。
+- geometryのnearestSegmentIndexに任意の区間predicateを追加。指定時のみ「候補なし」は-1となる。既存Timeline呼出しは未変更。
+- insertModeは作業用UI状態のみで、計画JSONには追加していない。
 - gsiVectorConfig.tsの色は指示なく戻さない。

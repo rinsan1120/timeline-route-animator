@@ -4,7 +4,7 @@ import RouteMap from './map/RouteMap';
 import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR } from './plan/planFile';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
-import { addPoint, appendPlanPoint, deletePoint, movePoint } from './route/editor';
+import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
@@ -53,6 +53,7 @@ export default function App() {
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
   const [addMode, setAddMode] = useState(false);
+  const [insertMode, setInsertMode] = useState(false);
   const [rangeDeleteMode, setRangeDeleteMode] = useState(false);
   const [rangeDeletePointIds, setRangeDeletePointIds] = useState<string[]>([]);
   const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
@@ -83,7 +84,7 @@ export default function App() {
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
   const selectedPointIndex = selectedPointId ? points.findIndex((point) => point.id === selectedPointId) : -1;
   const selectionCandidateIndex = selectedPointId ? selectionCandidateIds.indexOf(selectedPointId) : -1;
-  const showSelectionCandidateSwitcher = editMode && !addMode && !rangeDeleteMode && previewProgress === null
+  const showSelectionCandidateSwitcher = editMode && !addMode && !insertMode && !rangeDeleteMode && previewProgress === null
     && selectionCandidateIds.length >= 2 && selectionCandidateIndex >= 0;
   const dayMarkers = useMemo(() => (workspaceMode === 'plan'
     ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
@@ -239,6 +240,7 @@ export default function App() {
         setDayMarkerPlacements({});
         setEndpointMarkerPlacements({});
         setWorkspaceMode('timeline');
+        setInsertMode(false);
         setPlanDayStarts([]);
         setPlanDayNotes({});
         setDates(message.dates);
@@ -250,6 +252,7 @@ export default function App() {
         worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
       } else {
         setWorkspaceMode('timeline');
+        setInsertMode(false);
         setPlanDayStarts([]);
         setPlanDayNotes({});
         dispatch({ type: 'load', points: message.routePoints });
@@ -322,12 +325,13 @@ export default function App() {
   }, [points]);
 
   useEffect(() => {
-    if (!editMode || addMode || rangeDeleteMode) setSelectionCandidateIds([]);
-  }, [editMode, addMode, rangeDeleteMode]);
+    if (!editMode || addMode || insertMode || rangeDeleteMode) setSelectionCandidateIds([]);
+  }, [editMode, addMode, insertMode, rangeDeleteMode]);
 
   useEffect(() => {
     if (editMode) return;
     setAddMode(false);
+    setInsertMode(false);
     setRangeDeleteMode(false);
     setRangeDeletePointIds([]);
   }, [editMode]);
@@ -363,6 +367,7 @@ export default function App() {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
     setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
     setWorkspaceMode('plan');
+    setInsertMode(false);
     setDayMarkerPlacements({});
     setEndpointMarkerPlacements({});
     setPlanDayStarts([]);
@@ -417,6 +422,7 @@ export default function App() {
       }
       setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
       setWorkspaceMode('plan');
+      setInsertMode(false);
       dispatch({ type: 'load', points: saved.points });
       setPlanDayStarts(saved.planDayStarts);
       setPlanDayNotes(saved.planDayNotes);
@@ -462,20 +468,45 @@ export default function App() {
     setSelectedPointId(next.find((point) => !points.some((old) => old.id === point.id))?.id ?? null);
   };
 
+  const commitInsert = (latitude: number, longitude: number) => {
+    if (workspaceMode !== 'plan' || !editMode || !insertMode || addMode || rangeDeleteMode || previewProgress !== null || busy || videoProgress) return;
+    const id = `manual-${crypto.randomUUID()}`;
+    const next = insertPlanPoint(points, planDayStarts, latitude, longitude, id);
+    if (!next) {
+      setError('途中追加できる同一DAY内の区間がありません。');
+      return;
+    }
+    dispatch({ type: 'commit', points: next });
+    setSelectedPointId(id);
+    setSelectedRaw(null);
+    setError('');
+  };
+
+  const toggleInsertMode = () => {
+    if (workspaceMode !== 'plan' || points.length < 2) return;
+    setAddMode(false);
+    setInsertMode((current) => !current);
+    setRangeDeleteMode(false);
+    setRangeDeletePointIds([]);
+  };
+
   const selectEditTool = () => {
     setAddMode(false);
+    setInsertMode(false);
     setRangeDeleteMode(false);
     setRangeDeletePointIds([]);
   };
 
   const toggleAddMode = () => {
     setAddMode((current) => !current);
+    setInsertMode(false);
     setRangeDeleteMode(false);
     setRangeDeletePointIds([]);
   };
 
   const toggleRangeDeleteMode = () => {
     setAddMode(false);
+    setInsertMode(false);
     setRangeDeleteMode((current) => !current);
     setRangeDeletePointIds([]);
     setSelectedPointId(null);
@@ -621,9 +652,9 @@ export default function App() {
           <section className="panel-section">
             <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="mode-switch">
-              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
+              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
               <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
-              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
             </div>
             {planDistances && <div className="detail-card">
               <strong>概算距離</strong>
@@ -783,13 +814,14 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} onMapViewportChange={(viewport) => { mapViewportRef.current = viewport; }} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} onMapViewportChange={(viewport) => { mapViewportRef.current = viewport; }} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
           {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
-            <button className={!addMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>
+            <button className={!addMode && !insertMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>
             <button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>
+            {workspaceMode === 'plan' && <button className={insertMode ? 'active' : ''} disabled={points.length < 2} onClick={toggleInsertMode}><span>⊕</span>途中追加</button>}
             <button className={rangeDeleteMode ? 'active' : ''} onClick={toggleRangeDeleteMode}><span>▧</span>範囲削除</button>
             {rangeDeleteMode && <button disabled={!rangeDeletePointIds.length} onClick={commitRangeDelete}><span>⌫</span>{rangeDeletePointIds.length ? `${rangeDeletePointIds.length}点削除` : '選択を削除'}</button>}
             <button disabled={!selectedPoint} onClick={() => { if (selectedPointId) dispatch({ type: 'commit', points: deletePoint(points, selectedPointId) }); setSelectedPointId(null); setSelectionCandidateIds([]); }}><span>⌫</span>削除</button>

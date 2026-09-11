@@ -55,6 +55,7 @@ interface RouteMapProps {
   editMode: boolean;
   animationRangeMode: boolean;
   addMode: boolean;
+  insertMode: boolean;
   rangeDeleteMode: boolean;
   rangeDeletePointIds: string[];
   routeMarkerMode: RouteMarkerMode;
@@ -71,6 +72,7 @@ interface RouteMapProps {
   onSelectionCandidates: (ids: string[]) => void;
   onSelectRaw: (point: RawPosition | null) => void;
   onAddPoint: (latitude: number, longitude: number) => void;
+  onInsertPoint: (latitude: number, longitude: number) => void;
   onMovePoint: (id: string, latitude: number, longitude: number) => void;
   onRangeDeleteSelection: (ids: string[]) => void;
   onError: (message: string) => void;
@@ -102,7 +104,7 @@ const MAX_POINT_SELECTION_DISTANCE = 28;
 const OVERLAP_CANDIDATE_PADDING = 6;
 
 function isEditSelectionMode(props: RouteMapProps): boolean {
-  return props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null;
+  return props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null;
 }
 
 function isSelectionAssistActive(props: RouteMapProps): boolean {
@@ -303,18 +305,24 @@ export default function RouteMap(props: RouteMapProps) {
     map.on('zoom', updateZoomDisplay);
     map.on('error', handleMapError);
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {
-      if (propsRef.current.rangeDeleteMode) return;
+      if (propsRef.current.rangeDeleteMode || propsRef.current.insertMode) return;
       if (isEditSelectionMode(propsRef.current)) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id === 'string') propsRef.current.onSelectPoint(id);
     });
     map.on('click', 'raw-points', (event: MapLayerMouseEvent) => {
-      if (propsRef.current.rangeDeleteMode) return;
+      if (propsRef.current.rangeDeleteMode || propsRef.current.insertMode) return;
       const id = event.features?.[0]?.properties?.id;
       propsRef.current.onSelectRaw(propsRef.current.rawPositions.find((point) => point.id === id) ?? null);
     });
     map.on('click', (event: MapMouseEvent) => {
       if (propsRef.current.rangeDeleteMode) return;
+      if (propsRef.current.insertMode) {
+        if (!propsRef.current.editMode || propsRef.current.previewProgress !== null) return;
+        const hits = map.queryRenderedFeatures(event.point, { layers: ['route-points-layer', 'raw-points'] });
+        if (!hits.length) propsRef.current.onInsertPoint(event.lngLat.lat, event.lngLat.lng);
+        return;
+      }
       if (propsRef.current.animationRangeMode) {
         const nearest = findNearestRoutePoint(map, propsRef.current.points, event.point);
         propsRef.current.onSelectPoint(nearest?.id ?? null);
@@ -391,13 +399,13 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('move', redraw);
       map.off('resize', redraw);
     };
-  }, [props.points, props.selectedPointId, props.editMode, props.addMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
+  }, [props.points, props.selectedPointId, props.editMode, props.addMode, props.insertMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
     selectedMarkerRef.current?.remove();
     selectedMarkerRef.current = null;
-    if (!map || !props.editMode || props.rangeDeleteMode || !props.selectedPointId || isPreviewing) return;
+    if (!map || !props.editMode || props.insertMode || props.rangeDeleteMode || !props.selectedPointId || isPreviewing) return;
     const point = props.points.find((candidate) => candidate.id === props.selectedPointId);
     if (!point) return;
     const element = document.createElement('div');
@@ -411,7 +419,7 @@ export default function RouteMap(props: RouteMapProps) {
       propsRef.current.onMovePoint(point.id, position.lat, position.lng);
     });
     selectedMarkerRef.current = marker;
-  }, [props.selectedPointId, props.editMode, props.rangeDeleteMode, props.points, isPreviewing]);
+  }, [props.selectedPointId, props.editMode, props.insertMode, props.rangeDeleteMode, props.points, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -421,7 +429,7 @@ export default function RouteMap(props: RouteMapProps) {
   }, [props.autoFitRouteChanges, props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
 
   return <>
-    <div className={`map ${props.addMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
+    <div className={`map ${props.addMode || props.insertMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <path ref={routeOverlayRef} />
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
@@ -448,9 +456,9 @@ export default function RouteMap(props: RouteMapProps) {
       </div>
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
-    <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {(isPreviewing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />
     </div>}

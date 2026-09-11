@@ -76,11 +76,13 @@ function squaredSegmentDistance(point: [number, number], start: [number, number]
   return (point[0] - (start[0] + fraction * dx)) ** 2 + (point[1] - (start[1] + fraction * dy)) ** 2;
 }
 
-export function nearestSegmentIndex(points: RoutePoint[], longitude: number, latitude: number): number {
-  if (points.length < 2) return Math.max(0, points.length - 1);
-  let bestIndex = 0;
+export function nearestSegmentIndex(points: RoutePoint[], longitude: number, latitude: number, isEligible?: (index: number) => boolean): number {
+  if (points.length < 2) return isEligible ? -1 : Math.max(0, points.length - 1);
+  // Filtered searches report no match instead of falling back to segment 0.
+  let bestIndex = isEligible ? -1 : 0;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = 0; index < points.length - 1; index += 1) {
+    if (isEligible && !isEligible(index)) continue;
     const distance = squaredSegmentDistance([longitude, latitude], [points[index].longitude, points[index].latitude], [points[index + 1].longitude, points[index + 1].latitude]);
     if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
   }

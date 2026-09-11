@@ -1,5 +1,6 @@
 import type { RoutePoint } from '../timeline/types';
 import { nearestTripSegmentIndex } from './tripRoute';
+import { nearestSegmentIndex } from './geometry';
 
 export function addPoint(points: RoutePoint[], latitude: number, longitude: number, id = `manual-${crypto.randomUUID()}`): RoutePoint[] {
   const point: RoutePoint = { id, latitude, longitude, source: 'manual', original: false };
@@ -10,6 +11,15 @@ export function addPoint(points: RoutePoint[], latitude: number, longitude: numb
 
 export function appendPlanPoint(points: RoutePoint[], latitude: number, longitude: number, id = `manual-${crypto.randomUUID()}`): RoutePoint[] {
   return [...points, { id, latitude, longitude, source: 'manual', original: false }];
+}
+
+export function insertPlanPoint(points: RoutePoint[], planDayStarts: readonly string[], latitude: number, longitude: number, id = `manual-${crypto.randomUUID()}`): RoutePoint[] | null {
+  const dayStarts = new Set(planDayStarts);
+  const segmentIndex = nearestSegmentIndex(points, longitude, latitude,
+    (index) => !dayStarts.has(points[index + 1].id));
+  if (segmentIndex < 0) return null;
+  const point: RoutePoint = { id, latitude, longitude, source: 'manual', original: false };
+  return [...points.slice(0, segmentIndex + 1), point, ...points.slice(segmentIndex + 1)];
 }
 
 export function deletePoint(points: RoutePoint[], id: string): RoutePoint[] {
