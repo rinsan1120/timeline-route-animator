@@ -1,5 +1,5 @@
 import { useEffect, useRef, type PointerEvent } from 'react';
-import { planRouteDistanceProgress } from '../route/planDistanceProgress';
+import { routeDistanceProgress } from '../route/routeDistanceProgress';
 import { clampDistanceHudPlacement, distanceHudLayout, drawDistanceHudPanel, type DistanceHudOptions, type DistanceHudPlacement } from '../video/distanceHud';
 
 interface Props {
@@ -26,7 +26,7 @@ export default function DistanceHudOverlay({ hud, viewport, routeProgress, reach
     const context = canvas.getContext('2d');
     if (!context) return;
     context.scale(density, density);
-    drawDistanceHudPanel(context, planRouteDistanceProgress(hud.model, routeProgress, reachedPointIndex), layout, hud.dayColorsEnabled);
+    drawDistanceHudPanel(context, routeDistanceProgress(hud.model, routeProgress, reachedPointIndex), layout, hud.dayColorsEnabled);
   }, [hud.model, hud.dayColorsEnabled, routeProgress, reachedPointIndex, layout.width, layout.height, displayScale]);
 
   useEffect(() => { if (!draggable) dragRef.current = null; }, [draggable]);

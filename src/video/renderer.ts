@@ -12,7 +12,7 @@ import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera, type ViewportSize } from './overviewCamera';
-import { planRouteDistanceProgress } from '../route/planDistanceProgress';
+import { routeDistanceProgress } from '../route/routeDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 import { buildOverviewPlaybackTimeline, samplePlaybackTimeline } from './playbackTimeline';
 import { buildRoutePointDayNumbers, colorRouteSegments } from '../route/dayRouteColor';
@@ -270,7 +270,7 @@ function drawFrame(
     if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
   }
 
-  if (distanceHud?.settings.enabled) drawDistanceHud(context, planRouteDistanceProgress(distanceHud.model, progress), distanceHud);
+  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, progress), distanceHud);
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
@@ -672,7 +672,7 @@ function drawFollowFrame(
     }
   }
 
-  if (distanceHud?.settings.enabled) drawDistanceHud(context, planRouteDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), distanceHud);
+  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), distanceHud);
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';

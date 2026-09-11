@@ -66,7 +66,13 @@ export function derivePlanDayMarkers(points: RoutePoint[], dayStarts: string[], 
 }
 
 export function planRouteDistances(points: RoutePoint[], dayStarts: string[]) {
-  const days = derivePlanDayMarkers(points, dayStarts, {}).map((marker) => ({
+  return routeDistancesByDay(points, derivePlanDayMarkers(points, dayStarts, {}));
+}
+
+export function routeDistancesByDay(points: RoutePoint[], dayMarkers: DayMarker[]) {
+  const markers = dayMarkers.length || !points.length
+    ? dayMarkers : [{ dayNumber: 1, pointId: points[0].id }];
+  const days = markers.map((marker) => ({
     dayNumber: marker.dayNumber,
     pointId: marker.pointId,
     distanceMeters: 0,

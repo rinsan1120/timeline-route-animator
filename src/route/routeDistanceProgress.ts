@@ -1,9 +1,9 @@
 import type { RoutePoint } from '../timeline/types';
 import { distanceMeters } from './geometry';
-import { interpolateTripRoute, planRouteDistances } from './tripRoute';
+import { interpolateTripRoute, routeDistancesByDay, type DayMarker } from './tripRoute';
 
-export function buildPlanDistanceModel(points: RoutePoint[], dayStarts: string[], animationPoints: RoutePoint[]) {
-  const totals = planRouteDistances(points, dayStarts);
+export function buildRouteDistanceModel(points: RoutePoint[], dayMarkers: DayMarker[], animationPoints: RoutePoint[]) {
+  const totals = routeDistancesByDay(points, dayMarkers);
   const starts = new Set(totals.days.map((day) => day.pointId));
   let dayIndex = -1;
   let meters = 0;
@@ -20,10 +20,10 @@ export function buildPlanDistanceModel(points: RoutePoint[], dayStarts: string[]
   return { totals, atPoint, animationPoints };
 }
 
-export type PlanDistanceModel = ReturnType<typeof buildPlanDistanceModel>;
+export type RouteDistanceModel = ReturnType<typeof buildRouteDistanceModel>;
 
-// null means editing: show the entire plan, not just the selected animation range.
-export function planRouteDistanceProgress(model: PlanDistanceModel, routeProgress: number | null, reachedPointIndex?: number | null) {
+// null means editing: show the entire route, not just the selected animation range.
+export function routeDistanceProgress(model: RouteDistanceModel, routeProgress: number | null, reachedPointIndex?: number | null) {
   const position = routeProgress === null ? null : interpolateTripRoute(model.animationPoints, routeProgress);
   let current = position ? model.atPoint.get(model.animationPoints[position.fromIndex].id) : undefined;
   if (position && current) {
@@ -55,4 +55,4 @@ export function planRouteDistanceProgress(model: PlanDistanceModel, routeProgres
   };
 }
 
-export type PlanDistanceProgress = ReturnType<typeof planRouteDistanceProgress>;
+export type RouteDistanceProgress = ReturnType<typeof routeDistanceProgress>;

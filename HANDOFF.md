@@ -4,7 +4,29 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub `main`、`origin/main`、ローカルHEADが `108f57b` で一致することを確認後、DAYマーカーのアクセントをDAYルート色へ連動。今回の変更は未コミット。
+GitHubから取得した最新 `origin/main` とローカルHEADが `bb716545b146db464e093a8d10c9c083a7584127` で一致することを確認し、走行距離HUDをTimelineモードにも拡張。今回の変更は未コミット。
+
+## Distance HUD extension (2026-09-11)
+
+- Step 03の既存「走行距離表示」UIをTimeline／計画モードで共用。ON/OFF・サイズ・ドラッグ移動・位置リセット・disabled条件・CSSを維持。
+- `routeDistancesByDay(points, dayMarkers)` と `routeDistanceProgress.ts` の共通距離モデルを使用。`planRouteDistances` の既存契約・計算結果は維持。
+- 両モードとも編集済みポイント間の地表距離を積算した概算距離。DAY境界間の接続距離は除外。Timelineの既存DAY番号を維持し、欠測日による飛び番を再採番しない。
+- DAYマーカーが空の場合は先頭ポイントからDAY 1として計算。
+- 通常地図は全ルートの最終距離、preview／MP4は既存のアニメーション範囲に基づく進行距離を表示。overview／follow双方で同じモデル・進行計算・描画経路を使用し、pause／camera transitionの到達判定を維持。
+- DAY色分けとの連動を維持。通常地図も既存RouteMapの色判定に従う。HUD幅は実際のDAY番号のラベル長から算出。
+- HelpTip本文とREADMEを両モード共通の概算距離説明へ更新。
+- 設定stateを共用し、計画JSON形式・`PLAN_FILE_VERSION`・保存対象は変更なし。Undo / Redoの意味も変更なし。points／DAY境界の変更時にモデルを再計算。
+- Timeline抽出・rawSignals・カメラ・動画時間軸・DAY生成・レスポンシブCSS・依存関係は変更なし。
+
+### Verification for this extension
+
+- `npm test`: 12ファイル・45テスト成功、任意の実データ用1ファイルはスキップ。
+- 追加5テストで計画距離互換、Timeline DAY分割・飛び番、境界距離除外、空マーカー、範囲指定・進行・到達判定、HUDラベル幅・DAY色を確認。
+- `npm run build`: TypeScript／Viteビルド成功。チャンクサイズ警告あり。
+- `git diff --check`: 問題なし。
+- ブラウザ・Android実機・生成MP4の目視確認はユーザー側で実施予定。今回こちらでは未実施。
+
+## Previous work (historical notes)
 
 ## Completed
 

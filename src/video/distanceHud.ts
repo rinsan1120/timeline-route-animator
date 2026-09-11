@@ -1,10 +1,10 @@
-import type { PlanDistanceModel, PlanDistanceProgress } from '../route/planDistanceProgress';
+import type { RouteDistanceModel, RouteDistanceProgress } from '../route/routeDistanceProgress';
 import { dayRouteColor } from '../route/dayRouteColor';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 
 export interface DistanceHudPlacement { x: number; y: number }
 export interface DistanceHudSettings extends DistanceHudPlacement { enabled: boolean; scale: number }
-export interface DistanceHudOptions { settings: DistanceHudSettings; model: PlanDistanceModel; dayColorsEnabled?: boolean }
+export interface DistanceHudOptions { settings: DistanceHudSettings; model: RouteDistanceModel; dayColorsEnabled?: boolean }
 export const DEFAULT_DISTANCE_HUD: DistanceHudSettings = { enabled: false, x: 48, y: 48, scale: 1 };
 
 export const DISTANCE_HUD_LAYOUT = {
@@ -13,10 +13,10 @@ export const DISTANCE_HUD_LAYOUT = {
 };
 export const distanceHudKilometers = (meters: number) => `${(meters / 1000).toFixed(1)} km`;
 
-export function distanceHudLayout(model: PlanDistanceModel, scale: number) {
+export function distanceHudLayout(model: RouteDistanceModel, scale: number) {
   const { padding, titleHeight, rowHeight, totalHeight } = DISTANCE_HUD_LAYOUT;
   const longestNumber = Math.max(6, distanceHudKilometers(model.totals.totalMeters).length);
-  const longestLabel = Math.max(5, `DAY ${model.totals.days.length}`.length);
+  const longestLabel = model.totals.days.reduce((longest, day) => Math.max(longest, `DAY ${day.dayNumber}`.length), 5);
   // Monospaced numeric columns reserve room for final values, never current values.
   const width = Math.max(340, padding * 2 + (longestNumber + longestLabel) * 17 + 36);
   const height = padding * 2 + titleHeight + model.totals.days.length * rowHeight + totalHeight;
@@ -32,7 +32,7 @@ export function clampDistanceHudPlacement(placement: DistanceHudPlacement, layou
 }
 
 // This same panel is rendered into the browser overlay and the MP4 canvas.
-export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: PlanDistanceProgress, layout: ReturnType<typeof distanceHudLayout>, dayColorsEnabled = false) {
+export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: RouteDistanceProgress, layout: ReturnType<typeof distanceHudLayout>, dayColorsEnabled = false) {
   const { padding, titleHeight, rowHeight, fontSize, radius } = DISTANCE_HUD_LAYOUT;
   context.save();
   context.shadowBlur = 0;
@@ -75,7 +75,7 @@ export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: Pl
   context.restore();
 }
 
-export function drawDistanceHud(context: CanvasRenderingContext2D, data: PlanDistanceProgress, options: DistanceHudOptions) {
+export function drawDistanceHud(context: CanvasRenderingContext2D, data: RouteDistanceProgress, options: DistanceHudOptions) {
   if (!options.settings.enabled) return;
   const layout = distanceHudLayout(options.model, options.settings.scale);
   const placement = clampDistanceHudPlacement(options.settings, layout);

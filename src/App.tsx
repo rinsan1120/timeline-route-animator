@@ -8,7 +8,7 @@ import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } fr
 import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
-import { buildPlanDistanceModel } from './route/planDistanceProgress';
+import { buildRouteDistanceModel } from './route/routeDistanceProgress';
 import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
@@ -244,9 +244,9 @@ export default function App() {
     overviewZoomMode === 'custom' ? overviewCustomZoom : undefined),
   [animationPoints, overviewZoomMode, overviewCustomZoom]);
 
-  const distanceHudModel = useMemo(() => workspaceMode === 'plan' && distanceHudSettings.enabled
-    ? buildPlanDistanceModel(points, planDayStarts, animationPoints) : null,
-  [workspaceMode, distanceHudSettings.enabled, points, planDayStarts, animationPoints]);
+  const distanceHudModel = useMemo(() => distanceHudSettings.enabled && points.length > 0
+    ? buildRouteDistanceModel(points, dayMarkers, animationPoints) : null,
+  [distanceHudSettings.enabled, points, dayMarkers, animationPoints]);
   const distanceHud = useMemo(() => distanceHudModel
     ? { settings: distanceHudSettings, model: distanceHudModel } : undefined, [distanceHudModel, distanceHudSettings]);
   useEffect(() => {
@@ -838,7 +838,7 @@ export default function App() {
                 <span>※ 出力動画は、移動時間に地点の停止時間・開始前3秒・到着後3秒が追加されます。</span>
               </div>
             </div>
-            {workspaceMode === 'plan' && <div className="distance-hud-controls">
+            <div className="distance-hud-controls">
               <div className="control-label-with-help control-label-with-help--toggle">
                 <label className="toggle-row"><span><strong>走行距離表示</strong></span><input type="checkbox" checked={distanceHudSettings.enabled}
                   disabled={previewProgress !== null || !!videoProgress}
@@ -856,7 +856,7 @@ export default function App() {
                     ...clampDistanceHudPlacement(DEFAULT_DISTANCE_HUD, distanceHudLayout(distanceHudModel, current.scale)) }))}>位置をリセット</button>
                 <p className="range-note">地図上のHUDをドラッグして位置を変更できます。</p>
               </>}
-            </div>}
+            </div>
             <div className="annotation-style-controls">
               <h3>バルーン表示</h3>
               {(['balloonScale', 'fontScale'] as const).map((key) => {
