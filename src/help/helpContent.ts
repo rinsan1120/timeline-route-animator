@@ -1,4 +1,4 @@
-```ts
+
 export const HELP_CONTENT = {
   timelineRange: {
     title: '読み込み範囲',
@@ -87,4 +87,3 @@ export const HELP_CONTENT = {
 } as const;
 
 export type HelpKey = keyof typeof HELP_CONTENT;
-```
