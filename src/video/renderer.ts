@@ -11,14 +11,14 @@ import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
-import { overviewPaddingForViewport, overviewZoomForViewport, VIDEO_VIEWPORT, type ViewportSize } from './overviewCamera';
+import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera, type ViewportSize } from './overviewCamera';
 import { planRouteDistanceProgress } from '../route/planDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 
 const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
 const styleReadyMaps = new WeakSet<maplibregl.Map>();
-export const VIDEO_FPS = 30;
+export { VIDEO_FPS } from './overviewCamera';
 export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
 export const POST_ROLL_SECONDS = 3;
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
@@ -43,7 +43,9 @@ export interface RenderVideoOptions {
   followCustomZoom?: number;
   overviewZoomMode?: 'auto' | 'custom';
   overviewCustomZoom?: number;
-  overviewReferenceViewport?: ViewportSize;
+  overviewCamera?: VideoCamera;
+  // Browser viewport is retained only for the existing DAY marker size model.
+  dayMarkerReferenceViewport?: ViewportSize;
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
   duration: number;
@@ -67,8 +69,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
-  const overviewReferenceViewport = options.overviewReferenceViewport ?? VIDEO_VIEWPORT;
-  const overviewZoomOffset = overviewZoomForViewport(0, overviewReferenceViewport, VIDEO_VIEWPORT);
+  const customZoom = options.overviewZoomMode === 'custom' ? options.overviewCustomZoom ?? 10 : undefined;
+  if (customZoom !== undefined && (!Number.isFinite(customZoom) || customZoom < 4 || customZoom > 16)) throw new Error('Zoomは4.0〜16.0で指定してください。');
+  const camera = options.overviewCamera ?? createOverviewCamera(options.points, customZoom)!;
 
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
@@ -77,20 +80,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   let mapRemoved = false;
   try {
     await waitForStyle(map, 20_000);
-    const bounds = new maplibregl.LngLatBounds();
-    options.points.forEach((point) => bounds.extend([point.longitude, point.latitude]));
-    map.fitBounds(bounds, {
-      padding: overviewPaddingForViewport(overviewReferenceViewport, VIDEO_VIEWPORT),
-      maxZoom: overviewZoomForViewport(16, overviewReferenceViewport, VIDEO_VIEWPORT),
-      duration: 0,
-    });
-    let overviewReferenceZoom = map.getZoom() - overviewZoomOffset;
-    if (options.overviewZoomMode === 'custom') {
-      const zoom = options.overviewCustomZoom ?? 10;
-      if (!Number.isFinite(zoom) || zoom < 4 || zoom > 16) throw new Error('Zoomは4.0〜16.0で指定してください。');
-      overviewReferenceZoom = zoom;
-      map.jumpTo({ center: map.getCenter(), zoom: overviewZoomForViewport(zoom, overviewReferenceViewport, VIDEO_VIEWPORT), bearing: 0, pitch: 0 });
-    }
+    map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
     if (isLowZoomMapView(map.getZoom())) {
       await waitForLowZoomVisualReady(map, 20_000);
     } else {
@@ -123,9 +113,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const animationFrames = options.duration * VIDEO_FPS;
     const total = outputVideoFrameCount(options.duration);
     if (options.introZoomEnabled) {
-      const targetCenter = map.getCenter();
-      const targetZoom = map.getZoom();
-      const startZoom = overviewZoomForViewport(getIntroStartZoom(overviewReferenceZoom, map.getMinZoom()), overviewReferenceViewport, VIDEO_VIEWPORT);
+      const targetCenter = { lng: camera.longitude, lat: camera.latitude };
+      const targetZoom = camera.zoom;
+      const startZoom = getIntroStartZoom(targetZoom, VIDEO_MIN_ZOOM);
       map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
       let previousBandKey: string | null = null;
       const introPlayback: FollowPlaybackState = {
@@ -150,7 +140,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.overviewReferenceViewport);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.dayMarkerReferenceViewport);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -185,7 +175,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? 1
           : animationFrame / (animationFrames - 1);
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.overviewReferenceViewport);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayMarkerReferenceViewport);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -555,7 +545,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         ? {
           ...initialPlayback,
           zoom: interpolateIntroZoom(
-            getIntroStartZoom(initialPlayback.zoom, map.getMinZoom()),
+            getIntroStartZoom(initialPlayback.zoom, VIDEO_MIN_ZOOM),
             initialPlayback.zoom,
             preFrames <= 1 ? 1 : frame / (preFrames - 1),
           ),
@@ -574,7 +564,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.overviewReferenceViewport);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.dayMarkerReferenceViewport);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

@@ -12,9 +12,9 @@ import DistanceHudOverlay from './DistanceHudOverlay';
 import type { DistanceHudOptions, DistanceHudPlacement } from '../video/distanceHud';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
-import { FOLLOW_VIEWPORT, sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
+import { sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
-import { OVERVIEW_FIT_PADDING, type ViewportSize } from '../video/overviewCamera';
+import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera, type ViewportSize } from '../video/overviewCamera';
 
 function routeCollection(segments: RoutePoint[][]) {
   return {
@@ -64,8 +64,7 @@ interface RouteMapProps {
   introZoomEnabled: boolean;
   revealRoute: boolean;
   cameraMode: VideoCameraMode;
-  overviewZoomMode: 'auto' | 'custom';
-  overviewCustomZoom: number;
+  overviewCamera: VideoCamera | null;
   followCameraPlan: FollowCameraPlan | null;
   onMapViewportChange: (viewport: ViewportSize) => void;
   onSelectPoint: (id: string | null) => void;
@@ -122,7 +121,6 @@ export default function RouteMap(props: RouteMapProps) {
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const wasPreviewingRef = useRef(false);
   const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
-  const previewTargetCameraRef = useRef<MapCameraSnapshot | null>(null);
   const rangeDeleteDragRef = useRef<RangeDeleteDrag | null>(null);
   const rangeDeleteRectRef = useRef<RangeSelectionRect | null>(null);
   const rangeDeletePendingRectRef = useRef<RangeSelectionRect | null>(null);
@@ -131,7 +129,7 @@ export default function RouteMap(props: RouteMapProps) {
   const rangeDeletePointsRef = useRef(props.points);
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mapZoom, setMapZoom] = useState(10);
-  const [followViewport, setFollowViewport] = useState(() => getFollowPreviewViewport(0, 0));
+  const [videoViewport, setVideoViewport] = useState(() => getVideoPreviewViewport(0, 0));
   const propsRef = useRef(props);
   propsRef.current = props;
   const isPreviewing = props.previewProgress !== null;
@@ -240,22 +238,15 @@ export default function RouteMap(props: RouteMapProps) {
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     };
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
-    const updateFollowViewport = () => {
+    const updateVideoViewport = () => {
       const container = map.getContainer();
       propsRef.current.onMapViewportChange({ width: container.clientWidth, height: container.clientHeight });
-      setFollowViewport(getFollowPreviewViewport(container.clientWidth, container.clientHeight));
+      setVideoViewport(getVideoPreviewViewport(container.clientWidth, container.clientHeight));
       const current = propsRef.current;
-      const preview = getPreviewState(current);
-      if (current.cameraMode !== 'follow' || current.previewProgress === null || !preview?.cameraCenter || preview.zoom === undefined) return;
-      const introProgress = getPreviewIntroProgress(current);
-      if (current.introZoomEnabled && introProgress !== null && previewTargetCameraRef.current) {
-        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, true);
-      } else {
-        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
-      }
+      if (wasPreviewingRef.current) applyVideoPreviewCamera(map, current);
     };
-    map.on('resize', updateFollowViewport);
-    updateFollowViewport();
+    map.on('resize', updateVideoViewport);
+    updateVideoViewport();
     let genericMapErrorReported = false;
     const handleMapError = (event: ErrorEvent) => {
       if (!event.error) return;
@@ -288,25 +279,20 @@ export default function RouteMap(props: RouteMapProps) {
       installRouteLayers(map, propsRef.current);
       const preview = getPreviewState(propsRef.current);
       const previewing = propsRef.current.previewProgress !== null;
-      if (previewing && !wasPreviewingRef.current) previewCameraSnapshotRef.current = captureMapCamera(map);
-      if (previewing && propsRef.current.introZoomEnabled && !wasPreviewingRef.current) {
-        previewTargetCameraRef.current = getPreviewTargetCamera(map, propsRef.current);
+      if (previewing && !wasPreviewingRef.current) {
+        map.stop();
+        previewCameraSnapshotRef.current = captureMapCamera(map);
+        beginVideoPreview(map);
       }
-      const introProgress = getPreviewIntroProgress(propsRef.current);
-      if (previewing && propsRef.current.introZoomEnabled && previewTargetCameraRef.current
-        && (propsRef.current.cameraMode === 'overview' || introProgress !== null)) {
-        applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, propsRef.current.cameraMode === 'follow');
-      } else if (preview?.cameraCenter && preview.zoom !== undefined) {
-        map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
-      }
+      if (previewing) applyVideoPreviewCamera(map, propsRef.current, preview);
       refreshMap(map, propsRef.current, preview);
-      if (previewing && !propsRef.current.introZoomEnabled && !preview?.cameraCenter) applyOverviewPreviewCamera(map, propsRef.current);
-      else if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
-      else if (!previewing && propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
+      if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) {
+        map.setTransformConstrain(null);
+        restoreMapCamera(map, previewCameraSnapshotRef.current);
+      } else if (!previewing && propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
       wasPreviewingRef.current = previewing;
       if (!previewing) {
         previewCameraSnapshotRef.current = null;
-        previewTargetCameraRef.current = null;
       }
       redrawOverlay();
       updateZoomDisplay();
@@ -352,7 +338,7 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('style.load', initializeMap);
       map.off('move', redrawOverlay);
       map.off('zoom', updateZoomDisplay);
-      map.off('resize', updateFollowViewport);
+      map.off('resize', updateVideoViewport);
       map.off('error', handleMapError);
       selectedMarkerRef.current?.remove();
       map.remove();
@@ -367,26 +353,27 @@ export default function RouteMap(props: RouteMapProps) {
     if (!map || !loadedRef.current) return;
     const previewStarting = isPreviewing && !wasPreviewingRef.current;
     const previewEnding = !isPreviewing && wasPreviewingRef.current;
-    if (previewStarting) previewCameraSnapshotRef.current = captureMapCamera(map);
+    if (previewStarting) {
+      map.stop();
+      previewCameraSnapshotRef.current = captureMapCamera(map);
+      beginVideoPreview(map);
+    }
     const preview = getPreviewState(props);
-    if (previewStarting && props.introZoomEnabled) previewTargetCameraRef.current = getPreviewTargetCamera(map, props);
-    const introProgress = getPreviewIntroProgress(props);
-    if (isPreviewing && props.introZoomEnabled && previewTargetCameraRef.current
-      && (props.cameraMode === 'overview' || introProgress !== null)) applyIntroPreviewCamera(map, previewTargetCameraRef.current, introProgress, props.cameraMode === 'follow');
-    else if (preview?.cameraCenter && preview.zoom !== undefined) map.jumpTo({ center: [preview.cameraCenter.longitude, preview.cameraCenter.latitude], zoom: toFollowPreviewMapZoom(map, preview.zoom), bearing: 0, pitch: 0 });
+    if (isPreviewing) applyVideoPreviewCamera(map, props, preview);
     refreshMap(map, props, preview);
     map.resize();
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
     updateMapDiagnostics(map, props.points);
-    if (previewStarting && !props.introZoomEnabled && !preview?.cameraCenter) applyOverviewPreviewCamera(map, props);
-    if (previewEnding && previewCameraSnapshotRef.current) restoreMapCamera(map, previewCameraSnapshotRef.current);
+    if (previewEnding && previewCameraSnapshotRef.current) {
+      map.setTransformConstrain(null);
+      restoreMapCamera(map, previewCameraSnapshotRef.current);
+    }
     wasPreviewingRef.current = isPreviewing;
     if (previewEnding) {
       previewCameraSnapshotRef.current = null;
-      previewTargetCameraRef.current = null;
     }
-  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.followCameraPlan, isPreviewing]);
+  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -464,13 +451,13 @@ export default function RouteMap(props: RouteMapProps) {
     <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
     {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {(isPreviewing && props.cameraMode === 'follow' || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
-      <div className="video-preview-frame" style={{ width: followViewport.width, height: followViewport.height, left: followViewport.left, top: followViewport.top }} />
+    {(isPreviewing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
+      <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />
     </div>}
-    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={props.distanceHud} viewport={followViewport}
+    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={props.distanceHud} viewport={videoViewport}
       routeProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex}
       draggable={!isPreviewing && !!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
-    <div className="map-zoom" aria-hidden="true">Zoom {(getFollowPreviewVideoZoom(props, mapRef.current) ?? mapZoom).toFixed(1)}</div>
+    <div className="map-zoom" aria-hidden="true">Zoom {(getPreviewVideoCamera(props, previewState)?.zoom ?? mapZoom).toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -529,58 +516,37 @@ function restoreMapCamera(map: MapLibreMap, snapshot: MapCameraSnapshot) {
   });
 }
 
-function getPreviewTargetCamera(map: MapLibreMap, props: RouteMapProps): MapCameraSnapshot | null {
-  if (props.cameraMode === 'follow' && props.followCameraPlan) {
-    const playback = sampleFollowPlayback(props.followCameraPlan, 0);
-    return {
-      longitude: playback.cameraCenter.longitude,
-      latitude: playback.cameraCenter.latitude,
-      zoom: playback.zoom,
-      bearing: 0,
-      pitch: 0,
-    };
-  }
-  if (!props.animationPoints.length) return null;
-  fitRoute(map, props.animationPoints, 0);
-  const camera = captureMapCamera(map);
-  return { ...camera, zoom: props.overviewZoomMode === 'custom' ? props.overviewCustomZoom : camera.zoom };
-}
-
-function applyOverviewPreviewCamera(map: MapLibreMap, props: RouteMapProps) {
-  if (props.overviewZoomMode !== 'custom') {
-    fitRoute(map, props.animationPoints, 0);
-    return;
-  }
-  const target = getPreviewTargetCamera(map, props);
-  if (target) restoreMapCamera(map, target);
-}
-
-function applyIntroPreviewCamera(map: MapLibreMap, target: MapCameraSnapshot, introProgress: number | null, follow = false) {
-  const zoom = introProgress === null
-    ? target.zoom
-    : interpolateIntroZoom(getIntroStartZoom(target.zoom, map.getMinZoom()), target.zoom, introProgress);
-  map.jumpTo({ center: [target.longitude, target.latitude], zoom: follow ? toFollowPreviewMapZoom(map, zoom) : zoom, bearing: target.bearing, pitch: target.pitch });
-}
-
-function getFollowPreviewViewport(containerWidth: number, containerHeight: number) {
-  const valid = Number.isFinite(containerWidth) && Number.isFinite(containerHeight) && containerWidth > 0 && containerHeight > 0;
-  const scale = valid ? Math.min(containerWidth / FOLLOW_VIEWPORT.width, containerHeight / FOLLOW_VIEWPORT.height) : 1;
-  const width = FOLLOW_VIEWPORT.width * scale;
-  const height = FOLLOW_VIEWPORT.height * scale;
-  return { scale, width, height, left: valid ? (containerWidth - width) / 2 : 0, top: valid ? (containerHeight - height) / 2 : 0 };
-}
-
-function toFollowPreviewMapZoom(map: MapLibreMap, videoZoom: number) {
-  const container = map.getContainer();
-  const { scale } = getFollowPreviewViewport(container.clientWidth, container.clientHeight);
-  return Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), videoZoom + Math.log2(scale)));
-}
-
-function getFollowPreviewVideoZoom(props: RouteMapProps, map: MapLibreMap | null): number | null {
-  if (props.cameraMode !== 'follow' || props.previewProgress === null || !props.followCameraPlan) return null;
-  const zoom = props.followCameraPlan.zoom;
+function getPreviewVideoCamera(props: RouteMapProps, preview = getPreviewState(props)): VideoCamera | null {
+  if (props.previewProgress === null) return null;
+  const target = props.cameraMode === 'follow'
+    ? preview?.cameraCenter && preview.zoom !== undefined
+      ? { ...preview.cameraCenter, zoom: preview.zoom, bearing: 0, pitch: 0 }
+      : null
+    : props.overviewCamera;
+  if (!target) return null;
   const introProgress = getPreviewIntroProgress(props);
-  return introProgress === null ? zoom : interpolateIntroZoom(getIntroStartZoom(zoom, map?.getMinZoom() ?? 0), zoom, introProgress);
+  const zoom = introProgress === null ? target.zoom
+    : interpolateIntroZoom(getIntroStartZoom(target.zoom, VIDEO_MIN_ZOOM), target.zoom, introProgress);
+  return constrainVideoCamera({ ...target, zoom });
+}
+
+function beginVideoPreview(map: MapLibreMap) {
+  // Constrain in video space instead: portrait/landscape margins outside the
+  // frame must not make MapLibre shift the center or zoom to fill the container.
+  map.setTransformConstrain((center, zoom) => ({ center, zoom }));
+}
+
+function applyVideoPreviewCamera(map: MapLibreMap, props: RouteMapProps, preview = getPreviewState(props)) {
+  const camera = getPreviewVideoCamera(props, preview);
+  if (!camera) return;
+  const container = map.getContainer();
+  const { scale } = getVideoPreviewViewport(container.clientWidth, container.clientHeight);
+  map.jumpTo({
+    center: [camera.longitude, camera.latitude],
+    zoom: videoZoomToPreviewZoom(camera.zoom, scale),
+    bearing: camera.bearing,
+    pitch: camera.pitch,
+  });
 }
 
 function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
@@ -678,7 +644,10 @@ function getPreviewMovementProgress(props: RouteMapProps): number {
 function getPreviewIntroProgress(props: RouteMapProps): number | null {
   if (!props.introZoomEnabled || props.previewProgress === null) return null;
   const elapsed = props.previewProgress * (INTRO_ZOOM_DURATION_SECONDS + props.previewDuration);
-  return elapsed <= INTRO_ZOOM_DURATION_SECONDS ? elapsed / INTRO_ZOOM_DURATION_SECONDS : null;
+  // MP4 samples the intro at frames 0..89, reaching the target on frame 89.
+  // Match that camera trajectory without changing preview route timing.
+  return elapsed <= INTRO_ZOOM_DURATION_SECONDS
+    ? Math.min(1, elapsed * VIDEO_FPS / (INTRO_ZOOM_DURATION_SECONDS * VIDEO_FPS - 1)) : null;
 }
 
 function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latitude: number } | null, marker: SVGCircleElement | null) {

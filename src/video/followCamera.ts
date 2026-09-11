@@ -1,4 +1,5 @@
 import type { RoutePoint } from '../timeline/types';
+import { VIDEO_VIEWPORT } from './overviewCamera';
 import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses } from '../route/tripRoute';
 
 export type VideoCameraMode = 'overview' | 'follow';
@@ -44,7 +45,7 @@ export interface FollowCameraPlan {
   events: FollowCameraEvent[];
 }
 
-export const FOLLOW_VIEWPORT = { width: 1920, height: 1080 } as const;
+export const FOLLOW_VIEWPORT = VIDEO_VIEWPORT;
 
 export const FOLLOW_ZOOM_BY_PRESET: Record<Exclude<FollowZoomPreset, 'custom'>, number> = {
   wide: 8,

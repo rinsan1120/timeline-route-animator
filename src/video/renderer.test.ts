@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
+import { createOverviewCamera } from './overviewCamera';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -12,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('maplibre-gl', () => ({
   Map: class {
     options: any;
-    fitBounds = vi.fn();
+    jumpTo = vi.fn();
     getZoom = vi.fn(() => 10);
     project = vi.fn(() => ({ x: 100, y: 100 }));
     getCanvas = vi.fn(() => 'map-canvas');
@@ -25,7 +26,6 @@ vi.mock('maplibre-gl', () => ({
     off = vi.fn();
     constructor(options: any) { this.options = options; mocks.maps.push(this); }
   },
-  LngLatBounds: class { extend() {} },
 }));
 
 vi.mock('mediabunny', () => ({
@@ -40,7 +40,7 @@ vi.mock('mediabunny', () => ({
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
 describe('GSI Vector video background', () => {
-  it('loads the shared vector style, fits before waiting for tiles and reuses one capture for every frame', async () => {
+  it('loads the shared vector style, applies the video camera before waiting for tiles and reuses one capture for every frame', async () => {
     const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
     const createImageBitmap = vi.fn(async () => mocks.bitmap);
     vi.stubGlobal('window', { VideoEncoder: class {}, setTimeout, clearTimeout });
@@ -51,8 +51,10 @@ describe('GSI Vector video background', () => {
       createElement: () => ({ style: {}, remove() {}, getContext: () => context }),
     });
     const { renderRouteVideo } = await import('./renderer');
+    const points = [0, 1].map((offset) => ({ id: String(offset), latitude: 35 + offset, longitude: 139, source: 'timelinePath' as const, original: true }));
+    const camera = createOverviewCamera(points)!;
     const blob = await renderRouteVideo({
-      points: [0, 1].map((offset) => ({ id: String(offset), latitude: 35 + offset, longitude: 139, source: 'timelinePath' as const, original: true })),
+      points, overviewCamera: camera,
       duration: 5, revealRoute: true, onProgress: vi.fn(),
     });
     const map = mocks.maps[0];
@@ -86,7 +88,8 @@ describe('GSI Vector video background', () => {
       layout: officialNationalRouteNumber?.layout,
     });
     expect(map.once.mock.calls.map((call: any[]) => call[0])).toEqual(['style.load', 'idle']);
-    expect(map.fitBounds.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[1]);
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
+    expect(map.jumpTo.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[1]);
     expect(map.getCanvas).toHaveBeenCalledTimes(1);
     expect(createImageBitmap).toHaveBeenCalledTimes(1);
     expect(context.drawImage.mock.calls.filter((call) => call[0] === mocks.bitmap)).toHaveLength(330);
