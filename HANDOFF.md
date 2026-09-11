@@ -4,7 +4,7 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHub `main`、`origin/main`、ローカルHEADが `51fae6a` で一致することを確認後、計画モードの下部編集ツールバーヘルプを排他開閉へ変更。今回の変更は未コミット。
+GitHub `main`、`origin/main`、ローカルHEADが `caeba3c` で一致することを確認後、コンテキストヘルプを通常情報カードと視覚的に区別できるデザインへ変更。今回の変更は未コミット。
 
 ## Completed
 
@@ -22,6 +22,8 @@ GitHub `main`、`origin/main`、ローカルHEADが `51fae6a` で一致するこ
 - `HelpTip` に任意のcontrolled propsを追加し、既存の内部state方式との互換性を維持。
 - Appで開いているtoolbar用 `HelpKey` を1つだけ管理し、別の「?」を押すと現在のヘルプを閉じて新しいヘルプだけを表示。
 - 同じ「?」の再操作、編集モード終了、ツールバー非表示、Timeline／計画モード切替でtoolbarヘルプをクリア。
+- inline／toolbar共通で、淡い青系背景、青灰色の枠線、左アクセント、タイトル先頭の丸囲み「?」を使用。
+- inlineヘルプだけに、ヘルプボタンとの関係を示す小さな吹き出し突起を追加。toolbarのportal／fixed配置は変更していない。
 
 ## Preserved Behavior
 
@@ -31,11 +33,11 @@ GitHub `main`、`origin/main`、ローカルHEADが `51fae6a` で一致するこ
 - ヘルプボタンは既存の `label` の外へ配置し、入力コントロールとの関連付けを維持している。
 - ツールバーの操作ボタンとヘルプボタンは兄弟要素で、操作ボタンのイベント処理、disabled条件、表示条件は変更していない。
 - 計画JSON、編集履歴、ルート編集ロジック、プレビュー／MP4ロジックは変更していない。
+- 今回の変更はヘルプ専用CSSのみで、開閉挙動、文言、データ構造、通常の `.detail-card` デザインは変更していない。
 
 ## Verification
 
 - TypeScriptの `HelpKey` により、存在しないヘルプキーを `HelpTip` へ指定できない構造。
-- `npm test`: 11ファイル・37テスト成功。
 - `npm run build`: TypeScript/Viteビルド成功（既存のチャンクサイズ警告のみ）。
 - `git diff --check`: 問題なし。
 - ブラウザ表示とAndroid実機の目視確認はユーザー側で実施予定。
