@@ -5,6 +5,16 @@ import type { DayMarker } from './tripRoute';
 
 // Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
 const VIDEO_DAY_STYLE = {
+  minWidth: 230, noteMaxWidth: 370, paddingX: 24, paddingTop: 17, paddingBottom: 15,
+  dayFont: 24, dateFont: 17, noteFont: 19, daySpacing: 1.9, dateSpacing: 0.85,
+  border: 3.4, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
+  connectorWidth: 3.4, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
+  manualConnectorWidth: 6.8, manualAnchorRadius: 8.5, anchorBorder: 3.4,
+  shadowBlur: 24, shadowOffsetY: 6.8, margin: 8, bottomMargin: 54,
+} as const;
+
+// Editing CSS dimensions are independent of the fixed video design.
+const EDITING_DAY_STYLE = {
   minWidth: 138, noteMaxWidth: 220, paddingX: 14, paddingTop: 10, paddingBottom: 9,
   dayFont: 14, dateFont: 10, noteFont: 11, daySpacing: 1.12, dateSpacing: 0.5,
   border: 2, radius: 5, rowGap: 2, anchorGap: 24, anchorInset: 12,
@@ -29,11 +39,13 @@ export function dayMarkerStyle() {
   return { ...VIDEO_DAY_STYLE };
 }
 
-function editingStyle(reference: { width: number; height: number }) {
-  const scale = 1 / popupDisplayScale(reference.width, reference.height);
-  const scaled = {} as Record<keyof typeof VIDEO_DAY_STYLE, number>;
-  for (const key of Object.keys(VIDEO_DAY_STYLE) as (keyof typeof VIDEO_DAY_STYLE)[]) scaled[key] = VIDEO_DAY_STYLE[key] * scale;
-  return scaled;
+export function dayMarkerEditingStyle(editingScale = 1) {
+  const scale = Number.isFinite(editingScale) ? Math.max(0.75, Math.min(1.75, editingScale)) : 1;
+  const style = {} as Record<keyof typeof EDITING_DAY_STYLE, number>;
+  for (const key of Object.keys(EDITING_DAY_STYLE) as (keyof typeof EDITING_DAY_STYLE)[]) {
+    style[key] = EDITING_DAY_STYLE[key] * (key === 'margin' || key === 'bottomMargin' ? 1 : scale);
+  }
+  return style;
 }
 
 // Video and preview always share this device-independent layout.
@@ -42,9 +54,12 @@ export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | '
 }
 
 // Preserve readable, draggable CSS dimensions only outside video preview.
-export function dayMarkerEditingLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }) {
+export function dayMarkerEditingLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }, editingScale = 1) {
   if (!Number.isFinite(reference.width) || !Number.isFinite(reference.height) || reference.width <= 0 || reference.height <= 0) reference = POPUP_PLACEMENT_VIEWPORT;
-  return layoutDayMarker(marker, context, reference, editingStyle(reference));
+  const style = dayMarkerEditingStyle(editingScale);
+  const displayScale = popupDisplayScale(reference.width, reference.height);
+  for (const key of Object.keys(style) as (keyof typeof style)[]) style[key] /= displayScale;
+  return layoutDayMarker(marker, context, reference, style);
 }
 
 function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {

@@ -199,7 +199,10 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .edit-toolbar .help-tip-button--toolbar:focus-visible > span { outline-color: white; }
 .help-tip-panel--toolbar { position: fixed; z-index: 20; grid-column: auto; max-height: min(180px, 40vh); margin: 0; overflow-y: auto; box-shadow: 0 6px 24px rgba(7,17,31,.28); }
 
+.mobile-day-editing-size { display: none; }
 @media (max-width: 760px) {
+  .mobile-day-editing-size { display: grid; gap: 6px; min-width: 0; }
+  .mobile-day-editing-size input[type="range"] { width: 100%; min-width: 0; padding: 0; }
   body { overflow: auto; }
   .app-shell { height: 100dvh; min-height: 620px; }
   .topbar { height: auto; min-height: 65px; padding: 10px 13px; gap: 10px; flex-wrap: wrap; }

@@ -4,7 +4,19 @@ Last updated: 2026-09-11
 
 ## Current Status
 
-GitHubから取得した最新 `origin/main` とローカルHEADが `9236ed9951b6fb3eedfd97441f7f03a3c767bd7a` で一致することを確認し、DAYマーカーの端末viewport依存を修正。今回の変更は未コミット。
+最新GitHub `origin/main` とローカルHEADが `f0c8e0c3769218093404a5ed7883dc2ca9e8572a` で一致することを確認し、固定動画サイズの適正化とスマホ編集表示倍率を実装。今回の変更は未コミット。
+
+## DAY marker fixed size and mobile editing scale (2026-09-11)
+
+- `VIDEO_DAY_STYLE` をFHD固定値（最小幅230px、DAY文字24px）へ拡大。日付・補足・padding・枠・connector・anchor・影も同程度に調整。画面端の余白は維持。
+- renderer／動画プレビューは同じ `dayMarkerLayout()` を継続使用。viewport・DPR・編集倍率による動画サイズ補正は追加していない。
+- 従来の編集用CSS寸法を `EDITING_DAY_STYLE` に分離し、PC通常編集は138px／14pxの操作感を維持。
+- 760px以下のDAY編集欄だけに「DAY編集表示サイズ」を追加（75〜175%、25%刻み、初期100%）。共通HelpTipで編集専用・非保存を説明。Timeline／計画で共用。
+- `mobileDayMarkerEditingScale` はAppの一時state。OverlayはmatchMediaの760px境界で通常編集時のみ適用し、PC表示や動画プレビューには適用しない。renderer、動画設定、計画JSONへ渡さない。
+- CSS transformで編集倍率を変更せず、レイアウト寸法・文字・枠・connector・anchor・影を直接更新。実際のoffsetWidth／offsetHeightで配置・clamp・ドラッグを計算。PopupPlacementとドラッグ保存座標の仕様は変更なし。
+- `npm test`: 12ファイル・53テスト成功、任意の実データ1ファイルはスキップ。端末viewport／DPR非依存、新動画サイズ、編集倍率の全寸法への適用、動画への非干渉、日付・補足、配置座標・画面端clampを確認。
+- `npm run build`: 成功（チャンクサイズ警告あり）。`git diff --check`: 問題なし。
+- 指定どおりブラウザ操作・実機確認・実MP4生成は未実施。
 
 ## DAY marker video sizing fix (2026-09-11)
 

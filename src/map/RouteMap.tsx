@@ -44,6 +44,7 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  mobileDayMarkerEditingScale: number;
   distanceHud?: DistanceHudOptions;
   distanceHudDraggable?: boolean;
   onDistanceHudPlacement?: (placement: DistanceHudPlacement) => void;
@@ -465,7 +466,7 @@ export default function RouteMap(props: RouteMapProps) {
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
     <AnnotationOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onAnnotationPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} editMode={props.editMode} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    {props.routeMarkerMode === 'day' && <DayMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} dayColorsEnabled={dayColorsEnabled} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay mobileEditingScale={props.mobileDayMarkerEditingScale} draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} dayColorsEnabled={dayColorsEnabled} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
     {(isPreviewing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />

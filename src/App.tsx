@@ -53,6 +53,7 @@ export default function App() {
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
   const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
   const [dayMarkerNoteInput, setDayMarkerNoteInput] = useState('');
+  const [mobileDayMarkerEditingScale, setMobileDayMarkerEditingScale] = useState(1);
   const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
@@ -736,6 +737,16 @@ export default function App() {
               </div>}
               {editMode && (workspaceMode === 'plan' || routeMarkerMode === 'day') && selectedDayMarker && <div className="day-marker-editor">
                 <strong>DAY {selectedDayMarker.dayNumber}{selectedDayMarker.date && ` · ${selectedDayMarker.date.replaceAll('-', '.')}`}</strong>
+                <div className="mobile-day-editing-size">
+                  <div className="control-label-with-help">
+                    <label htmlFor="day-editing-scale">DAY編集表示サイズ　{Math.round(mobileDayMarkerEditingScale * 100)}%</label>
+                    <HelpTip helpKey="dayEditingScale" />
+                  </div>
+                  <input id="day-editing-scale" type="range" min="75" max="175" step="25"
+                    value={mobileDayMarkerEditingScale * 100} disabled={previewProgress !== null || !!videoProgress}
+                    onChange={(event) => setMobileDayMarkerEditingScale(Number(event.target.value) / 100)} />
+                  <small>編集画面のみ。動画サイズには影響しません</small>
+                </div>
                 <label htmlFor="day-marker-note">{workspaceMode === 'plan' ? 'DAY' : '日付'}マーカーの補足（最大40文字）</label>
                 <input id="day-marker-note" type="text" value={dayMarkerNoteInput} onChange={(event) => setDayMarkerNoteInput(event.currentTarget.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="○○ホテル" />
                 <button className="secondary-button" disabled={!dayMarkerNoteInput.trim() || Array.from(dayMarkerNoteInput.trim()).length > 40} onClick={saveDayMarkerNote}>{selectedDayMarker.note ? '変更' : '設定'}</button>
@@ -877,7 +888,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} dayNumberByPointId={dayNumberByPointId} dayRouteColorsEnabled={dayRouteColorsEnabled} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} dayNumberByPointId={dayNumberByPointId} dayRouteColorsEnabled={dayRouteColorsEnabled} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>JSONファイルを選択</span>
   <small>過去の移動履歴を取り込む</small>
