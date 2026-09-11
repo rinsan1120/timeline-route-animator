@@ -9,11 +9,12 @@ import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripR
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
-import { buildFollowCameraPlan, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
+import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera, type ViewportSize } from './overviewCamera';
 import { planRouteDistanceProgress } from '../route/planDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
+import { buildOverviewPlaybackTimeline, samplePlaybackTimeline } from './playbackTimeline';
 
 const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
@@ -23,12 +24,12 @@ export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
 export const POST_ROLL_SECONDS = 3;
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
 
-export function outputVideoDuration(duration: number): number {
-  return PRE_ROLL_SECONDS + duration + POST_ROLL_SECONDS;
+export function outputVideoDuration(duration: number, pauseSeconds = 0): number {
+  return PRE_ROLL_SECONDS + duration + pauseSeconds + POST_ROLL_SECONDS;
 }
 
-export function outputVideoFrameCount(duration: number): number {
-  return outputVideoDuration(duration) * VIDEO_FPS;
+export function outputVideoFrameCount(duration: number, pauseSeconds = 0): number {
+  return Math.round(outputVideoDuration(duration, pauseSeconds) * VIDEO_FPS);
 }
 
 export interface VideoProgress { current: number; total: number; percent: number }
@@ -110,8 +111,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
     const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
-    const animationFrames = options.duration * VIDEO_FPS;
-    const total = outputVideoFrameCount(options.duration);
+    const playbackTimeline = buildOverviewPlaybackTimeline(options.points, options.duration);
+    const animationFrames = Math.round(playbackTimeline.outputDurationSeconds * VIDEO_FPS);
+    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds);
     if (options.introZoomEnabled) {
       const targetCenter = { lng: camera.longitude, lat: camera.latitude };
       const targetZoom = camera.zoom;
@@ -170,11 +172,12 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     for (let frame = options.introZoomEnabled ? preFrames : 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
-      const progress = frame < preFrames
+      const outputElapsedSeconds = frame < preFrames
         ? 0
         : animationFrame >= animationFrames
-          ? 1
-          : animationFrame / (animationFrames - 1);
+          ? playbackTimeline.outputDurationSeconds
+          : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
+      const progress = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).baseElapsedSeconds / options.duration;
       drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayMarkerReferenceViewport);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
@@ -488,6 +491,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
   const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration, options.followCustomZoom);
+  const playbackTimeline = buildFollowPlaybackTimeline(plan);
   const initialPlayback = sampleFollowPlayback(plan, 0);
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
@@ -530,17 +534,17 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
     const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
-    const animationFrames = options.duration * VIDEO_FPS;
-    const total = outputVideoFrameCount(options.duration);
+    const animationFrames = Math.round(playbackTimeline.outputDurationSeconds * VIDEO_FPS);
+    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds);
     let backgroundKey = '';
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
-      const elapsedSeconds = frame < preFrames
+      const outputElapsedSeconds = frame < preFrames
         ? 0
         : animationFrame >= animationFrames
-          ? options.duration
-          : animationFrame / (animationFrames - 1) * options.duration;
+          ? playbackTimeline.outputDurationSeconds
+          : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
       const playback = options.introZoomEnabled && frame < preFrames
         ? {
           ...initialPlayback,
@@ -550,7 +554,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
             preFrames <= 1 ? 1 : frame / (preFrames - 1),
           ),
         }
-        : sampleFollowPlayback(plan, elapsedSeconds);
+        : sampleFollowOutputPlayback(plan, playbackTimeline, outputElapsedSeconds);
       const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
       const introFrame = options.introZoomEnabled && frame < preFrames;
       const lastIntroFrame = introFrame && frame === preFrames - 1;

@@ -40,6 +40,13 @@ vi.mock('mediabunny', () => ({
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
 describe('GSI Vector video background', () => {
+  it('adds pause seconds to output duration and frame count', async () => {
+    const { outputVideoDuration, outputVideoFrameCount } = await import('./renderer');
+    expect(outputVideoDuration(30)).toBe(36);
+    expect(outputVideoDuration(30, 5)).toBe(41);
+    expect(outputVideoFrameCount(30, 5)).toBe(41 * 30);
+  });
+
   it('loads the shared vector style, applies the video camera before waiting for tiles and reuses one capture for every frame', async () => {
     const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
     const createImageBitmap = vi.fn(async () => mocks.bitmap);

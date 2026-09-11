@@ -61,6 +61,8 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .annotation-editor { display: grid; gap: 8px; margin-top: 10px; }
 .annotation-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
 .annotation-editor button { min-height: 44px; }
+.point-pause-number { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.point-pause-number input { width: min(120px, calc(100% - 24px)); text-align: center; }
 .day-marker-editor { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #d8e0e7; }
 .day-marker-editor input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #ccd5de; border-radius: 7px; font-size: 16px; }
 .day-marker-editor button { min-height: 44px; }

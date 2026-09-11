@@ -6,6 +6,7 @@ export interface RoutePoint {
   timestamp?: string;
   source: 'timelinePath' | 'manual';
   original: boolean;
+  pauseSeconds?: number;
   annotation?: { label: string; placement?: PopupPlacement };
 }
 

@@ -12,10 +12,11 @@ import { buildPlanDistanceModel } from './route/planDistanceProgress';
 import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readTimelineFile } from './timeline/fileLoader';
-import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
+import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
 import { INTRO_ZOOM_DURATION_SECONDS } from './video/introZoom';
 import { createOverviewCamera, type ViewportSize } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
+import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
 type WorkspaceMode = 'timeline' | 'plan';
@@ -45,6 +46,7 @@ export default function App() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [selectionCandidateIds, setSelectionCandidateIds] = useState<string[]>([]);
   const [annotationLabel, setAnnotationLabel] = useState('');
+  const [pauseSecondsInput, setPauseSecondsInput] = useState('0.0');
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
   const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
@@ -99,6 +101,9 @@ export default function App() {
   useEffect(() => {
     setAnnotationLabel(selectedPoint?.annotation?.label ?? '');
   }, [selectedPoint?.id, selectedPoint?.annotation?.label]);
+  useEffect(() => {
+    setPauseSecondsInput((selectedPoint?.pauseSeconds ?? 0).toFixed(1));
+  }, [selectedPoint?.id, selectedPoint?.pauseSeconds]);
   useEffect(() => {
     setDayMarkerNoteInput(workspaceMode === 'plan'
       ? (selectedDayMarker ? planDayNotes[selectedDayMarker.pointId] ?? '' : '')
@@ -166,6 +171,22 @@ export default function App() {
     setError('');
   };
 
+  const savePauseSeconds = () => {
+    if (!selectedPoint) return;
+    const parsed = Number(pauseSecondsInput);
+    const pauseSeconds = normalizePauseSeconds(Number.isFinite(parsed) ? parsed : selectedPoint.pauseSeconds ?? 0);
+    if ((selectedPoint.pauseSeconds ?? 0) !== pauseSeconds) {
+      dispatch({ type: 'commit', points: points.map((point) => {
+        if (point.id !== selectedPoint.id) return point;
+        if (pauseSeconds > 0) return { ...point, pauseSeconds };
+        const { pauseSeconds: _previousPauseSeconds, ...rest } = point;
+        return rest;
+      }) });
+    }
+    setPauseSecondsInput(pauseSeconds.toFixed(1));
+    setError('');
+  };
+
   const saveDayMarkerNote = () => {
     if (!selectedDayMarker) return;
     const note = dayMarkerNoteInput.trim();
@@ -204,6 +225,11 @@ export default function App() {
     const endIndex = animationEndPointId ? points.findIndex((point) => point.id === animationEndPointId) : points.length - 1;
     return startIndex >= 0 && endIndex > startIndex ? points.slice(startIndex, endIndex + 1) : points;
   }, [points, animationStartPointId, animationEndPointId]);
+  const animationPauseSeconds = useMemo(() => totalPauseSeconds(animationPoints), [animationPoints]);
+  const previewPlaybackTimeline = useMemo(() => cameraMode === 'follow' && followCameraPlan
+    ? buildFollowPlaybackTimeline(followCameraPlan)
+    : buildOverviewPlaybackTimeline(animationPoints, duration),
+  [cameraMode, followCameraPlan, animationPoints, duration]);
 
   const overviewCamera = useMemo(() => createOverviewCamera(animationPoints,
     overviewZoomMode === 'custom' ? overviewCustomZoom : undefined),
@@ -286,7 +312,7 @@ export default function App() {
 
   useEffect(() => {
     if (previewProgress === null) return;
-    const previewDuration = duration + (introZoomEnabled ? INTRO_ZOOM_DURATION_SECONDS : 0);
+    const previewDuration = duration + animationPauseSeconds + (introZoomEnabled ? INTRO_ZOOM_DURATION_SECONDS : 0);
     const startedAt = performance.now() - previewProgress * previewDuration * 1000;
     let frame = 0;
     const animate = (now: number) => {
@@ -304,7 +330,7 @@ export default function App() {
       if (previewEndTimerRef.current !== null) window.clearTimeout(previewEndTimerRef.current);
       previewEndTimerRef.current = null;
     };
-  }, [previewProgress === null, duration, introZoomEnabled]);
+  }, [previewProgress === null, duration, animationPauseSeconds, introZoomEnabled]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -384,6 +410,7 @@ export default function App() {
     setSelectedPointId(null);
     setSelectionCandidateIds([]);
     setAnnotationLabel('');
+    setPauseSecondsInput('0.0');
     setDayMarkerNoteInput('');
     setAnimationStartPointId(null);
     setAnimationEndPointId(null);
@@ -578,7 +605,7 @@ export default function App() {
         return;
       }
     }
-    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration), percent: 0 });
+    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration, animationPauseSeconds), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
@@ -683,6 +710,13 @@ export default function App() {
                 }} placeholder="美瑛・青い池" />
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
                 {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
+                <label htmlFor="point-pause-seconds">地点で停止</label>
+                <label className="point-pause-number" htmlFor="point-pause-seconds">
+                  <input id="point-pause-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5" value={pauseSecondsInput}
+                    onChange={(event) => setPauseSecondsInput(event.currentTarget.value)} onBlur={savePauseSeconds}
+                    onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); }} />
+                  秒
+                </label>
               </div>}
               {workspaceMode === 'plan' && editMode && <div className="day-marker-editor plan-day-editor">
                 <strong>計画DAY</strong>
@@ -779,8 +813,10 @@ export default function App() {
                 秒
               </label>
               <div className="video-duration-note">
-                <span>※ 出力動画は、移動時間に開始前3秒・到着後3秒が追加されます。</span>
-                <span>出力時間: {outputVideoDuration(duration)}秒</span>
+                <span>移動時間: {duration}秒</span>
+                <span>停止時間: 合計{animationPauseSeconds}秒</span>
+                <span>出力時間: {outputVideoDuration(duration, animationPauseSeconds)}秒</span>
+                <span>※ 出力動画は、移動時間に地点の停止時間・開始前3秒・到着後3秒が追加されます。</span>
               </div>
             </div>
             {workspaceMode === 'plan' && <div className="distance-hud-controls">
@@ -814,7 +850,7 @@ export default function App() {
         </aside>
 
         <section className="map-stage">
-          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} onMapViewportChange={(viewport) => { mapViewportRef.current = viewport; }} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} onMapViewportChange={(viewport) => { mapViewportRef.current = viewport; }} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={dayMarkers} points={points} animationPoints={animationPoints} rawPositions={rawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>ファイルを読み込むか、地図上で新しいルートを計画できます。</p><div className="empty-map-actions"><button onClick={() => fileInputRef.current?.click()}>JSONを選択</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}

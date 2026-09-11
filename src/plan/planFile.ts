@@ -85,6 +85,10 @@ function parsePoint(value: unknown): RoutePoint {
     original: value.original,
     ...(value.timestamp !== undefined ? { timestamp: value.timestamp } : {}),
   };
+  if (value.pauseSeconds !== undefined) {
+    if (!isFiniteNumber(value.pauseSeconds) || value.pauseSeconds < 0 || value.pauseSeconds > 30) throw new Error(PLAN_FILE_ERROR);
+    if (value.pauseSeconds > 0) point.pauseSeconds = value.pauseSeconds;
+  }
   if (value.annotation !== undefined) {
     if (!isRecord(value.annotation) || typeof value.annotation.label !== 'string') throw new Error(PLAN_FILE_ERROR);
     point.annotation = {

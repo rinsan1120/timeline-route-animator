@@ -1,6 +1,7 @@
 import type { RoutePoint } from '../timeline/types';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses } from '../route/tripRoute';
+import { buildPlaybackTimeline, samplePlaybackTimeline, type PlaybackTimeline } from './playbackTimeline';
 
 export type VideoCameraMode = 'overview' | 'follow';
 export type FollowZoomPreset = 'wide' | 'standard' | 'close' | 'custom';
@@ -218,6 +219,38 @@ export function sampleFollowPlayback(plan: FollowCameraPlan, elapsedSeconds: num
     routeProgress,
     markerPosition: { longitude: position.longitude, latitude: position.latitude },
     reachedPointIndex,
+  };
+}
+
+export function buildFollowPlaybackTimeline(plan: FollowCameraPlan): PlaybackTimeline {
+  const arrivals = tripRoutePointProgresses(plan.points);
+  let completedEvents = 0;
+  const arrivalSeconds = arrivals.map((routeProgress, pointIndex) => {
+    while (completedEvents < plan.events.length) {
+      const event = plan.events[completedEvents];
+      const completesForPoint = event.routeProgress < routeProgress
+        || (event.routeProgress === routeProgress && event.reachedPointIndexAfter <= pointIndex);
+      if (!completesForPoint) break;
+      completedEvents += 1;
+    }
+    return routeProgress * plan.routeMovementSeconds + completedEvents * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
+  });
+  return buildPlaybackTimeline(plan.points, plan.duration, arrivalSeconds);
+}
+
+export function sampleFollowOutputPlayback(
+  plan: FollowCameraPlan,
+  timeline: PlaybackTimeline,
+  outputElapsedSeconds: number,
+): FollowPlaybackState {
+  const timelineSample = samplePlaybackTimeline(timeline, outputElapsedSeconds);
+  const playback = sampleFollowPlayback(plan, timelineSample.baseElapsedSeconds);
+  if (!timelineSample.paused || timelineSample.pausePointIndex === null) return playback;
+  const point = plan.points[timelineSample.pausePointIndex];
+  return {
+    ...playback,
+    markerPosition: toGeoPosition(point),
+    reachedPointIndex: timelineSample.pausePointIndex,
   };
 }
 

@@ -12,9 +12,10 @@ import DistanceHudOverlay from './DistanceHudOverlay';
 import type { DistanceHudOptions, DistanceHudPlacement } from '../video/distanceHud';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
-import { sampleFollowPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
+import { sampleFollowOutputPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
 import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera, type ViewportSize } from '../video/overviewCamera';
+import { samplePlaybackTimeline, type PlaybackTimeline } from '../video/playbackTimeline';
 
 function routeCollection(segments: RoutePoint[][]) {
   return {
@@ -62,6 +63,7 @@ interface RouteMapProps {
   selectedPointId: string | null;
   previewProgress: number | null;
   previewDuration: number;
+  playbackTimeline: PlaybackTimeline;
   introZoomEnabled: boolean;
   revealRoute: boolean;
   cameraMode: VideoCameraMode;
@@ -381,7 +383,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (previewEnding) {
       previewCameraSnapshotRef.current = null;
     }
-  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
+  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -632,26 +634,27 @@ interface MapPreviewState {
 
 function getPreviewState(props: RouteMapProps): MapPreviewState | null {
   if (props.previewProgress === null || !props.animationPoints.length) return null;
-  const movementProgress = getPreviewMovementProgress(props);
+  const outputElapsedSeconds = getPreviewOutputElapsed(props);
   if (props.cameraMode === 'follow' && props.followCameraPlan) {
-    const playback = sampleFollowPlayback(props.followCameraPlan, movementProgress * props.followCameraPlan.duration);
-    return playback;
+    return sampleFollowOutputPlayback(props.followCameraPlan, props.playbackTimeline, outputElapsedSeconds);
   }
+  const timelineSample = samplePlaybackTimeline(props.playbackTimeline, outputElapsedSeconds);
+  const movementProgress = timelineSample.baseElapsedSeconds / props.previewDuration;
   const position = interpolateTripRoute(props.animationPoints, movementProgress);
   return position ? { routeProgress: movementProgress, markerPosition: position, reachedPointIndex: null } : null;
 }
 
-function getPreviewMovementProgress(props: RouteMapProps): number {
+function getPreviewOutputElapsed(props: RouteMapProps): number {
   if (props.previewProgress === null) return 0;
-  if (!props.introZoomEnabled) return props.previewProgress;
-  const totalDuration = INTRO_ZOOM_DURATION_SECONDS + props.previewDuration;
+  if (!props.introZoomEnabled) return props.previewProgress * props.playbackTimeline.outputDurationSeconds;
+  const totalDuration = INTRO_ZOOM_DURATION_SECONDS + props.playbackTimeline.outputDurationSeconds;
   const elapsed = props.previewProgress * totalDuration;
-  return Math.max(0, Math.min(1, (elapsed - INTRO_ZOOM_DURATION_SECONDS) / props.previewDuration));
+  return Math.max(0, Math.min(props.playbackTimeline.outputDurationSeconds, elapsed - INTRO_ZOOM_DURATION_SECONDS));
 }
 
 function getPreviewIntroProgress(props: RouteMapProps): number | null {
   if (!props.introZoomEnabled || props.previewProgress === null) return null;
-  const elapsed = props.previewProgress * (INTRO_ZOOM_DURATION_SECONDS + props.previewDuration);
+  const elapsed = props.previewProgress * (INTRO_ZOOM_DURATION_SECONDS + props.playbackTimeline.outputDurationSeconds);
   // MP4 samples the intro at frames 0..89, reaching the target on frame 89.
   // Match that camera trajectory without changing preview route timing.
   return elapsed <= INTRO_ZOOM_DURATION_SECONDS
