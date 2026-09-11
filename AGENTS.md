@@ -249,6 +249,18 @@ Therefore:
 
 ---
 
+## Contextual Help
+
+- When adding a new user-facing setting, editing item, menu item, or operation concept to the left control panel, include contextual help in the same change even when the user does not explicitly request it.
+- Add help copy to the shared help definition file; do not embed help bodies directly in `App.tsx` or other UI components.
+- Reuse the existing `HelpTip` component by default.
+- Do not make help depend on hover. It must open and close by click or tap on both desktop and Android and remain keyboard-accessible.
+- Keep help copy concise and in Japanese, prioritizing an explanation of what the setting changes and any easily misunderstood effects.
+- Omit contextual help for a new setting or concept only when the user explicitly requests that no help be added.
+- Do not mechanically add help to self-explanatory operations such as delete, Undo, save, or reset unless their behavior becomes complex.
+
+---
+
 ## Privacy
 
 Google Timeline data is highly sensitive.

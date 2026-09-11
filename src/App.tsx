@@ -18,6 +18,7 @@ import { createOverviewCamera, type ViewportSize } from './video/overviewCamera'
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
+import HelpTip from './help/HelpTip';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
 type WorkspaceMode = 'timeline' | 'plan';
@@ -664,7 +665,7 @@ export default function App() {
               <span className="time-arrow">→</span>
               <label>To<input type="time" value={to} onChange={(event) => setTo(event.target.value)} /></label>
             </div>
-            <p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p>
+            <div className="control-label-with-help range-help"><p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p><HelpTip helpKey="timelineRange" /></div>
             <button className="secondary-button wide" disabled={!startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
             </> : <>
               <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
@@ -681,10 +682,13 @@ export default function App() {
 
           <section className="panel-section">
             <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{points.length ? `${points.length} points · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
-            <div className="mode-switch">
-              <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
-              <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
-              <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+            <div className="control-label-with-help control-with-help">
+              <div className="mode-switch">
+                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
+                <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
+                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+              </div>
+              <HelpTip helpKey="mapMode" />
             </div>
             {planDistances && <div className="detail-card">
               <strong>概算距離</strong>
@@ -692,7 +696,7 @@ export default function App() {
               <strong>合計　約 {formatDistance(planDistances.totalMeters)}</strong>
               <span>※ ポイント間の地表上の直線距離の合計です。道路に沿った走行距離ではありません。</span>
             </div>}
-            {workspaceMode === 'timeline' && <label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label>}
+            {workspaceMode === 'timeline' && <div className="control-label-with-help control-label-with-help--toggle"><label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label><HelpTip helpKey="rawSignals" /></div>}
             {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>全{points.length}点中 {selectedPointIndex + 1}番目</span><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
               {showSelectionCandidateSwitcher && <div className="selection-candidate-switcher">
                 <button type="button" aria-label="前の候補" onClick={() => selectAdjacentCandidate(-1)}>‹</button>
@@ -706,14 +710,14 @@ export default function App() {
                 {selectedPoint.id === animationPoints.at(-1)?.id && endpointMarkerPlacements.GOAL && <button className="secondary-button" onClick={() => setEndpointPlacement('GOAL')}>GOAL位置をリセット</button>}
               </>}
               {editMode && <div className="annotation-editor">
-                <label htmlFor="annotation-label">地点ラベル（最大30文字）</label>
+                <div className="control-label-with-help"><label htmlFor="annotation-label">地点ラベル（最大30文字）</label><HelpTip helpKey="pointLabel" /></div>
                 <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
                   // Text editing keeps its own Undo/Redo instead of changing route history.
                   event.stopPropagation();
                 }} placeholder="美瑛・青い池" />
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
                 {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
-                <label htmlFor="point-pause-seconds">地点で停止</label>
+                <div className="control-label-with-help"><label htmlFor="point-pause-seconds">地点で停止</label><HelpTip helpKey="pointPause" /></div>
                 <label className="point-pause-number" htmlFor="point-pause-seconds">
                   <input id="point-pause-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5" value={pauseSecondsInput}
                     onChange={(event) => setPauseSecondsInput(event.currentTarget.value)} onBlur={savePauseSeconds}
@@ -722,7 +726,7 @@ export default function App() {
                 </label>
               </div>}
               {workspaceMode === 'plan' && editMode && <div className="day-marker-editor plan-day-editor">
-                <strong>計画DAY</strong>
+                <div className="control-label-with-help"><strong>計画DAY</strong><HelpTip helpKey="planDay" /></div>
                 {!selectedDayMarker && <button className="secondary-button" onClick={() => setPlanDayStarts((current) => [...new Set([...current, selectedPoint.id])])}>ここからDAY {selectedPlanDayNumber}</button>}
                 {selectedDayMarker && selectedPoint.id !== points[0]?.id && <button className="secondary-button" onClick={() => setPlanDayStarts((current) => current.filter((id) => id !== selectedPoint.id))}>DAY {selectedDayMarker.dayNumber}設定を解除</button>}
               </div>}
@@ -735,7 +739,7 @@ export default function App() {
               </div>}
             </div>}
             {animationRangeMode && <div className="detail-card animation-range-card">
-              <strong>アニメーション範囲</strong>
+              <div className="control-label-with-help"><strong>アニメーション範囲</strong><HelpTip helpKey="animationRange" /></div>
               <span>開始: {animationPoints[0] ? `${points.indexOf(animationPoints[0]) + 1}番目` : '未選択'}</span>
               <span>終了: {animationPoints.at(-1) ? `${points.indexOf(animationPoints.at(-1)!) + 1}番目` : '未選択'}</span>
               <div className="animation-range-actions">
@@ -750,19 +754,19 @@ export default function App() {
           <section className="panel-section video-section">
             <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
             <div className="video-camera-controls">
-              <label>表示モード</label>
+              <div className="control-label-with-help"><label>表示モード</label><HelpTip helpKey="cameraMode" /></div>
               <div className="video-mode-options">
                 <button className={cameraMode === 'overview' ? 'active' : ''} aria-pressed={cameraMode === 'overview'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('overview')}>全体表示</button>
                 <button className={cameraMode === 'follow' ? 'active' : ''} aria-pressed={cameraMode === 'follow'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('follow')}>ルート追従</button>
               </div>
               {cameraMode === 'overview' && <>
-                <label>表示範囲</label>
+                <div className="control-label-with-help"><label>表示範囲</label><HelpTip helpKey="overviewZoom" /></div>
                 <div className="video-mode-options">
                   {(['auto', 'custom'] as const).map((mode) => <button key={mode} className={overviewZoomMode === mode ? 'active' : ''} aria-pressed={overviewZoomMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setOverviewZoomMode(mode)}>{mode === 'auto' ? '自動' : 'カスタム'}</button>)}
                 </div>
               </>}
               {cameraMode === 'follow' && <>
-                <label>表示範囲</label>
+                <div className="control-label-with-help"><label>表示範囲</label><HelpTip helpKey="followZoom" /></div>
                 <div className="follow-zoom-options">
                   {([['wide', '広め'], ['standard', '標準'], ['close', '寄り'], ['custom', 'カスタム']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
                 </div>
@@ -793,15 +797,21 @@ export default function App() {
                   onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                 />
               </label>}
-              <label>地点マーカー</label>
+              <div className="control-label-with-help"><label>地点マーカー</label><HelpTip helpKey="routeMarker" /></div>
               <div className="route-marker-options">
                 {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
               </div>
-              <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始3秒で広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
-              <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線と走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
+              <div className="control-label-with-help control-label-with-help--toggle">
+                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始3秒で広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
+                <HelpTip helpKey="introZoom" />
+              </div>
+              <div className="control-label-with-help control-label-with-help--toggle">
+                <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線と走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
+                <HelpTip helpKey="dayRouteColors" />
+              </div>
             </div>
             <div className="duration-controls">
-              <label htmlFor="video-duration-range">移動時間</label>
+              <div className="control-label-with-help"><label htmlFor="video-duration-range">移動時間</label><HelpTip helpKey="movementDuration" /></div>
               <input id="video-duration-range" type="range" min="5" max="120" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                 const value = Number(event.currentTarget.value);
                 setDuration(value);
@@ -824,9 +834,12 @@ export default function App() {
               </div>
             </div>
             {workspaceMode === 'plan' && <div className="distance-hud-controls">
-              <label className="toggle-row"><span><strong>走行距離表示</strong></span><input type="checkbox" checked={distanceHudSettings.enabled}
-                disabled={previewProgress !== null || !!videoProgress}
-                onChange={(event) => setDistanceHudSettings((current) => ({ ...current, enabled: event.target.checked }))} /><i /></label>
+              <div className="control-label-with-help control-label-with-help--toggle">
+                <label className="toggle-row"><span><strong>走行距離表示</strong></span><input type="checkbox" checked={distanceHudSettings.enabled}
+                  disabled={previewProgress !== null || !!videoProgress}
+                  onChange={(event) => setDistanceHudSettings((current) => ({ ...current, enabled: event.target.checked }))} /><i /></label>
+                <HelpTip helpKey="distanceHud" />
+              </div>
               {distanceHudSettings.enabled && distanceHudModel && <>
                 <label className="distance-hud-size">サイズ <span>{Math.round(distanceHudSettings.scale * 100)}%</span>
                   <input type="range" min="50" max="200" step="10" value={Math.round(distanceHudSettings.scale * 100)}
@@ -841,10 +854,16 @@ export default function App() {
             </div>}
             <div className="annotation-style-controls">
               <h3>バルーン表示</h3>
-              {(['balloonScale', 'fontScale'] as const).map((key) => <label key={key}>
-                {key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span>{Math.round(annotationStyle[key] * 100)}%</span>
-                <input type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
-              </label>)}
+              {(['balloonScale', 'fontScale'] as const).map((key) => {
+                const inputId = key === 'balloonScale' ? 'annotation-balloon-scale' : 'annotation-font-scale';
+                return <div className="annotation-style-item" key={key}>
+                  <div className="control-label-with-help">
+                    <label htmlFor={inputId}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(annotationStyle[key] * 100)}%</span></label>
+                    <HelpTip helpKey={key === 'balloonScale' ? 'balloonScale' : 'balloonFontScale'} />
+                  </div>
+                  <input id={inputId} type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
+                </div>;
+              })}
             </div>
             <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>

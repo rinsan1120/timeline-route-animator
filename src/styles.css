@@ -35,6 +35,20 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .time-grid { display: grid; grid-template-columns: 1fr 24px 1fr; align-items: end; margin-top: 12px; }
 .time-arrow { color: #a8b1bc; text-align: center; height: 29px; }
 .range-note { margin: 9px 0 0; color: #748297; font-size: 9px; line-height: 1.5; }
+.control-label-with-help { display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: center; column-gap: 4px; min-width: 0; }
+.control-label-with-help > :first-child { min-width: 0; }
+.control-label-with-help--toggle { margin-top: 18px; }
+.control-label-with-help--toggle .toggle-row { margin-top: 0; }
+.range-help { margin-top: 9px; }
+.range-help .range-note { margin-top: 0; }
+.help-tip { display: contents; }
+.help-tip-button { position: relative; z-index: 1; grid-column: 2; justify-self: end; display: grid; place-items: center; width: 36px; height: 36px; margin-block: -8px; padding: 0; border: 0; color: #60738a; background: transparent; cursor: pointer; touch-action: manipulation; }
+.help-tip-button > span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid #aebbc8; border-radius: 50%; background: #f5f8fa; font-size: 11px; font-weight: 700; line-height: 1; }
+.help-tip-button:focus-visible { outline: none; }
+.help-tip-button:focus-visible > span { outline: 2px solid #60738a; outline-offset: 2px; }
+.help-tip-panel { grid-column: 1 / -1; display: grid; gap: 4px; width: 100%; max-width: 100%; min-width: 0; margin-top: 5px; padding: 9px 10px; color: #536177; background: #eef4f7; border: 1px solid #d5e0e7; border-radius: 7px; font-size: 10px; font-weight: 400; line-height: 1.55; letter-spacing: normal; overflow-wrap: anywhere; }
+.help-tip-panel strong { color: #26384f; font-size: 10px; }
+.help-tip-panel > span { display: block; }
 .secondary-button { border: 1px solid #ccd5de; color: #283c55; background: white; border-radius: 7px; min-height: 38px; font-size: 11px; font-weight: 700; cursor: pointer; }
 .wide { width: 100%; margin-top: 13px; }
 .mode-switch, .duration-options, .video-mode-options, .follow-zoom-options, .route-marker-options { display: flex; padding: 3px; border-radius: 8px; background: #edf1f4; gap: 2px; }
@@ -86,13 +100,15 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .annotation-style-controls { display: grid; gap: 8px; margin-top: 16px; }
 .annotation-style-controls h3 { margin: 0; font-size: 13px; }
 .annotation-style-controls label { display: block; }
-.annotation-style-controls span { float: right; }
+.annotation-style-controls .annotation-style-value { float: right; }
 .annotation-style-controls input { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--orange); }
+.annotation-style-item { display: grid; }
 .animation-range-actions { display: grid; gap: 6px; margin-top: 6px; }
 .animation-range-actions .secondary-button { padding: 0 8px; }
 .raw-detail > button { border: 0; background: none; position: absolute; right: 8px; top: 7px; color: #7b8795; cursor: pointer; }
 .video-camera-controls { display: grid; gap: 7px; margin-bottom: 17px; }
-.video-camera-controls > label:not(:first-child) { margin-top: 5px; }
+.video-camera-controls > label:not(:first-child), .video-camera-controls > .control-label-with-help:not(:first-child) { margin-top: 5px; }
+.video-camera-controls > .control-label-with-help.control-label-with-help--toggle { margin-top: 18px; }
 .duration-controls input[type='range'] { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--orange); }
 .duration-limits { display: flex; justify-content: space-between; color: #67778a; font-size: 11px; }
 .duration-number, .custom-zoom-number { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; }
