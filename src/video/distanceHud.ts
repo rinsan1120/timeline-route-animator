@@ -1,9 +1,10 @@
 import type { PlanDistanceModel, PlanDistanceProgress } from '../route/planDistanceProgress';
+import { dayRouteColor } from '../route/dayRouteColor';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 
 export interface DistanceHudPlacement { x: number; y: number }
 export interface DistanceHudSettings extends DistanceHudPlacement { enabled: boolean; scale: number }
-export interface DistanceHudOptions { settings: DistanceHudSettings; model: PlanDistanceModel }
+export interface DistanceHudOptions { settings: DistanceHudSettings; model: PlanDistanceModel; dayColorsEnabled?: boolean }
 export const DEFAULT_DISTANCE_HUD: DistanceHudSettings = { enabled: false, x: 48, y: 48, scale: 1 };
 
 export const DISTANCE_HUD_LAYOUT = {
@@ -31,7 +32,7 @@ export function clampDistanceHudPlacement(placement: DistanceHudPlacement, layou
 }
 
 // This same panel is rendered into the browser overlay and the MP4 canvas.
-export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: PlanDistanceProgress, layout: ReturnType<typeof distanceHudLayout>) {
+export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: PlanDistanceProgress, layout: ReturnType<typeof distanceHudLayout>, dayColorsEnabled = false) {
   const { padding, titleHeight, rowHeight, fontSize, radius } = DISTANCE_HUD_LAYOUT;
   context.save();
   context.shadowBlur = 0;
@@ -50,13 +51,20 @@ export function drawDistanceHudPanel(context: CanvasRenderingContext2D, data: Pl
   context.font = `600 ${fontSize}px system-ui, sans-serif`;
   context.fillText('概算距離', padding, padding + titleHeight / 2);
   context.font = `${fontSize}px monospace`;
-  const row = (label: string, meters: number, y: number) => {
+  const row = (label: string, meters: number, y: number, dayNumber?: number) => {
+    if (dayColorsEnabled && dayNumber !== undefined) {
+      context.fillStyle = dayRouteColor(dayNumber);
+      context.beginPath();
+      context.roundRect(padding, y - 12, 8, 24, 2);
+      context.fill();
+      context.fillStyle = '#fff';
+    }
     context.textAlign = 'left';
-    context.fillText(label, padding, y);
+    context.fillText(label, padding + (dayColorsEnabled && dayNumber !== undefined ? 20 : 0), y);
     context.textAlign = 'right';
     context.fillText(distanceHudKilometers(meters), layout.width - padding, y);
   };
-  data.days.forEach((day, index) => row(`DAY ${day.dayNumber}`, day.currentMeters, padding + titleHeight + (index + 0.5) * rowHeight));
+  data.days.forEach((day, index) => row(`DAY ${day.dayNumber}`, day.currentMeters, padding + titleHeight + (index + 0.5) * rowHeight, day.dayNumber));
   const separatorY = padding + titleHeight + data.days.length * rowHeight + 6;
   context.beginPath();
   context.moveTo(padding, separatorY);
@@ -74,6 +82,6 @@ export function drawDistanceHud(context: CanvasRenderingContext2D, data: PlanDis
   context.save();
   context.translate(placement.x, placement.y);
   context.scale(layout.scale, layout.scale);
-  drawDistanceHudPanel(context, data, layout);
+  drawDistanceHudPanel(context, data, layout, options.dayColorsEnabled);
   context.restore();
 }

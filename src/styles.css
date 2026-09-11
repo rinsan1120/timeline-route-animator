@@ -129,7 +129,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .video-preview-frame-overlay ~ .map-status { z-index: 6; }
 .video-preview-frame-overlay ~ .edit-toolbar { z-index: 6; }
 .route-overlay { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.route-overlay path { fill: none; stroke: var(--orange); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 2px 2px rgba(7,17,31,.22)); }
+.route-overlay path { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 2px 2px rgba(7,17,31,.22)); }
 .route-overlay .preview-marker { fill: #ffda57; stroke: #07111f; stroke-width: 4; animation: preview-marker-pulse 1.8s ease-in-out infinite; }
 @keyframes preview-marker-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
 .map-status { position: absolute; z-index: 3; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: #42546a; background: rgba(231,238,239,.92); font-size: 12px; }

@@ -15,6 +15,7 @@ import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type V
 import { planRouteDistanceProgress } from '../route/planDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 import { buildOverviewPlaybackTimeline, samplePlaybackTimeline } from './playbackTimeline';
+import { buildRoutePointDayNumbers, colorRouteSegments } from '../route/dayRouteColor';
 
 const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
@@ -38,6 +39,8 @@ export interface RenderVideoOptions {
   endpointMarkerPlacements?: EndpointMarkerPlacements;
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
+  dayNumberByPointId?: ReadonlyMap<string, number>;
+  dayRouteColorsEnabled?: boolean;
   routeMarkerMode?: RouteMarkerMode;
   cameraMode?: VideoCameraMode;
   followZoomPreset?: FollowZoomPreset;
@@ -105,6 +108,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pointIndex }];
     });
+    const dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
@@ -142,7 +146,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         } else {
           await waitForRenderedMapFrame(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.dayMarkerReferenceViewport);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, options.dayMarkerReferenceViewport, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -160,11 +164,12 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], arrivalProgress: arrivals[pointIndex] }];
     });
-    let pixelIndex = 0;
-    const routeSegments = splitRouteByDay(options.points).map((segment) => segment.map(() => {
-      const point = { pixel: pixels[pixelIndex], pointIndex: pixelIndex, arrivalProgress: arrivals[pixelIndex] };
-      pixelIndex += 1;
-      return point;
+    const routeSegments = colorRouteSegments(splitRouteByDay(options.points), dayNumberByPointId, options.dayRouteColorsEnabled ?? false).map((segment) => ({
+      color: segment.color,
+      points: segment.points.map((point) => {
+        const pointIndex = pointIndexById.get(point.id)!;
+        return { pixel: pixels[pointIndex], pointIndex, arrivalProgress: arrivals[pointIndex] };
+      }),
     }));
     // Encoding uses only the captured bitmap and projected route from this point on.
     map.remove();
@@ -198,7 +203,7 @@ function drawFrame(
   context: CanvasRenderingContext2D,
   background: ImageBitmap,
   pixels: maplibregl.Point[],
-  routeSegments: VideoRoutePoint[][],
+  routeSegments: VideoRouteSegment[],
   points: RoutePoint[],
   progress: number,
   revealRoute: boolean,
@@ -214,7 +219,6 @@ function drawFrame(
   context.lineCap = 'round';
   context.lineJoin = 'round';
   context.lineWidth = 10;
-  context.strokeStyle = '#ff5d37';
   context.shadowColor = 'rgba(0,0,0,.22)';
   context.shadowBlur = 8;
   const position = interpolateTripRoute(points, progress)!;
@@ -222,24 +226,25 @@ function drawFrame(
   const markerEnd = pixels[position.toIndex];
   const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
   const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
-  context.beginPath();
   for (const segment of routeSegments) {
+    context.beginPath();
     let started = false;
-    for (const routePoint of segment) {
+    for (const routePoint of segment.points) {
       if (revealRoute && routePoint.arrivalProgress > progress) break;
       if (started) context.lineTo(routePoint.pixel.x, routePoint.pixel.y);
       else context.moveTo(routePoint.pixel.x, routePoint.pixel.y);
       started = true;
     }
-    const segmentStart = segment[0]?.pointIndex ?? -1;
-    const segmentEnd = segment.at(-1)?.pointIndex ?? -1;
+    const segmentStart = segment.points[0]?.pointIndex ?? -1;
+    const segmentEnd = segment.points.at(-1)?.pointIndex ?? -1;
     if (revealRoute && started && position.fromIndex !== position.toIndex
       && position.fromIndex >= segmentStart && position.toIndex <= segmentEnd
-      && segment.some((routePoint) => routePoint.pointIndex === position.toIndex && routePoint.arrivalProgress > progress)) {
+      && segment.points.some((routePoint) => routePoint.pointIndex === position.toIndex && routePoint.arrivalProgress > progress)) {
       context.lineTo(x, y);
     }
+    context.strokeStyle = segment.color;
+    context.stroke();
   }
-  context.stroke();
   context.shadowBlur = 0;
 
   context.beginPath();
@@ -283,6 +288,11 @@ interface VideoRoutePoint {
   pixel: { x: number; y: number };
   pointIndex: number;
   arrivalProgress: number;
+}
+
+interface VideoRouteSegment {
+  color: string;
+  points: VideoRoutePoint[];
 }
 
 interface VideoDayMarker extends DayMarker {
@@ -528,6 +538,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pointIndex }];
     });
+    const dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
@@ -568,7 +579,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.dayMarkerReferenceViewport);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, options.dayMarkerReferenceViewport, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -598,23 +609,30 @@ function drawFollowFrame(
   revealRoute = true,
   distanceHud?: DistanceHudOptions,
   dayMarkerReferenceViewport: ViewportSize = VIDEO_VIEWPORT,
+  dayNumberByPointId: ReadonlyMap<string, number> = new Map(),
+  dayRouteColorsEnabled = false,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
   context.lineJoin = 'round';
   context.lineWidth = 10;
-  context.strokeStyle = '#ff5d37';
   context.shadowColor = 'rgba(0,0,0,.22)';
   context.shadowBlur = 8;
-  context.beginPath();
-  for (const segment of revealRoute ? revealedTripRouteSegments(points, playback.routeProgress) : splitRouteByDay(points)) {
-    segment.forEach((point, index) => {
+  const routeSegments = colorRouteSegments(
+    revealRoute ? revealedTripRouteSegments(points, playback.routeProgress) : splitRouteByDay(points),
+    dayNumberByPointId,
+    dayRouteColorsEnabled,
+  );
+  for (const segment of routeSegments) {
+    context.beginPath();
+    segment.points.forEach((point, index) => {
       const pixel = map.project([point.longitude, point.latitude]);
       if (index === 0) context.moveTo(pixel.x, pixel.y);
       else context.lineTo(pixel.x, pixel.y);
     });
+    context.strokeStyle = segment.color;
+    context.stroke();
   }
-  context.stroke();
   context.shadowBlur = 0;
 
   const markerPixel = map.project([playback.markerPosition.longitude, playback.markerPosition.latitude]);

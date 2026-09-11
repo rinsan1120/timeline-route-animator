@@ -16,11 +16,16 @@ import { sampleFollowOutputPlayback, type FollowCameraPlan, type GeoPosition, ty
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
 import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera, type ViewportSize } from '../video/overviewCamera';
 import { samplePlaybackTimeline, type PlaybackTimeline } from '../video/playbackTimeline';
+import { colorRouteSegments, type DayRouteSegment } from '../route/dayRouteColor';
 
-function routeCollection(segments: RoutePoint[][]) {
+function routeCollection(segments: DayRouteSegment[]) {
   return {
     type: 'FeatureCollection' as const,
-    features: segments.filter((points) => points.length >= 2).map((points) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: points.map((point) => [point.longitude, point.latitude]) } })),
+    features: segments.filter((segment) => segment.points.length >= 2).map((segment) => ({
+      type: 'Feature' as const,
+      properties: { dayNumber: segment.dayNumber, color: segment.color },
+      geometry: { type: 'LineString' as const, coordinates: segment.points.map((point) => [point.longitude, point.latitude]) },
+    })),
   };
 }
 
@@ -49,6 +54,8 @@ interface RouteMapProps {
   autoFitRouteChanges: boolean;
   annotationStyle: AnnotationStyle;
   dayMarkers: DayMarker[];
+  dayNumberByPointId: ReadonlyMap<string, number>;
+  dayRouteColorsEnabled: boolean;
   points: RoutePoint[];
   animationPoints: RoutePoint[];
   rawPositions: RawPosition[];
@@ -115,7 +122,7 @@ function isSelectionAssistActive(props: RouteMapProps): boolean {
 
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const routeOverlayRef = useRef<SVGPathElement>(null);
+  const routeOverlayRef = useRef<SVGGElement>(null);
   const previewMarkerRef = useRef<SVGCircleElement>(null);
   const editPointsOverlayRef = useRef<SVGSVGElement>(null);
   const rangeDeleteBoxRef = useRef<HTMLDivElement>(null);
@@ -383,7 +390,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (previewEnding) {
       previewCameraSnapshotRef.current = null;
     }
-  }, [props.points, props.animationPoints, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
+  }, [props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -433,7 +440,7 @@ export default function RouteMap(props: RouteMapProps) {
   return <>
     <div className={`map ${props.addMode || props.insertMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
-      <path ref={routeOverlayRef} />
+      <g ref={routeOverlayRef} />
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
     {props.editMode && !isPreviewing && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
@@ -464,7 +471,7 @@ export default function RouteMap(props: RouteMapProps) {
     {(isPreviewing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />
     </div>}
-    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={props.distanceHud} viewport={videoViewport}
+    {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={{ ...props.distanceHud, dayColorsEnabled: !isPreviewing || props.dayRouteColorsEnabled }} viewport={videoViewport}
       routeProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex}
       draggable={!isPreviewing && !!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
     <div className="map-zoom" aria-hidden="true">Zoom {(getPreviewVideoCamera(props, previewState)?.zoom ?? mapZoom).toFixed(1)}</div>
@@ -490,10 +497,10 @@ function describeMapLibreError(error: unknown): { consoleText: string } {
 }
 
 function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
-  if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(splitRouteByDay(props.points)) });
+  if (!map.getSource('route')) map.addSource('route', { type: 'geojson', data: routeCollection(getVisibleRouteSegments(props)) });
   if (!map.getSource('route-points')) map.addSource('route-points', { type: 'geojson', data: pointCollection(props.points, props.selectedPointId) });
   if (!map.getSource('raw-positions')) map.addSource('raw-positions', { type: 'geojson', data: rawCollection(props.rawPositions) });
-  if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#ff5d37', 'line-width': 6, 'line-opacity': 0.92 } });
+  if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.92 } });
   if (!map.getLayer('raw-points')) map.addLayer({ id: 'raw-points', type: 'circle', source: 'raw-positions', layout: { visibility: props.showRaw ? 'visible' : 'none' }, paint: {
     'circle-radius': ['interpolate', ['linear'], ['get', 'accuracyMeters'], 0, 4, 100, 7, 500, 10],
     'circle-color': ['interpolate', ['linear'], ['get', 'accuracyMeters'], 0, '#16c79a', 50, '#f6c945', 200, '#ef476f'],
@@ -596,31 +603,28 @@ function shouldShowRoutePoints(props: RouteMapProps): boolean {
   return props.previewProgress === null && (props.editMode || props.animationRangeMode);
 }
 
-function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState(props)): RoutePoint[][] {
-  if (!preview) return splitRouteByDay(props.points);
-  return props.revealRoute
+function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState(props)): DayRouteSegment[] {
+  const segments = !preview ? splitRouteByDay(props.points) : props.revealRoute
     ? revealedTripRouteSegments(props.animationPoints, preview.routeProgress)
     : splitRouteByDay(props.animationPoints);
+  return colorRouteSegments(segments, props.dayNumberByPointId, props.previewProgress === null || props.dayRouteColorsEnabled);
 }
 
 function updateRouteOverlay(
   map: MapLibreMap,
-  segments: RoutePoint[][],
-  path: SVGPathElement | null,
+  segments: DayRouteSegment[],
+  group: SVGGElement | null,
   previewMarker: SVGCircleElement | null,
   markerPosition: GeoPosition | null,
 ) {
-  if (!path) {
-    return;
-  }
-  if (!segments.some((points) => points.length >= 2)) {
-    path?.setAttribute('d', '');
-  } else {
-    path.setAttribute('d', segments.map((points) => {
-      const projected = points.map((point) => map.project([point.longitude, point.latitude]));
-      return projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
-    }).join(' '));
-  }
+  if (!group) return;
+  group.replaceChildren(...segments.filter((segment) => segment.points.length >= 2).map((segment) => {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const projected = segment.points.map((point) => map.project([point.longitude, point.latitude]));
+    path.setAttribute('d', projected.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '));
+    path.style.stroke = segment.color;
+    return path;
+  }));
   updateOverlayMarker(map, markerPosition, previewMarker);
 }
 
