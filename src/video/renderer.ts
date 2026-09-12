@@ -520,8 +520,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   let background: ImageBitmap | null = null;
   // Failed tiles may count as loaded in MapLibre. Keep errors across camera changes.
   let mapLoadError: Error | null = null;
-  const onMapError = (event: maplibregl.ErrorEvent) => {
-    if (isOptionalLandSourceError(map, event)) return;
+  const onMapError = () => {
     mapLoadError = new Error('追従動画用の地図データを読み込めませんでした。ネットワーク接続を確認してください。');
   };
   map.on('error', onMapError);
@@ -685,13 +684,8 @@ function isInVideoViewport(point: { x: number; y: number }): boolean {
   return point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
 }
 
-export function isLowZoomMapView(zoom: number): boolean {
-  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_VECTOR_CONFIG.lowZoomLand.lowZoomBoundary;
-}
-
-// 通常Zoomでは補助ソース単独の失敗を動画全体の失敗にしない。
-export function isOptionalLandSourceError(map: Pick<maplibregl.Map, 'getZoom'>, event: object): boolean {
-  return !isLowZoomMapView(map.getZoom()) && 'sourceId' in event && event.sourceId === GSI_LOW_ZOOM_LAND_SOURCE_ID;
+function isLowZoomMapView(zoom: number): boolean {
+  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_VECTOR_CONFIG.lowZoomLand.maxZoom;
 }
 
 function waitForFollowViewportReady(
@@ -713,10 +707,7 @@ function waitForFollowViewportReady(
       cleanup();
       reject(error);
     };
-    const onError = (event: maplibregl.ErrorEvent) => {
-      if (isOptionalLandSourceError(map, event)) return;
-      fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
-    };
+    const onError = () => fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
     const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
     const onIdle = () => {
       try {
@@ -811,18 +802,13 @@ async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): 
   await waitForMapSourceReady(map, GSI_OFFICIAL_SOURCE_ID, timeout);
 }
 
-export function introZoomBandKey(zoom: number): string {
+function introZoomBandKey(zoom: number): string {
   return `${isLowZoomMapView(zoom) ? 'low' : 'main'}:${Math.floor(zoom)}`;
 }
 
 async function waitForIntroZoomBandReady(map: maplibregl.Map, zoom: number, timeout: number): Promise<void> {
   await waitForPrimaryVectorReady(map, timeout);
   if (isLowZoomMapView(zoom)) await waitForMapSourceReady(map, GSI_LOW_ZOOM_LAND_SOURCE_ID, timeout);
-  else if (GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom >= GSI_VECTOR_CONFIG.lowZoomLand.minZoom) {
-    // 通常のoverview/followは全タイルのidleを待つ。source単位で待つintroにも
-    // 陸地の描画猶予を与えるが、補助ソースの失敗だけでは中止しない。
-    await waitForMapSourceReady(map, GSI_LOW_ZOOM_LAND_SOURCE_ID, Math.min(timeout, 2_500)).catch(() => {});
-  }
 }
 
 async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, timeout: number): Promise<void> {

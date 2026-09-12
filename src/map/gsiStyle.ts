@@ -331,7 +331,7 @@ export const GSI_STYLE: StyleSpecification = {
       type: 'background',
       paint: {
         'background-color': lowZoomLand.enabled
-          ? ['step', ['zoom'], colors.background, lowZoomLand.minZoom, colors.water]
+          ? ['step', ['zoom'], colors.background, lowZoomLand.minZoom, colors.water, lowZoomLand.maxZoom, colors.background]
           : colors.background,
       },
     },
@@ -341,6 +341,7 @@ export const GSI_STYLE: StyleSpecification = {
       source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
       'source-layer': lowZoomLand.sourceLayer,
       minzoom: lowZoomLand.minZoom,
+      maxzoom: lowZoomLand.maxZoom,
       paint: { 'fill-color': colors.background },
     }] : []),
     ...configuredLayers,
