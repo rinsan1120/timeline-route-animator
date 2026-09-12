@@ -48,16 +48,16 @@ export const GSI_VECTOR_CONFIG = {
   },
 
   lowZoomLand: {
-    // trueで低Zoomの海背景と陸地面の補完を有効にする。
+    // trueで海背景とタイル欠損時の陸地面フォールバックを有効にする。
     enabled: true,
-    // Zoom 8未満の陸地面だけを補完する国土地理院optimal_bvmap PMTiles。
+    // 詳細地図の下で陸地面を補完する国土地理院optimal_bvmap PMTiles。
     pmtilesUrl: 'https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles',
     // optimal_bvmapで行政区画面を格納しているsource-layer。
     sourceLayer: 'AdmArea',
     // 補助レイヤを使用する最小Zoom。
     minZoom: 4,
-    // このZoom未満で表示する。Zoom 8からはexperimental_bvmapだけへ戻す。
-    maxZoom: 8,
+    // rendererの低Zoom特殊処理専用の境界。陸地面の表示上限ではない。
+    lowZoomBoundary: 8,
   },
 
   appearance: {

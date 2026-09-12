@@ -108,3 +108,17 @@ describe('GSI Vector video background', () => {
     expect(blob.type).toBe('video/mp4');
   });
 });
+
+
+describe('renderer low zoom boundary stays independent of land visibility', () => {
+  it.each([7.9, 8, 8.1, 10, 15, 16])('preserves handling at zoom %s', async (zoom) => {
+    const { isLowZoomMapView, introZoomBandKey, isOptionalLandSourceError } = await import('./renderer');
+    const { GSI_LOW_ZOOM_LAND_SOURCE_ID } = await import('../map/gsiStyle');
+    expect(isLowZoomMapView(zoom)).toBe(zoom < 8);
+    expect(introZoomBandKey(zoom)).toBe(`${zoom < 8 ? 'low' : 'main'}:${Math.floor(zoom)}`);
+    const map = { getZoom: () => zoom };
+    expect(isOptionalLandSourceError(map, { sourceId: GSI_LOW_ZOOM_LAND_SOURCE_ID })).toBe(zoom >= 8);
+    expect(isOptionalLandSourceError(map, { sourceId: GSI_OFFICIAL_SOURCE_ID })).toBe(false);
+    expect(isOptionalLandSourceError(map, {})).toBe(false);
+  });
+});

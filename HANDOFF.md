@@ -1,10 +1,22 @@
 # HANDOFF
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 ## Current Status
 
-最新GitHub `origin/main` とローカルHEADが `f0c8e0c3769218093404a5ed7883dc2ca9e8572a` で一致することを確認し、固定動画サイズの適正化とスマホ編集表示倍率を実装。今回の変更は未コミット。
+GitHubからfetchし、作業開始時のHEADと最新 `origin/main` が `3ff3fcc84bab16057952cf7660c979bd937558a4` で一致することを確認。下記修正は未コミット。
+
+## Map land fallback (2026-09-12)
+
+- optimal_bvmap AdmAreaをZoom 8未満専用ではなく背景フォールバックとして継続表示。layerのmaxzoomを削除し、minzoom 4と既存source範囲4〜16を維持。
+- Zoom 4以上は海色background + AdmArea陸地 + experimental_bvmapの積層。個別タイル欠損時に白い矩形を露出しにくくした。補助ソースも欠損した場合の陸地補完は保証しない。
+- 詳細地図のレイヤ順・配色・道路・注記・Zoom 8詳細切替は変更なし。
+- renderer専用の `lowZoomLand.lowZoomBoundary: 8` を導入。低Zoom特殊処理は引き続きZoom 8未満だけ。intro band／followの低Zoom分岐も維持。
+- 通常overview／followの既存idle・全タイル待機を維持。source単位で待つintroでは既存 `waitForMapSourceReady()` で補助ソースへ最大2.5秒の準備猶予を追加し、その失敗だけでは中止しない。
+- 通常ZoomのfollowはsourceIdが補助ソースと判明したエラーのみ非致命扱い。メイン・不明sourceのエラーと低Zoomのエラー方針は維持。
+- 保存形式・ルート・カメラ・動画時間軸・Undo / Redo・レイアウト・依存関係に変更なし。RouteMapとPMTiles登録は変更なし。
+- 検証: `npm test` は13ファイル・68テスト成功、任意実データ用1ファイルはスキップ。`npm run build` 成功（既存のチャンクサイズ警告）。`git diff --check` 問題なし。Zoom境界・背景積層・source範囲・補助sourceエラーの扱いを決定的テストで確認。
+- ブラウザの欠損再現、Android実機、生成MP4目視は依頼どおり未実施。
 
 ## DAY marker fixed size and mobile editing scale (2026-09-11)
 

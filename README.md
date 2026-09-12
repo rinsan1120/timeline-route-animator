@@ -7,7 +7,7 @@ Android版Google Maps TimelineからエクスポートしたJSONを、端末の�
 - Timeline JSONをWeb Worker内で解析（日付index、`timelinePath`、`rawSignals.position`）
 - `activity.topCandidate.type`に依存しないルート抽出
 - 日付とFrom / Toによる一日分の抽出
-- MapLibre GL JS + OpenStreetMap標準ラスタータイルによる地図表示
+- MapLibre GL JS + 国土地理院ベクトルタイルによる地図表示
 - ルートポイントの追加、連続追加、ドラッグ移動、削除
 - Undo / Redo / 初期状態への復元（PCではCmd/Ctrl+Z、Cmd/Ctrl+Shift+Zにも対応）
 - rawSignalsの参考表示と精度別の色分け
@@ -19,7 +19,9 @@ Android版Google Maps TimelineからエクスポートしたJSONを、端末の�
 - WebCodecs + Mediabunnyによる1920×1080・30fps・H.264 MP4生成
 - 計画モードのルート・地点バルーン・DAY情報を専用JSONへ保存し、後から編集を再開
 
-Timeline JSON本体はアップロード、外部API送信、localStorage保存を一切行いません。地図タイルの表示にはOpenStreetMapへのネットワーク接続が必要です。
+Timeline JSON本体はアップロード、外部API送信、localStorage保存を一切行いません。地図タイルの表示には国土地理院等の地図配信元へのネットワーク接続が必要です。
+
+Zoom 4以上では海色背景、optimal_bvmapのAdmArea陸地面、experimental_bvmapの詳細地図を順に重ねます。陸地面はZoom 8以上も背景フォールバックとして残り、詳細タイル欠損時の白い矩形を抑えます。動画の低Zoom特殊処理は従来どおりZoom 8未満だけです。
 
 ## 対応ブラウザ
 
