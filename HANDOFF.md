@@ -2,6 +2,20 @@
 
 Last updated: 2026-09-27
 
+## Spot image workspace (2026-09-27)
+
+- 第3モードspotを追加。SpotWorkspace内に専用RouteHistory、選択ID、ツール、ImageBounds、AnnotationStyle、保存状態を保持。開始は0件・範囲なし。モードを離れるとアンマウントし、Timeline/Planへスポットを混入させない。既存JSON読込はTimelineへ戻り、計画モードは従来の初期化を使う。
+- appendPlanPoint／movePoint／deletePoint／historyReducerを再利用。スポット追加・移動・削除・annotationラベルとplacementはUndo/Redo対象。範囲は独立stateでUndo対象外。初期状態はスポットと範囲を解除。作業JSON保存・再開は未実装、WORK_FILE_VERSION／PLAN_FILE_VERSIONは変更しない。
+- 専用SpotMapはGSI_STYLEとoptional DEM fallback、既存AnnotationOverlay／bindPopupDrag／positionManualPopupを使用。ルートsource・ルート線・DAY・START/GOAL・距離HUDを作らない。通常のクリック／タップ追加、地点ドラッグ、バルーンドラッグをツールで分離する。
+- 画像範囲はPointer Events＋pointer captureで開始点から四方向へ16:9矩形を作成し、unprojectした西・東・北・南で保持。回転・傾斜を無効にしてMercator上の比率を維持。範囲ツール中のみpan/zoom等を停止。move/resizeで枠を再投影し、fit操作ではboundsを書き換えない。
+- PNGは専用1920×1080のMapLibreとCanvasで生成。元bounds内のスポットだけを最初に固定し、元boundsに一致するカメラから開始する。annotationCanvas.tsへ動画のバルーン描画を抽出し、動画は従来のclamp、静止画は未clampの同じサイズ・位置計算を使用する。
+- 静止画はスポットアンカー／バルーン／影と下端70pxの出典予約領域を評価。はみ出す場合のみ最大48回のZoom Outと12回の二分探索で必要な余白を探す。manual placementのoffsetを変更しない。収まらない場合は配置・サイズの調整を案内して保存を止める。調整後に対象スポットを追加し直すことはない。
+- glyph/sprite/Vector/DEMを含むloaded＋areTilesLoaded後のidleでcapture。DEMエラー・遅延は既存共有fallbackでDEMだけ除去、本体地図エラーは日本語で中断。通常のMapLibre画像取得／CORS経路を利用し、独自画像プロキシ等は追加しない。
+- 国土地理院の文字はGSI_ATTRIBUTIONを参照し、MP4と同じ左下の白背景・22pxフォント位置で描画。UI・選択枠・編集ツールはPNGへ入れず、スポットアンカーとバルーンのみ追加する。
+- saveBlobWithPickerへ.pngと非同期Blob factoryを追加。pickerをクリック内で開き、選択後にPNG生成、完了後にwritableを作成。キャンセル時は生成・downloadを開始しない。非対応時は既存download。既存JSON同期factory・MP4 Blob・上書き／abortの処理は維持。
+- HelpTipにspot用途・範囲操作・PNG安全調整と未保存制約を追加。PC/Androidのtoolbarと上部3モード入口を既存デザインへ合わせる。
+- 人間側確認: A/B/Cの追加・移動・削除・Undo/Redo、各バルーン設定と手動配置・connector、範囲外D除外、端のバルーンの最小Zoom Out、0件disabled、Zoom/resize後の地域維持、四方向の矩形とAndroidのpan競合、1920×1080 PNG・出典・UI非混入、保存キャンセル／上書き／非対応download、DEM失敗時、モード切替、既存Timeline/Plan保存・preview・overview/follow MP4。テスト・ブラウザ操作・実PNG生成は実行していない。
+
 ## DEM terrain tint (2026-09-27)
 
 - GSI_VECTOR_CONFIG.terrainTintに配色10段階・opacity 0.7・URL・Zoom 1〜14・invalid閾値5000mを集約。DEM10B PNGを1つのcustom raster-dem sourceとして追加し、Zoom 15以上はoverscale。RGB係数655.36／2.56／0.01、baseShift 0で非負標高をmに変換する。

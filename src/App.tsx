@@ -1,3 +1,4 @@
+import SpotWorkspace from './spot/SpotWorkspace';
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
@@ -24,7 +25,7 @@ import HelpTip from './help/HelpTip';
 import type { HelpKey } from './help/helpContent';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
-type WorkspaceMode = 'timeline' | 'plan';
+type WorkspaceMode = 'timeline' | 'plan' | 'spot';
 
 export default function App() {
   const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
@@ -380,6 +381,7 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (workspaceMode === 'spot') return;
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
       event.preventDefault();
       dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
@@ -387,7 +389,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [workspaceMode]);
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
   useEffect(() => { if (!videoUrl) videoBlobRef.current = null; }, [videoUrl]);
@@ -421,6 +423,7 @@ export default function App() {
 
   const loadFile = async (file: File) => {
     if (busy || videoProgress || previewProgress !== null) return;
+    if (workspaceMode === 'spot') setWorkspaceMode('timeline');
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
@@ -483,6 +486,16 @@ export default function App() {
     setNotice('');
     if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     routeLoadedNoticeTimerRef.current = null;
+  };
+
+  const startSpotMode = () => {
+    if (workspaceMode === 'spot' || busy || videoProgress) return;
+    startPlanMode();
+    dispatch({ type: 'load', points: [] });
+    setSelectedPointId(null);
+    setPreviewProgress(null);
+    setVideoUrl('');
+    setWorkspaceMode('spot');
   };
 
   const saveWork = async () => {
@@ -815,13 +828,16 @@ export default function App() {
           <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
             <span>計画モード</span><small>地図から作成</small>
           </button>
+          <button className="file-button" onClick={startSpotMode} disabled={workspaceMode === 'spot' || busy || !!videoProgress}>
+            <span>スポット画像</span><small>地点を配置してPNG保存</small>
+          </button>
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.currentTarget.value = ''; }} />
       </header>
 
       <section className="privacy-note"><span>●</span> 位置履歴JSONは端末内でのみ処理され、外部へ送信されません</section>
 
-      <div className="workspace">
+      {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} /> : <div className="workspace">
         <aside className="control-panel">
           <section className="panel-section source-section">
             {workspaceMode === 'timeline' ? <>
@@ -1100,7 +1116,7 @@ export default function App() {
             <span className="edit-toolbar-item"><button disabled={workspaceMode === 'plan' ? !points.length : !history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>{workspaceMode === 'plan' && <HelpTip helpKey="planReset" variant="toolbar" open={openToolbarHelpKey === 'planReset'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planReset' : null)} />}</span>
           </nav>}
         </section>
-      </div>
+      </div>}
     </main>
   );
 }

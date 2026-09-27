@@ -1,7 +1,7 @@
 interface SaveOptions {
   suggestedName: string;
   mimeType: string;
-  extension: '.json' | '.mp4';
+  extension: '.json' | '.mp4' | '.png';
 }
 
 interface SaveHandle {
@@ -52,8 +52,8 @@ export function saveErrorMessage(reason: unknown, fallback: string): string {
   }
 }
 
-// A factory lets the picker open within the click gesture, before serializing JSON.
-export async function saveBlobWithPicker(blob: Blob | (() => Blob), options: SaveOptions): Promise<string | null> {
+// A factory opens the picker in the click gesture, before JSON serialization or PNG rendering.
+export async function saveBlobWithPicker(blob: Blob | (() => Blob | Promise<Blob>), options: SaveOptions): Promise<string | null> {
   const pickerWindow = window as PickerWindow;
   if (typeof pickerWindow.showSaveFilePicker === 'function') {
     let handle: SaveHandle;
@@ -70,7 +70,7 @@ export async function saveBlobWithPicker(blob: Blob | (() => Blob), options: Sav
     let stage: SaveStage = 'prepareBlob';
     let writable: Awaited<ReturnType<SaveHandle['createWritable']>> | undefined;
     try {
-      const data = typeof blob === 'function' ? blob() : blob;
+      const data = typeof blob === 'function' ? await blob() : blob;
       stage = 'createWritable';
       // Replace the whole file. Permission checks remain with the browser's API.
       writable = await handle.createWritable({ keepExistingData: false });
@@ -91,7 +91,7 @@ export async function saveBlobWithPicker(blob: Blob | (() => Blob), options: Sav
 
   let url: string;
   try {
-    url = URL.createObjectURL(typeof blob === 'function' ? blob() : blob);
+    url = URL.createObjectURL(typeof blob === 'function' ? await blob() : blob);
   } catch (reason) {
     logSaveError('prepareBlob', reason);
     throw reason;
