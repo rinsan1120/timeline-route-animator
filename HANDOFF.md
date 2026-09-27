@@ -2,6 +2,16 @@
 
 Last updated: 2026-09-27
 
+## Timeline output DAY filter (2026-09-27)
+
+- Appの一時state selectedOutputDay（all／日付）を追加。開始日・終了日の下に既存selectデザインとHelpTipを配置。計画モードには表示しない。
+- 全pointsと既存dayMarkersを正として、DAY開始IDから次DAY開始IDの直前までslice。先頭DAYには先行manual点も含める。日時なしmanual点を除外せず、DAY番号・色・補足・配置を維持。
+- dayFilteredPoints → animationPointsの順で絞り、RouteMap／カメラ／停止／HUD／preview／MP4へ反映。rawSignalsの参考表示も選択日のみ。表示中の点数・距離を見出しへ反映。
+- 編集は全pointsへIDで反映。追加位置だけ表示中DAYで決め、新規点を全pointsへ挿入。非表示DAYのpointsやannotation、metadataは維持。Undo/Redoは従来の全行程historyを使用。
+- 日程切替で選択・アニメ範囲・preview・follow plan・生成済み動画をクリア。元JSON読込／範囲再抽出／作業再開はall、選択日が範囲外・消失した場合もallへ戻す。
+- 作業保存は全pointsを維持し、選択stateは非保存。workFile／planFileと両versionは未変更。選択日内で指定したアニメ範囲は従来どおり既存保存項目として扱う。
+- 人間側で全日程／各DAY、手動点追加・削除・移動、DAY開始点削除、Undo/Redo、ラベルとDAY情報維持、アニメ範囲リセット、HUD・停止・overview/follow・MP4、全行程保存と再開、PC/Androidを確認。テスト・ブラウザ操作・実MP4生成は実行していない。
+
 ## Common balloon pause (2026-09-27)
 
 - ポイント編集欄の「地点で停止」と旧ヘルプを削除。Step 03に共通停止時間（初期0秒、0〜30秒、0.5秒刻み）とHelpTipを追加。AppのcommonPauseSecondsとして保持し、JSONには保存しない。
