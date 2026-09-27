@@ -42,9 +42,9 @@ export const GSI_VECTOR_CONFIG = {
     // 国道・高速道路番号記号に使う公式sprite。変更すると道路番号アイコンの外観が変わる。
     spriteUrl: 'https://gsi-cyberjapan.github.io/gsivectortile-mapbox-gl-js/sprite/std',
     // MapLibreの出典コントロールに表示するHTML。地図データの提供元を示す。
-    attributionHtml: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>',
+    attributionHtml: '出典：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>　地理院タイルを加工して作成',
     // MP4左下へ描画する短い出典文字列。CanvasではHTMLを使用しない。
-    attributionText: '国土地理院',
+    attributionText: '出典：国土地理院　地理院タイルを加工して作成',
   },
 
   lowZoomLand: {

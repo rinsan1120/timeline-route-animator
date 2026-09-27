@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-27
 
+- 通常地図・overview/follow MP4・スポット画像PNGのクレジットは、gsiVectorConfig.tsのattributionを正として「出典：国土地理院　地理院タイルを加工して作成」を共通使用する。
+
 ## Spot image workspace (2026-09-27)
 
 - 第3モードspotを追加。SpotWorkspace内に専用RouteHistory、選択ID、ツール、ImageBounds、AnnotationStyle、保存状態を保持。開始は0件・範囲なし。モードを離れるとアンマウントし、Timeline/Planへスポットを混入させない。既存JSON読込はTimelineへ戻り、計画モードは従来の初期化を使う。

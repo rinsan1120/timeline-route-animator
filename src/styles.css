@@ -177,7 +177,8 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .empty-map .empty-json-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
 .empty-map .empty-json-button span { font-size: 13px; font-weight: 700; line-height: 1.2; }
 .empty-map .empty-json-button small { font-size: 9px; font-weight: 500; line-height: 1.2; opacity: .8; }
-.empty-map-actions { display: flex; gap: 10px; justify-content: center; }
+.empty-map-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 100%; padding: 0 12px; }
+.empty-map-actions button { min-height: 44px; white-space: nowrap; }
 .empty-map .plan-button { background: #fff; color: var(--navy); border: 1px solid #d8dee4; }
 .loading-overlay { position: absolute; z-index: 5; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: white; font-size: 13px; background: rgba(7,17,31,.66); }
 .spinner { width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .8s linear infinite; }
@@ -267,4 +268,5 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 @media (max-width: 760px) {
   .topbar-actions { width: 100%; margin-left: 0; }
   .topbar-actions .file-button { flex: 1; min-width: 0; }
+  .topbar-actions .file-button span { font-size: clamp(10px, 2.8vw, 13px); white-space: nowrap; }
 }
