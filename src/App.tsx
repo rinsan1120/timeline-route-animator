@@ -953,7 +953,7 @@ export default function App() {
                 秒
               </label>
               <div className="control-label-with-help"><label htmlFor="common-pause-seconds">バルーン表示時の停止</label><HelpTip helpKey="balloonPause" /></div>
-              <label className="point-pause-number" htmlFor="common-pause-seconds">
+              <label className="duration-number" htmlFor="common-pause-seconds">
                 <input id="common-pause-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
                   value={commonPauseInput} disabled={previewProgress !== null || !!videoProgress}
                   onChange={(event) => {
@@ -1004,7 +1004,7 @@ export default function App() {
               })}
             </div>
             <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
-            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
+            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成</button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <button className="download-button" disabled={busy || !!videoProgress} onClick={() => void saveVideo()}>MP4を保存</button>}
           </section>
