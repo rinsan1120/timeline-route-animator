@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import RouteMap from './map/RouteMap';
 import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT } from './plan/planFile';
 import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT } from './timeline/workFile';
-import { saveBlobWithPicker } from './files/saveBlob';
+import { saveBlobWithPicker, saveErrorMessage } from './files/saveBlob';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } from './route/editor';
@@ -466,8 +466,8 @@ export default function App() {
       }, workSaveName);
       if (name) setWorkSaveName(name);
       setError('');
-    } catch {
-      setError('Timeline作業データを保存できませんでした。もう一度お試しください。');
+    } catch (reason) {
+      setError(saveErrorMessage(reason, 'Timeline作業データを保存できませんでした。もう一度お試しください。'));
     } finally {
       setBusy(false);
     }
@@ -543,8 +543,8 @@ export default function App() {
       const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements }, planSaveName);
       if (name) setPlanSaveName(name);
       setError('');
-    } catch {
-      setError('計画データを保存できませんでした。もう一度お試しください。');
+    } catch (reason) {
+      setError(saveErrorMessage(reason, '計画データを保存できませんでした。もう一度お試しください。'));
     } finally {
       setBusy(false);
     }
@@ -740,7 +740,11 @@ export default function App() {
 
   const saveVideo = async () => {
     const blob = videoBlobRef.current;
-    if (!blob || busy || videoProgress) return;
+    if (busy || videoProgress) return;
+    if (!blob || blob.size === 0 || blob.type !== 'video/mp4') {
+      setError('保存できるMP4データがありません。MP4を生成し直してください。');
+      return;
+    }
     setBusy(true);
     try {
       await saveBlobWithPicker(blob, {
@@ -748,8 +752,8 @@ export default function App() {
         mimeType: 'video/mp4', extension: '.mp4',
       });
       setError('');
-    } catch {
-      setError('MP4を保存できませんでした。もう一度お試しください。');
+    } catch (reason) {
+      setError(saveErrorMessage(reason, 'MP4を保存できませんでした。もう一度お試しください。'));
     } finally {
       setBusy(false);
     }

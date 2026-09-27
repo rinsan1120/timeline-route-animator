@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-27
 
+## MP4 overwrite diagnostics (2026-09-27)
+
+- 確認できた問題は、Appが保存例外を一律の文言に変換し、失敗段階と原因を確認できなかったこと。現地の上書き失敗は未再現で、ファイルロック・権限等の根本原因は未確定。上書き問題の解消を実証したものではない。
+- `saveBlob.ts` はpicker／Blob準備／createWritable／write／close／abort／downloadごとにローカルconsoleへstage・例外name・messageのみ記録。Blob・handle・GPS・JSON内容は記録しない。abort失敗も記録するが、元例外を維持。
+- `createWritable({ keepExistingData: false })` で全置換を明示（既存のデフォルト動作と同じ）。追加権限要求・自動再試行・MP4変換は行わない。close成功後はabortせず、失敗時のみ取得済みwritableをabort。closeは一度だけ。
+- Chrome公式資料の保存手順と既存手順は一致し、createWritableが権限確認を担うためqueryPermission/requestPermissionは追加しない。参考: https://developer.chrome.com/docs/capabilities/web-apis/file-system-access
+- pickerのAbortErrorだけ無操作終了。書込段階のAbortErrorは中断として通知。NoModificationAllowedErrorは使用中の可能性と別保存先、NotAllowedErrorは権限確認を日本語で案内。他に容量不足・保存先消失・セキュリティ制限を区別。
+- MP4生成は両カメラ経路ともメモリbufferからvideo/mp4 Blobを作成。保存時にnull／0バイト／MIMEを検査し、正常な同じBlobを新規・上書きへ渡す。Object URL破棄はBlob参照を変更しない。実際の保存成功は人間側確認が必要。
+- Timeline／計画JSONのserialize・MIME・候補名、picker非対応時のdownloadとURL破棄は維持。共有の日本語エラー分類だけ両JSONにも適用。
+- 人間側で新規MP4／既存MP4上書きと再生、使用中ファイル、キャンセル、両JSON新規／上書き、非対応ブラウザを確認。失敗時は開発者ツールの `[File Save]` のstage・name・messageを確認する。ブラウザ操作・実MP4生成・テスト実行は行っていない。
+
 ## JSON detection and Save As (2026-09-27)
 
 - 上部のJSON読込は `readLeadingFileFormat()` で先頭4KBのルート先頭formatを判定。workはStep 01と共通の `restoreWorkFile()` → `parseWorkFile()` → State復元へ分岐し、Workerへ送らない。planは計画モードからの再開を案内。それ以外は既存のArrayBuffer転送／Worker解析を維持。
