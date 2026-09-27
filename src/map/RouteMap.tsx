@@ -1,3 +1,4 @@
+import CoordinateJumpControl from './CoordinateJumpControl';
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from '../popup/placement';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -45,6 +46,8 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  coordinateJumpEnabled?: boolean;
+  coordinateJumpDisabled?: boolean;
   mobileDayMarkerEditingScale: number;
   distanceHud?: DistanceHudOptions;
   distanceHudDraggable?: boolean;
@@ -441,6 +444,7 @@ export default function RouteMap(props: RouteMapProps) {
   }, [props.autoFitRouteChanges, props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
 
   return <>
+    {props.coordinateJumpEnabled && <CoordinateJumpControl map={mapRef.current} hostId="plan-coordinate-jump" disabled={!!props.coordinateJumpDisabled || isPreviewing} hidden={isPreviewing} onError={props.onError} />}
     <div className={`map ${props.addMode || props.insertMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <g ref={routeOverlayRef} />

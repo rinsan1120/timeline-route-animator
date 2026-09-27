@@ -2,6 +2,8 @@
 
 Android版Google Maps TimelineからエクスポートしたJSONを、端末の外へ送信せずに読み込み、1日・時間帯単位でルートを手動編集してFHD MP4動画にするWebアプリです。
 
+計画・スポット画像モードでは「緯度, 経度」を入力し、移動ボタンまたはEnterで参考位置を確認できます。紫の照準は一時表示のみで、地点・保存JSON・MP4・PNGには含まれません。「消す」またはモード終了で破棄されます。
+
 ## 主な機能
 
 - Timeline JSONをWeb Worker内で解析（日付index、`timelinePath`、`rawSignals.position`）

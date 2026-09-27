@@ -272,3 +272,23 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
   .topbar-actions .file-button { flex: 1; min-width: 0; }
   .topbar-actions .file-button span { font-size: clamp(10px, 2.8vw, 13px); white-space: nowrap; }
 }
+
+/* Keep the mobile coordinate form outside the map and all editing overlays. */
+.map-area { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.map-area > .map-stage { flex: 1; }
+.coordinate-jump-control { position: absolute; top: 10px; right: 52px; z-index: 8; max-width: calc(100% - 64px); padding: 6px; border-radius: 8px; background: #fffffff2; box-shadow: 0 2px 8px #27364a30; }
+.coordinate-jump-row { display: flex; align-items: center; gap: 6px; }
+.coordinate-jump-row input { width: 230px; min-width: 0; min-height: 40px; border: 1px solid #ccd5de; border-radius: 5px; padding: 6px; font-size: 16px; }
+.coordinate-jump-row > button, .coordinate-jump-status button { min-height: 40px; min-width: 44px; border: 1px solid #ccd5de; border-radius: 5px; background: white; color: #663399; cursor: pointer; }
+.coordinate-jump-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #663399; font-size: 12px; }
+.reference-position-marker { width: 32px; height: 32px; border: 2px solid #813cba; border-radius: 50%; background: #fff9; box-shadow: 0 0 0 2px white; cursor: default; touch-action: none; z-index: 3; }
+.reference-position-marker::before, .reference-position-marker::after { content: ''; position: absolute; background: #813cba; pointer-events: none; }
+.reference-position-marker::before { width: 2px; height: 40px; left: 13px; top: -6px; }
+.reference-position-marker::after { height: 2px; width: 40px; top: 13px; left: -6px; }
+@media (min-width: 761px) { .spot-workspace .spot-tool-hint { top: 110px; } }
+@media (max-width: 760px) {
+  .map-area { order: 1; flex: 1 1 54%; min-height: 290px; }
+  .coordinate-jump-control { position: relative; inset: auto; max-width: none; border-radius: 0; box-shadow: none; padding: 8px; }
+  .coordinate-jump-row input { flex: 1; width: 0; min-height: 44px; }
+  .coordinate-jump-row > button, .coordinate-jump-status button { min-height: 44px; }
+}

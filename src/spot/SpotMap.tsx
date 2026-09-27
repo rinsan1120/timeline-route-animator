@@ -1,3 +1,4 @@
+import CoordinateJumpControl from '../map/CoordinateJumpControl';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
@@ -112,6 +113,7 @@ export default function SpotMap(props: Props) {
     Object.assign(event.currentTarget.style, { left: `${active.rect.left}px`, top: `${active.rect.top}px` });
   };
   return <>
+    <CoordinateJumpControl map={map} hostId="spot-coordinate-jump" disabled={props.busy} onError={props.onError} />
     <div ref={container} className={`map${props.tool === 'add' ? ' map--adding' : ''}`} />
     {map && createPortal(<div className="spot-bounds-overlay" aria-hidden="true"><div ref={rectangle}
       className={`spot-image-rectangle${props.tool === 'select' && !props.busy ? ' spot-image-rectangle--movable' : ''}`}

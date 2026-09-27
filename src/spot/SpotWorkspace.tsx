@@ -78,6 +78,8 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
         <div className="control-label-with-help"><button className="generate-button" disabled={!bounds || !targetCount || busy} onClick={() => void save()}>{busy ? 'PNGを準備しています…' : 'PNGを保存'}</button><HelpTip helpKey="spotExport" /></div>
       </section>
     </aside>
+    <div className="map-area">
+    <div id="spot-coordinate-jump" />
     <section className="map-stage">
       <SpotMap points={points} selectedId={selectedId} tool={tool} busy={busy} bounds={bounds} fitRequest={fitRequest} annotationStyle={style}
         onSelect={setSelectedId} onAdd={(latitude, longitude) => {
@@ -97,5 +99,6 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
         <button disabled={busy || (!points.length && !bounds)} onClick={() => { dispatch({ type: 'reset' }); setSelectedId(null); setBounds(null); setTool('add'); setError(''); setNotice(''); }}>初期状態</button>
       </nav>
     </section>
+    </div>
   </div>;
 }
