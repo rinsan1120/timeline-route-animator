@@ -5,6 +5,7 @@ import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEve
 import type { RawPosition, RoutePoint } from '../timeline/types';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type DayMarker } from '../route/tripRoute';
 import { GSI_STYLE } from './gsiStyle';
+import { installTerrainTintFallback, isTerrainTintError } from './gsiTerrainTint';
 import AnnotationOverlay from './AnnotationOverlay';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import EndpointMarkerOverlay from './EndpointMarkerOverlay';
@@ -245,6 +246,7 @@ export default function RouteMap(props: RouteMapProps) {
       attributionControl: false,
     });
     mapRef.current = map;
+    installTerrainTintFallback(map);
     const redrawOverlay = () => {
       const preview = getPreviewState(propsRef.current);
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
@@ -260,6 +262,7 @@ export default function RouteMap(props: RouteMapProps) {
     updateVideoViewport();
     let genericMapErrorReported = false;
     const handleMapError = (event: ErrorEvent) => {
+      if (isTerrainTintError(event)) return;
       if (!event.error) return;
       const details = describeMapLibreError(event.error);
       console.error(`[GSI MapLibre error]\n${details.consoleText}`);

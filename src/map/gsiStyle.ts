@@ -1,4 +1,4 @@
-import type { StyleSpecification } from 'maplibre-gl';
+import type { ExpressionSpecification, StyleSpecification } from 'maplibre-gl';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from './gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from './gsiVectorConfig';
 
@@ -11,8 +11,10 @@ type MutableLayer = StyleLayer & {
   'source-layer'?: string;
 };
 
-const { source, lowZoomLand, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const { source, lowZoomLand, terrainTint, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
 export const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
+export const GSI_DEM_SOURCE_ID = 'gsi-dem';
+export const GSI_TERRAIN_TINT_LAYER_ID = 'gsi-terrain-tint';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
@@ -303,12 +305,36 @@ const configuredLayers = orderConfiguredLayers(
   GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance),
 );
 
+// MapLibre 6.7のcolor-reliefは直下のinterpolateから色表を生成する（caseでは描画されない）。
+// 最後の1mで透明にし、5000m以上（NA=83886.08、signed負値を含む）は透明を維持。
+const terrainTintColor: ExpressionSpecification = [
+  'interpolate', ['linear'], ['elevation'],
+  ...terrainTint.stops.flatMap(([elevation, color]) => [elevation, color]),
+  terrainTint.invalidElevationCutoff - 1, terrainTint.stops[terrainTint.stops.length - 1][1],
+  terrainTint.invalidElevationCutoff, 'rgba(0,0,0,0)',
+];
+
 export const GSI_STYLE: StyleSpecification = {
   ...GSI_OFFICIAL_STYLE,
   glyphs: source.glyphsUrl,
   sprite: source.spriteUrl,
   sources: {
     ...GSI_OFFICIAL_STYLE.sources,
+    ...(terrainTint.enabled ? {
+      [GSI_DEM_SOURCE_ID]: {
+        type: 'raster-dem' as const,
+        tiles: [terrainTint.sourceUrl],
+        tileSize: 256,
+        minzoom: terrainTint.minZoom,
+        maxzoom: terrainTint.maxZoom,
+        encoding: 'custom' as const,
+        redFactor: 655.36,
+        greenFactor: 2.56,
+        blueFactor: 0.01,
+        baseShift: 0,
+        attribution: source.attributionHtml,
+      },
+    } : {}),
     [GSI_OFFICIAL_SOURCE_ID]: {
       ...officialSource,
       tiles: [source.vectorTileUrl],
@@ -343,6 +369,15 @@ export const GSI_STYLE: StyleSpecification = {
       minzoom: lowZoomLand.minZoom,
       maxzoom: lowZoomLand.maxZoom,
       paint: { 'fill-color': colors.background },
+    }] : []),
+    ...(terrainTint.enabled ? [{
+      id: GSI_TERRAIN_TINT_LAYER_ID,
+      type: 'color-relief' as const,
+      source: GSI_DEM_SOURCE_ID,
+      paint: {
+        'color-relief-color': terrainTintColor,
+        'color-relief-opacity': terrainTint.opacity,
+      },
     }] : []),
     ...configuredLayers,
   ],

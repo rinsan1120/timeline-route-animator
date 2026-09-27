@@ -6,7 +6,8 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DEM_SOURCE_ID } from '../map/gsiStyle';
+import { installTerrainTintFallback, isTerrainTintError, removeTerrainTint } from '../map/gsiTerrainTint';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
@@ -83,9 +84,11 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   document.body.appendChild(mapContainer);
   const map = new maplibregl.Map({ container: mapContainer, style: GSI_STYLE, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
   let mapRemoved = false;
+  installTerrainTintFallback(map);
   try {
     await waitForStyle(map, 20_000);
     map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
+    await waitForTerrainTintReady(map, 20_000);
     if (isLowZoomMapView(map.getZoom())) {
       await waitForLowZoomVisualReady(map, 20_000);
     } else {
@@ -146,6 +149,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
           previousBandKey = bandKey;
         } else {
           await waitForRenderedMapFrame(map, 20_000);
+          await waitForTerrainTintReady(map, 20_000);
         }
         drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
@@ -523,9 +527,11 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     canvasContextAttributes: { preserveDrawingBuffer: true },
   });
   let background: ImageBitmap | null = null;
+  installTerrainTintFallback(map);
   // Failed tiles may count as loaded in MapLibre. Keep errors across camera changes.
   let mapLoadError: Error | null = null;
-  const onMapError = () => {
+  const onMapError = (event: maplibregl.ErrorEvent) => {
+    if (isTerrainTintError(event)) return;
     mapLoadError = new Error('追従動画用の地図データを読み込めませんでした。ネットワーク接続を確認してください。');
   };
   map.on('error', onMapError);
@@ -712,7 +718,9 @@ function waitForFollowViewportReady(
       cleanup();
       reject(error);
     };
-    const onError = () => fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
+    const onError = (event: maplibregl.ErrorEvent) => {
+      if (!isTerrainTintError(event)) fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
+    };
     const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
     const onIdle = () => {
       try {
@@ -721,6 +729,7 @@ function waitForFollowViewportReady(
         for (const sourceId of requiredSources) {
           if (!map.getSource(sourceId)) return fail(new Error(`動画用の地図データが見つかりません（${sourceId}）。`));
         }
+        // loaded/areTilesLoadedはDEMも含む全sourceを待つ。DEM失敗時だけ共有処理がsourceを外す。
         if (!map.loaded() || !map.areTilesLoaded() || !requiredSources.every((sourceId) => map.isSourceLoaded(sourceId))) return;
         cleanup();
         resolve();
@@ -814,12 +823,19 @@ function introZoomBandKey(zoom: number): string {
 async function waitForIntroZoomBandReady(map: maplibregl.Map, zoom: number, timeout: number): Promise<void> {
   await waitForPrimaryVectorReady(map, timeout);
   if (isLowZoomMapView(zoom)) await waitForMapSourceReady(map, GSI_LOW_ZOOM_LAND_SOURCE_ID, timeout);
+  await waitForTerrainTintReady(map, timeout);
 }
 
-async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, timeout: number): Promise<void> {
+async function waitForTerrainTintReady(map: maplibregl.Map, timeout: number): Promise<void> {
+  if (!map.getSource(GSI_DEM_SOURCE_ID)) return;
+  await waitForMapSourceReady(map, GSI_DEM_SOURCE_ID, timeout, true);
+}
+
+async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, timeout: number, optionalTerrain = false): Promise<void> {
   // view変更を反映してから、指定sourceだけの準備完了を確認する。
   await waitForRenderedMapFrame(map, timeout);
   if (!map.getSource(sourceId)) {
+    if (optionalTerrain) return;
     throw new Error(`動画用の地図データが見つかりません（${sourceId}）。`);
   }
   await new Promise<void>((resolve, reject) => {
@@ -830,7 +846,7 @@ async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, time
     };
     const checkReady = () => {
       try {
-        if (map.getSource(sourceId) && map.isSourceLoaded(sourceId)) {
+        if ((!map.getSource(sourceId) && optionalTerrain) || (map.getSource(sourceId) && map.isSourceLoaded(sourceId))) {
           cleanup();
           resolve();
         }
@@ -841,6 +857,11 @@ async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, time
     };
     const timer = window.setTimeout(() => {
       cleanup();
+      if (optionalTerrain) {
+        removeTerrainTint(map);
+        resolve();
+        return;
+      }
       reject(new Error(`動画用の地図データの読み込みがタイムアウトしました（${sourceId}）。`));
     }, timeout);
     map.on('sourcedata', checkReady);

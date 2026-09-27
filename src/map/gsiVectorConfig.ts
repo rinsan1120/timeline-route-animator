@@ -60,6 +60,29 @@ export const GSI_VECTOR_CONFIG = {
     maxZoom: 8,
   },
 
+  terrainTint: {
+    // DEMから標高色だけを描く。Vectorの標高点・等高線表示とは独立。
+    enabled: true,
+    opacity: 0.7,
+    sourceUrl: 'https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png',
+    minZoom: 1,
+    maxZoom: 14,
+    // 線形デコードで大きな正値になるNA・負標高を透明にする。
+    invalidElevationCutoff: 5000,
+    stops: [
+      [0, '#F5F3F2'],
+      [50, '#F1F6EF'],
+      [150, '#EAF3E8'],
+      [300, '#E0EEDF'],
+      [600, '#D5E8D3'],
+      [1000, '#CCE1CA'],
+      [1500, '#CADCC4'],
+      [2000, '#D1DDC3'],
+      [3000, '#DDDCC9'],
+      [4000, '#E6E0D2'],
+    ],
+  },
+
   appearance: {
     // falseで公式std.jsonの色をそのまま使う。trueで下のcolorsを安全に分類できるレイヤだけへ適用する。
     // アプリのルート表示と調和する配色を使うため、カスタムパレットを有効にする。

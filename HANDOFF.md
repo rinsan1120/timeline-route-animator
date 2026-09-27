@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-27
 
+## DEM terrain tint (2026-09-27)
+
+- GSI_VECTOR_CONFIG.terrainTintに配色10段階・opacity 0.7・URL・Zoom 1〜14・invalid閾値5000mを集約。DEM10B PNGを1つのcustom raster-dem sourceとして追加し、Zoom 15以上はoverscale。RGB係数655.36／2.56／0.01、baseShift 0で非負標高をmに変換する。
+- MapLibre実インストール版6.7.0のColorReliefStyleLayerは直下のinterpolateから色表を作るため、caseは使用しない。4999mまで最終色を保ち、5000mで透明へ補間、それ以上も透明。NA（83886.08）・signed負値の巨大な正値を着色しない。負標高そのものの復号・計測は行わない。
+- 共有GSI_STYLEの背景→lowZoom陸地→color-relief→既存Vector水域・道路・注記→アプリoverlayの順。通常地図／preview／overview・follow MP4に共通反映。既存配色・IC/JCT公式色・道路番号白文字・Zoom transition・公式JSONは維持。陰影・3D terrain・等高線・標高点・UIは追加しない。
+- gsiTerrainTint.tsが通常地図と両MP4地図に共通のoptional処理を登録。MapLibre Style.addSourceのevented parentが付加するsourceIdでDEMエラーだけを識別し、イベント伝播後にDEMレイヤとsourceを除去。その地図インスタンスではVector背景で継続する。DEMの未完了が10秒続く場合も同様。地図破棄時に監視とタイマーを解除する。本体Vectorの既存エラー通知・動画中断条件は維持。
+- overview初期・intro zoom各フレーム／最終画角はDEM source準備と描画を待ってからcapture。followの全source loaded／areTilesLoaded＋idle待ちはDEMも含み、camera移動ごとに適用。DEM除去時は待機を解除してVector表示で続行する。
+- MapLibreの画像取得はfetch/XHRまたはcrossOrigin=anonymousを使用し、DEMは色変換を無効にして読む。CORS失敗時もDEMだけを除去する。既存と同じattributionHtmlを設定し、MapLibreの重複除去により二重表示を避ける。MP4出典も維持。
+- 参考: https://maps.gsi.go.jp/development/demtile.html 、https://maps.gsi.go.jp/development/ichiran.html 、https://maplibre.org/maplibre-gl-js/docs/examples/add-a-color-relief-layer/
+- 人間側で平野〜山地の色、海・湖・河川、道路・IC/JCT・番号・ルートの可読性、Zoom 4〜16、PC/Android、preview、overview/follow MP4（intro・camera移動含む）、DEM通信失敗時の継続を確認する。テスト実行・ブラウザ操作・実MP4生成は行っていない。
+
 ## Timeline output DAY filter (2026-09-27)
 
 - Appの一時state selectedOutputDay（all／日付）を追加。開始日・終了日の下に既存selectデザインとHelpTipを配置。計画モードには表示しない。
