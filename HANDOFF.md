@@ -1,6 +1,16 @@
 # HANDOFF
 
-Last updated: 2026-09-11
+Last updated: 2026-09-27
+
+## Timeline work save/resume (2026-09-27)
+
+- `src/timeline/workFile.ts` に専用形式 `timeline-route-animator-work` / version 1を追加。計画用形式・version・処理は変更なし。
+- Timeline Step 01へ「作業を保存／再開」を追加。React Stateから編集済みpoints、日時範囲、DAY補足／配置、START／GOAL配置、バルーンサイズ、アニメ範囲を保存。DAY境界は日時と開始日から既存ロジックで復元。
+- 全データ検証後に直接Stateを復元し、historyのloadで履歴を初期化。Workerへ作業JSONを送らず、元JSONも要求しない。再開時はdatesを空にして古いWorkerデータからの再抽出を防ぐ。
+- rawSignals・元JSON・Undo履歴・一時UI・スマホDAY倍率・距離HUD・その他動画設定は保存対象外。rawSignalsは空／非表示、HUDとスマホDAY倍率は初期値へ戻す。
+- 再保存、削除維持、annotation往復、DAY番号、形式／version／構造不正拒否のテストを既存Vitest環境に追加。ユーザー指定によりテスト実行、ブラウザ操作、実機確認、実MP4生成は未実施。
+- `npm run build` 成功（チャンクサイズ警告あり）。`git diff --check` 問題なし。
+- 人間側で元Timeline抽出→編集→保存→ページ再読込→作業再開→再編集／再保存、および計画モード、PC／Android表示、プレビュー／MP4を確認する。
 
 ## Current Status
 

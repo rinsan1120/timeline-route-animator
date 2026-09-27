@@ -2,6 +2,7 @@ import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } fr
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
 import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR } from './plan/planFile';
+import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR } from './timeline/workFile';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } from './route/editor';
@@ -31,6 +32,7 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const planFileInputRef = useRef<HTMLInputElement>(null);
+  const workFileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
   const previewEndTimerRef = useRef<number | null>(null);
@@ -258,10 +260,11 @@ export default function App() {
   }, [distanceHudModel, distanceHudSettings.scale]);
 
   const extract = useCallback(() => {
+    if (!dates.length) return;
     setError('');
     setBusy(true);
     workerRef.current?.postMessage({ type: 'extract-range', startDate, endDate, from, to });
-  }, [startDate, endDate, from, to]);
+  }, [dates.length, startDate, endDate, from, to]);
 
   useEffect(() => {
     const worker = new Worker(new URL('./timeline/worker.ts', import.meta.url), { type: 'module' });
@@ -434,6 +437,76 @@ export default function App() {
     setNotice('');
     if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     routeLoadedNoticeTimerRef.current = null;
+  };
+
+  const saveWork = () => {
+    if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || previewProgress !== null) return;
+    try {
+      downloadWorkFile({
+        points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
+        endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
+      });
+      setError('');
+    } catch {
+      setError('Timeline作業データを保存できませんでした。もう一度お試しください。');
+    }
+  };
+
+  const loadWork = async (file: File) => {
+    if (workspaceMode !== 'timeline' || busy || videoProgress || previewProgress !== null) return;
+    setBusy(true);
+    try {
+      // Validate the whole file before replacing any editing state; never send it to the Timeline worker.
+      const saved = parseWorkFile(await file.text());
+      if (abortRef.current) {
+        setError('動画生成が終了してから、作業を再開してください。');
+        return;
+      }
+      dispatch({ type: 'load', points: saved.points });
+      setWorkspaceMode('timeline');
+      setStartDate(saved.startDate);
+      setEndDate(saved.endDate);
+      setFrom(saved.from);
+      setTo(saved.to);
+      setDayMarkerNotes(saved.dayMarkerNotes);
+      setDayMarkerPlacements(saved.dayMarkerPlacements);
+      setEndpointMarkerPlacements(saved.endpointMarkerPlacements);
+      setAnnotationStyle(saved.annotationStyle);
+      setAnimationStartPointId(saved.animationStartPointId);
+      setAnimationEndPointId(saved.animationEndPointId);
+      // No source index belongs to the resumed work, even if the worker retains an older import.
+      setDates([]);
+      setFileName(file.name);
+      setRawPositions([]);
+      setShowRaw(false);
+      setSelectedRaw(null);
+      setPlanDayStarts([]);
+      setPlanDayNotes({});
+      setSelectedPointId(null);
+      setSelectionCandidateIds([]);
+      setAnnotationLabel('');
+      setPauseSecondsInput('0.0');
+      setDayMarkerNoteInput('');
+      setRangeDeletePointIds([]);
+      setRangeDeleteMode(false);
+      setAddMode(false);
+      setInsertMode(false);
+      setOpenToolbarHelpKey(null);
+      setMapMode('edit');
+      setPreviewProgress(null);
+      setFollowCameraPlan(null);
+      setVideoUrl('');
+      setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
+      setMobileDayMarkerEditingScale(1);
+      setError('');
+      if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+      routeLoadedNoticeTimerRef.current = null;
+      setNotice('Timeline作業データを復元しました。元JSONなしで編集を続けられます。測位データは含まれていません。');
+    } catch {
+      setError(WORK_FILE_ERROR);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const savePlan = () => {
@@ -641,7 +714,7 @@ export default function App() {
         </div>
         <div className="topbar-actions">
           <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-            <span>JSONを開く</span><small>端末内で処理</small>
+            <span>JSONを開く</span><small>Google Timeline元データ</small>
           </button>
           <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
             <span>計画モード</span><small>地図から作成</small>
@@ -666,12 +739,20 @@ export default function App() {
               <label>終了日<input type="date" value={endDate} min={minAvailableDate} max={maxAvailableDate} disabled={!dates.length || busy} onChange={(event) => setEndDate(event.target.value)} /></label>
             </div>
             <div className="time-grid">
-              <label>From<input type="time" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+              <label>From<input type="time" value={from} disabled={!dates.length || busy} onChange={(event) => setFrom(event.target.value)} /></label>
               <span className="time-arrow">→</span>
-              <label>To<input type="time" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+              <label>To<input type="time" value={to} disabled={!dates.length || busy} onChange={(event) => setTo(event.target.value)} /></label>
             </div>
             <div className="control-label-with-help range-help"><p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p><HelpTip helpKey="timelineRange" /></div>
-            <button className="secondary-button wide" disabled={!startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
+            <button className="secondary-button wide" disabled={!dates.length || !startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
+            <div className="control-label-with-help range-help"><p className="range-note">Timeline編集途中の専用JSON</p><HelpTip helpKey="timelineWork" /></div>
+            <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress || previewProgress !== null} onClick={saveWork}>作業を保存</button>
+            <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => workFileInputRef.current?.click()}>作業を再開</button>
+            <input ref={workFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = '';
+              if (file) void loadWork(file);
+            }} />
             </> : <>
               <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
               <p className="range-note">「編集」→「連続追加」で地点を追加できます。</p>

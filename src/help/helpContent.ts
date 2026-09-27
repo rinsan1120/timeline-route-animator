@@ -1,5 +1,9 @@
 
 export const HELP_CONTENT = {
+  timelineWork: {
+    title: 'Timeline作業の保存・再開',
+    body: '編集済みルート、地点バルーン、DAY補足と配置などを端末の専用JSONへ保存します。「作業を再開」で現在の編集内容を置き換え、元のGoogle Timeline JSONなしで続けられます。測位データとUndo履歴は含みません。元データは上部の「JSONを開く」、計画JSONは計画モードで読み込んでください。再開後の期間再抽出には元データの読み込みが必要です。',
+  },
   timelineRange: {
     title: '読み込み範囲',
     body: 'Timelineの中から、今回ルートとして使いたい期間だけを読み込みます。旅行全体ではなく一部だけ編集したい場合は、開始日・終了日とFrom / Toで範囲を絞れます。',
