@@ -86,7 +86,7 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
         onPlacement={(id, placement) => commit(points.map((point) => point.id === id && point.annotation ? { ...point, annotation: { ...point.annotation, placement } } : point))}
         onBounds={(value) => { setBounds(value); setTool('select'); setError(''); setNotice(''); }} onError={setError} />
       {(error || notice) && <div className={`toast${error ? ' toast--error' : ''}`} role={error ? 'alert' : 'status'}><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); }}>×</button></div>}
-      <div className="spot-tool-hint">{tool === 'bounds' ? 'ドラッグして16:9の画像範囲を指定' : tool === 'add' ? '地図をクリック／タップしてスポットを追加' : '地点・バルーンを選択してドラッグ'}</div>
+      <div className="spot-tool-hint">{tool === 'bounds' ? 'ドラッグして16:9の画像範囲を指定' : tool === 'add' ? '地図をクリック／タップしてスポットを追加' : '地点・バルーン・オレンジの範囲をドラッグして移動'}</div>
       <nav className="edit-toolbar" aria-label="スポット編集ツール">
         <button className={tool === 'select' ? 'active' : ''} aria-pressed={tool === 'select'} disabled={busy} onClick={() => setTool('select')}>選択</button>
         <button className={tool === 'add' ? 'active' : ''} aria-pressed={tool === 'add'} disabled={busy} onClick={() => setTool('add')}>連続追加</button>

@@ -4,6 +4,16 @@ export interface ImageBounds { west: number; east: number; north: number; south:
 export interface Pixel { x: number; y: number }
 export const SPOT_IMAGE_SIZE = { width: 1920, height: 1080 } as const;
 
+export function moveImageRectangle(rect: ReturnType<typeof imageRectangle>, delta: Pixel, viewport: { width: number; height: number }) {
+  // Keep a small part reachable even when the selected region is larger than the viewport.
+  const visibleX = Math.min(24, rect.width, viewport.width / 2);
+  const visibleY = Math.min(24, rect.height, viewport.height / 2);
+  return { ...rect,
+    left: Math.max(visibleX - rect.width, Math.min(viewport.width - visibleX, rect.left + delta.x)),
+    top: Math.max(visibleY - rect.height, Math.min(viewport.height - visibleY, rect.top + delta.y)),
+  };
+}
+
 export function imageRectangle(start: Pixel, end: Pixel, viewport: { width: number; height: number }) {
   const ratio = SPOT_IMAGE_SIZE.width / SPOT_IMAGE_SIZE.height;
   const dx = end.x >= start.x ? 1 : -1;

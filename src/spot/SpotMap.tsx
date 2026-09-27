@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import * as maplibregl from 'maplibre-gl';
 import AnnotationOverlay from '../map/AnnotationOverlay';
 import { GSI_STYLE } from '../map/gsiStyle';
@@ -6,7 +7,7 @@ import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrai
 import type { RoutePoint } from '../timeline/types';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { PopupPlacement } from '../popup/placement';
-import { imageRectangle, type ImageBounds, type Pixel } from './imageBounds';
+import { imageRectangle, moveImageRectangle, type ImageBounds, type Pixel } from './imageBounds';
 
 export type SpotTool = 'select' | 'add' | 'bounds';
 interface Props {
@@ -26,6 +27,11 @@ export default function SpotMap(props: Props) {
   const current = useRef(props); current.current = props;
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const drag = useRef<{ id: number; start: Pixel } | null>(null);
+  const moving = useRef<{
+    id: number; start: Pixel; initial: ReturnType<typeof imageRectangle>;
+    rect: ReturnType<typeof imageRectangle>; cancel: () => void;
+  } | null>(null);
+  const redrawBounds = useRef<() => void>(() => {});
   const [draft, setDraft] = useState<ReturnType<typeof imageRectangle> | null>(null);
   useEffect(() => {
     const instance = new maplibregl.Map({ container: container.current!, style: GSI_STYLE,
@@ -42,7 +48,7 @@ export default function SpotMap(props: Props) {
     });
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current!);
     setMap(instance);
-    return () => { observer.disconnect(); instance.remove(); };
+    return () => { moving.current?.cancel(); observer.disconnect(); instance.remove(); };
   }, []);
   useEffect(() => {
     if (!map) return;
@@ -69,9 +75,11 @@ export default function SpotMap(props: Props) {
     map.keyboard.disableRotation();
     return () => { drag.current = null; setDraft(null); };
   }, [map, props.tool]);
+  useEffect(() => () => { moving.current?.cancel(); }, [map, props.tool, props.busy, props.bounds, props.fitRequest]);
   useEffect(() => {
     if (!map) return;
     const draw = () => {
+      if (moving.current) return;
       const element = rectangle.current;
       if (!element) return;
       const bounds = props.bounds;
@@ -80,6 +88,7 @@ export default function SpotMap(props: Props) {
       const bottomRight = map.project([bounds.east, bounds.south]);
       Object.assign(element.style, { display: 'block', left: `${topLeft.x}px`, top: `${topLeft.y}px`, width: `${bottomRight.x - topLeft.x}px`, height: `${bottomRight.y - topLeft.y}px` });
     };
+    redrawBounds.current = draw;
     draw(); map.on('move', draw); map.on('resize', draw);
     return () => { map.off('move', draw); map.off('resize', draw); };
   }, [map, props.bounds]);
@@ -94,10 +103,59 @@ export default function SpotMap(props: Props) {
     return { x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)) };
   };
   const dragRectangle = (event: PointerEvent<HTMLDivElement>) => imageRectangle(drag.current!.start, pixel(event), { width: event.currentTarget.clientWidth, height: event.currentTarget.clientHeight });
+  const moveRectangle = (event: PointerEvent<HTMLDivElement>) => {
+    const active = moving.current;
+    if (!active || active.id !== event.pointerId || !container.current) return;
+    event.preventDefault(); event.stopPropagation();
+    active.rect = moveImageRectangle(active.initial, { x: event.clientX - active.start.x, y: event.clientY - active.start.y },
+      { width: container.current.clientWidth, height: container.current.clientHeight });
+    Object.assign(event.currentTarget.style, { left: `${active.rect.left}px`, top: `${active.rect.top}px` });
+  };
   return <>
     <div ref={container} className={`map${props.tool === 'add' ? ' map--adding' : ''}`} />
-    <div className="spot-bounds-overlay" aria-hidden="true"><div ref={rectangle} className="spot-image-rectangle" />
-      {draft && <div className="spot-image-rectangle spot-image-rectangle--draft" style={draft} />}</div>
+    {map && createPortal(<div className="spot-bounds-overlay" aria-hidden="true"><div ref={rectangle}
+      className={`spot-image-rectangle${props.tool === 'select' && !props.busy ? ' spot-image-rectangle--movable' : ''}`}
+      title="ドラッグして画像範囲を移動"
+      onPointerDown={(event) => {
+        if (props.tool !== 'select' || props.busy || !props.bounds || event.button !== 0 || !event.isPrimary || moving.current || drag.current) return;
+        event.preventDefault(); event.stopPropagation(); map.stop();
+        const nw = map.project([props.bounds.west, props.bounds.north]);
+        const se = map.project([props.bounds.east, props.bounds.south]);
+        const initial = { left: nw.x, top: nw.y, width: se.x - nw.x, height: se.y - nw.y };
+        const element = event.currentTarget;
+        const pointerId = event.pointerId;
+        // Freeze the camera only for this gesture; restore each handler's original state.
+        const handlers = [map.dragPan, map.touchZoomRotate, map.scrollZoom, map.doubleClickZoom, map.boxZoom, map.keyboard];
+        const enabled = handlers.map((handler) => handler.isEnabled());
+        handlers.forEach((handler) => handler.disable());
+        const cancel = () => {
+          if (!moving.current) return;
+          moving.current = null;
+          map.off('resize', cancel); map.off('movestart', cancel);
+          handlers.forEach((handler, index) => { if (enabled[index]) handler.enable(); });
+          element.dataset.moving = 'false';
+          if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
+          redrawBounds.current();
+        };
+        moving.current = { id: pointerId, start: { x: event.clientX, y: event.clientY }, initial, rect: initial, cancel };
+        element.dataset.moving = 'true';
+        element.setPointerCapture(pointerId);
+        map.on('resize', cancel); map.on('movestart', cancel);
+      }}
+      onPointerMove={moveRectangle}
+      onPointerUp={(event) => {
+        const active = moving.current;
+        if (!active || active.id !== event.pointerId) return;
+        moveRectangle(event);
+        const rect = active.rect;
+        const nw = map.unproject([rect.left, rect.top]);
+        const se = map.unproject([rect.left + rect.width, rect.top + rect.height]);
+        active.cancel();
+        if (rect.left !== active.initial.left || rect.top !== active.initial.top) props.onBounds({ west: nw.lng, east: se.lng, north: nw.lat, south: se.lat });
+      }}
+      onPointerCancel={(event) => { if (moving.current?.id === event.pointerId) moving.current.cancel(); }}
+      onLostPointerCapture={(event) => { if (moving.current?.id === event.pointerId) moving.current.cancel(); }} />
+      {draft && <div className="spot-image-rectangle spot-image-rectangle--draft" style={draft} />}</div>, map.getCanvasContainer())}
     <AnnotationOverlay map={map} points={props.points} animationPoints={props.points} editMode previewProgress={null}
       draggable={!props.busy && props.tool === 'select'} onPlacement={props.onPlacement} annotationStyle={props.annotationStyle} />
     {props.tool === 'bounds' && !props.busy && <div className="spot-bounds-input"

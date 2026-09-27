@@ -6,6 +6,8 @@ Last updated: 2026-09-27
 
 ## Spot image workspace (2026-09-27)
 
+- 2026-09-28: 選択ツールでは画像矩形の位置だけドラッグ移動可能。開始時のpixel幅・高さを固定し、終了時にunproject→onBoundsで既存ImageBoundsを更新する。ドラッグ中のみカメラ操作を停止し、cancel/lost capture・resize・モード変更時は旧範囲へ戻して操作を復元。矩形をアンカー・バルーンより背面へ置き、新規範囲指定と分離。PNG／対象判定／fitは更新後のboundsをそのまま使う。
+
 - 第3モードspotを追加。SpotWorkspace内に専用RouteHistory、選択ID、ツール、ImageBounds、AnnotationStyle、保存状態を保持。開始は0件・範囲なし。モードを離れるとアンマウントし、Timeline/Planへスポットを混入させない。既存JSON読込はTimelineへ戻り、計画モードは従来の初期化を使う。
 - appendPlanPoint／movePoint／deletePoint／historyReducerを再利用。スポット追加・移動・削除・annotationラベルとplacementはUndo/Redo対象。範囲は独立stateでUndo対象外。初期状態はスポットと範囲を解除。作業JSON保存・再開は未実装、WORK_FILE_VERSION／PLAN_FILE_VERSIONは変更しない。
 - 専用SpotMapはGSI_STYLEとoptional DEM fallback、既存AnnotationOverlay／bindPopupDrag／positionManualPopupを使用。ルートsource・ルート線・DAY・START/GOAL・距離HUDを作らない。通常のクリック／タップ追加、地点ドラッグ、バルーンドラッグをツールで分離する。
