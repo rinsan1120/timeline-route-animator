@@ -1,8 +1,9 @@
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
-import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR } from './plan/planFile';
-import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR } from './timeline/workFile';
+import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT } from './plan/planFile';
+import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT } from './timeline/workFile';
+import { saveBlobWithPicker } from './files/saveBlob';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } from './route/editor';
@@ -12,7 +13,7 @@ import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDi
 import { buildRouteDistanceModel } from './route/routeDistanceProgress';
 import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
 import type { RawPosition, WorkerResponse } from './timeline/types';
-import { readTimelineFile } from './timeline/fileLoader';
+import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
 import { INTRO_ZOOM_DURATION_SECONDS } from './video/introZoom';
 import { createOverviewCamera } from './video/overviewCamera';
@@ -44,6 +45,9 @@ export default function App() {
   const [from, setFrom] = useState('00:00');
   const [to, setTo] = useState('23:59');
   const [fileName, setFileName] = useState('');
+  const [workSaveName, setWorkSaveName] = useState('route-work.json');
+  const [planSaveName, setPlanSaveName] = useState('route-plan.json');
+  const videoBlobRef = useRef<Blob | null>(null);
   const [rawPositions, setRawPositions] = useState<RawPosition[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
@@ -286,6 +290,7 @@ export default function App() {
         setEndDate(message.dates[0]);
         setDayMarkerNotes({});
         setFileName(message.fileName);
+        setWorkSaveName('route-work.json');
         setNotice(`${message.dates.length}日分の日付を検出しました。`);
         worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
       } else {
@@ -356,6 +361,7 @@ export default function App() {
   }, []);
 
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
+  useEffect(() => { if (!videoUrl) videoBlobRef.current = null; }, [videoUrl]);
 
   useEffect(() => {
     setRangeDeletePointIds([]);
@@ -385,11 +391,21 @@ export default function App() {
   }, [points, animationStartPointId, animationEndPointId]);
 
   const loadFile = async (file: File) => {
+    if (busy || videoProgress || previewProgress !== null) return;
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
     setSelectionCandidateIds([]);
     try {
+      const format = await readLeadingFileFormat(file);
+      if (format === WORK_FILE_FORMAT) {
+        await restoreWorkFile(file);
+        return;
+      }
+      if (format === PLAN_FILE_FORMAT) {
+        setNotice('');
+        throw new Error('計画JSONは「計画モード」の「作業を再開」から読み込んでください。');
+      }
       const buffer = await readTimelineFile(file);
       const worker = workerRef.current;
       if (!worker) throw new Error('Worker処理に失敗しました。');
@@ -405,6 +421,7 @@ export default function App() {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
     setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
     setWorkspaceMode('plan');
+    setPlanSaveName('route-plan.json');
     setInsertMode(false);
     setDayMarkerPlacements({});
     setEndpointMarkerPlacements({});
@@ -439,22 +456,30 @@ export default function App() {
     routeLoadedNoticeTimerRef.current = null;
   };
 
-  const saveWork = () => {
+  const saveWork = async () => {
     if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || previewProgress !== null) return;
+    setBusy(true);
     try {
-      downloadWorkFile({
+      const name = await downloadWorkFile({
         points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
         endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
-      });
+      }, workSaveName);
+      if (name) setWorkSaveName(name);
       setError('');
     } catch {
       setError('Timeline作業データを保存できませんでした。もう一度お試しください。');
+    } finally {
+      setBusy(false);
     }
   };
 
   const loadWork = async (file: File) => {
     if (workspaceMode !== 'timeline' || busy || videoProgress || previewProgress !== null) return;
     setBusy(true);
+    await restoreWorkFile(file);
+  };
+
+  const restoreWorkFile = async (file: File) => {
     try {
       // Validate the whole file before replacing any editing state; never send it to the Timeline worker.
       const saved = parseWorkFile(await file.text());
@@ -477,6 +502,7 @@ export default function App() {
       // No source index belongs to the resumed work, even if the worker retains an older import.
       setDates([]);
       setFileName(file.name);
+      setWorkSaveName(file.name);
       setRawPositions([]);
       setShowRaw(false);
       setSelectedRaw(null);
@@ -503,19 +529,24 @@ export default function App() {
       routeLoadedNoticeTimerRef.current = null;
       setNotice('Timeline作業データを復元しました。元JSONなしで編集を続けられます。測位データは含まれていません。');
     } catch {
+      setNotice('');
       setError(WORK_FILE_ERROR);
     } finally {
       setBusy(false);
     }
   };
 
-  const savePlan = () => {
-    if (workspaceMode !== 'plan' || !points.length || busy) return;
+  const savePlan = async () => {
+    if (workspaceMode !== 'plan' || !points.length || busy || videoProgress) return;
+    setBusy(true);
     try {
-      downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements });
+      const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements }, planSaveName);
+      if (name) setPlanSaveName(name);
       setError('');
     } catch {
       setError('計画データを保存できませんでした。もう一度お試しください。');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -534,6 +565,7 @@ export default function App() {
       setInsertMode(false);
       dispatch({ type: 'load', points: saved.points });
       setPlanDayStarts(saved.planDayStarts);
+      setPlanSaveName(file.name);
       setPlanDayNotes(saved.planDayNotes);
       setDayMarkerPlacements(saved.dayMarkerPlacements);
       setEndpointMarkerPlacements({});
@@ -677,6 +709,7 @@ export default function App() {
   };
 
   const generateVideo = async () => {
+    if (busy || videoProgress) return;
     setError('');
     let plan: FollowCameraPlan | undefined;
     if (cameraMode === 'follow') {
@@ -694,6 +727,7 @@ export default function App() {
       const blob = await renderRouteVideo({ points: animationPoints, dayMarkers, dayNumberByPointId, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
+      videoBlobRef.current = blob;
       setNotice('MP4を生成しました。端末へ保存できます。');
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === 'AbortError') setNotice('動画生成をキャンセルしました。');
@@ -701,6 +735,23 @@ export default function App() {
     } finally {
       abortRef.current = null;
       setVideoProgress(null);
+    }
+  };
+
+  const saveVideo = async () => {
+    const blob = videoBlobRef.current;
+    if (!blob || busy || videoProgress) return;
+    setBusy(true);
+    try {
+      await saveBlobWithPicker(blob, {
+        suggestedName: `route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`,
+        mimeType: 'video/mp4', extension: '.mp4',
+      });
+      setError('');
+    } catch {
+      setError('MP4を保存できませんでした。もう一度お試しください。');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -713,8 +764,8 @@ export default function App() {
           <p>移動の軌跡を、一本の映像へ。</p>
         </div>
         <div className="topbar-actions">
-          <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-            <span>JSONを開く</span><small>Google Timeline元データ</small>
+          <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress || previewProgress !== null}>
+            <span>JSONを開く</span><small>Timeline元データ・作業JSON</small>
           </button>
           <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
             <span>計画モード</span><small>地図から作成</small>
@@ -756,7 +807,7 @@ export default function App() {
             </> : <>
               <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
               <p className="range-note">「編集」→「連続追加」で地点を追加できます。</p>
-              <button className="secondary-button wide" disabled={!points.length || busy} onClick={savePlan}>作業を保存</button>
+              <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress} onClick={savePlan}>作業を保存</button>
               <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => planFileInputRef.current?.click()}>作業を再開</button>
               <input ref={planFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
@@ -962,9 +1013,9 @@ export default function App() {
               })}
             </div>
             <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
-            <button className="generate-button" disabled={animationPoints.length < 2 || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
+            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成 <span>→</span></button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
-            {videoUrl && <a className="download-button" href={videoUrl} download={`route-${startDate}${endDate !== startDate ? `-${endDate}` : ''}.mp4`}>MP4を保存</a>}
+            {videoUrl && <button className="download-button" disabled={busy || !!videoProgress} onClick={() => void saveVideo()}>MP4を保存</button>}
           </section>
         </aside>
 

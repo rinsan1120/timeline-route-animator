@@ -1,3 +1,4 @@
+import { saveBlobWithPicker } from '../files/saveBlob';
 import type { PopupPlacement } from '../popup/placement';
 import type { RoutePoint } from '../timeline/types';
 
@@ -31,22 +32,11 @@ export function serializePlanFile(state: PlanState, savedAt = new Date()): strin
   return JSON.stringify(data, null, 2);
 }
 
-export function downloadPlanFile(state: PlanState): void {
+export function downloadPlanFile(state: PlanState, suggestedName = 'route-plan.json'): Promise<string | null> {
   const savedAt = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const date = `${savedAt.getFullYear()}${pad(savedAt.getMonth() + 1)}${pad(savedAt.getDate())}`;
-  const time = `${pad(savedAt.getHours())}${pad(savedAt.getMinutes())}${pad(savedAt.getSeconds())}`;
-  const url = URL.createObjectURL(new Blob([serializePlanFile(state, savedAt)], { type: 'application/json' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `route-plan-${date}-${time}.json`;
-  document.body.appendChild(link);
-  try {
-    link.click();
-  } finally {
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  return saveBlobWithPicker(() => new Blob([serializePlanFile(state, savedAt)], { type: 'application/json' }), {
+    suggestedName, mimeType: 'application/json', extension: '.json',
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

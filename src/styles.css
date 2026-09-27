@@ -124,7 +124,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .preview-button span { color: var(--orange); }
 .generate-button { border: 0; background: var(--orange); color: white; margin-top: 8px; box-shadow: 0 5px 15px rgba(255,93,55,.25); }
 .generate-button span { margin-left: auto; margin-right: 15px; font-size: 17px; }
-.download-button { margin-top: 8px; background: #19a974; color: white; }
+.download-button { margin-top: 8px; border: 0; background: #19a974; color: white; }
 .text-button { width: 100%; border: 0; background: none; color: #67778a; text-decoration: underline; font-size: 10px; margin-top: 10px; cursor: pointer; }
 .progress-card { background: #f4f7f9; border-radius: 8px; padding: 11px; margin-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 7px; font-size: 10px; }
 .progress-card div { display: flex; flex-direction: column; }

@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-27
 
+## JSON detection and Save As (2026-09-27)
+
+- 上部のJSON読込は `readLeadingFileFormat()` で先頭4KBのルート先頭formatを判定。workはStep 01と共通の `restoreWorkFile()` → `parseWorkFile()` → State復元へ分岐し、Workerへ送らない。planは計画モードからの再開を案内。それ以外は既存のArrayBuffer転送／Worker解析を維持。
+- `src/files/saveBlob.ts` に保存処理を集約。対応時はクリック起点で毎回pickerを開き、選択後にBlobを書き込み。ハンドルは保持しない。pickerのAbortErrorは無操作で終了。書込失敗は日本語エラー、API非対応時だけObject URL／downloadへフォールバックし、URLを破棄。
+- JSON serialize・形式・versionと動画Blob生成は変更なし。JSON候補名はroute-work.json／route-plan.json、再開・保存後はそのファイル名を使用。MP4は生成Blobを参照し、保存ボタン押下時だけpickerを起動。再生用Object URLと既存破棄処理を維持。
+- 人間側で両経路からの作業復元、大容量元JSONの読込、計画JSONの案内、3種類の保存・上書き・キャンセル・非対応環境のダウンロード、MP4再生を確認する。テスト実行・ブラウザ操作・実MP4生成は行っていない。
+
 ## Timeline work save/resume (2026-09-27)
 
 - `src/timeline/workFile.ts` に専用形式 `timeline-route-animator-work` / version 1を追加。計画用形式・version・処理は変更なし。
