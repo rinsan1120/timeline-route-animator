@@ -89,8 +89,8 @@ export async function renderSpotImage(points: RoutePoint[], bounds: ImageBounds,
     context.drawImage(imageMap.getCanvas(), 0, 0, width, height);
     for (const { annotation, layout } of annotations()) {
       if (annotation.label) drawAnnotation(context, annotation, style, layout);
-      context.beginPath(); context.arc(annotation.pixel.x, annotation.pixel.y, 9, 0, Math.PI * 2);
-      context.fillStyle = '#ff5d37'; context.fill(); context.lineWidth = 6; context.strokeStyle = '#ffffff'; context.stroke();
+      context.beginPath(); context.arc(annotation.pixel.x, annotation.pixel.y, 24, 5, 0, Math.PI * 2);
+      context.fillStyle = '#ff5d37'; context.fill(); context.lineWidth = 7; context.strokeStyle = '#ffffff'; context.stroke();
     }
     context.fillStyle = 'rgba(255,255,255,.9)'; context.fillRect(24, height - 50, 520, 34);
     context.fillStyle = '#27364a'; context.font = '22px system-ui, sans-serif'; context.fillText(GSI_ATTRIBUTION, 34, height - 25);
