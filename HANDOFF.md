@@ -2,6 +2,16 @@
 
 Last updated: 2026-09-27
 
+## Common balloon pause (2026-09-27)
+
+- ポイント編集欄の「地点で停止」と旧ヘルプを削除。Step 03に共通停止時間（初期0秒、0〜30秒、0.5秒刻み）とHelpTipを追加。AppのcommonPauseSecondsとして保持し、JSONには保存しない。
+- balloonPauses.tsがanimationPoints・既存dayMarkers・routeMarkerModeから導出。trim後のラベルあり、またはDAY表示時のDAY 2以降開始地点をOR判定し、同一地点は1回。先頭ラベルも対象、範囲外は除外。
+- PlaybackTimelineは外部のポイント別秒数配列を受け取り、RoutePoint.pauseSecondsを参照しない。legacyフィールド・JSON parser・format/versionは維持。
+- Appとrendererのoverview/followは同じ停止判定と時間軸生成を使用。停止中は対象pointIndexを使い、地点位置・バルーン到達判定を保持。合計停止時間はUI出力時間と進捗フレーム総数にも反映。
+- プレビューも開始前3秒・到着後3秒を含めてMP4の長さへ統一。開始ZoomのON/OFFはカメラ演出のみを切り替える。
+- 既存時間軸テストを外部秒数入力へ更新し、条件重複・DAY表示OFF・ラベル・範囲・旧値無視・overview/follow一致のテストを追加。ユーザー指定どおりテスト実行、ブラウザ操作、実MP4生成は行っていない。
+- 人間側で提示9ケース、ラベル／DAY変更とUndo/Redo、旧JSON読込、アニメ範囲、PC/Android入力、overview/followのバルーン表示と停止、出力時間とフレーム数、MP4保存を確認する。
+
 ## MP4 overwrite diagnostics (2026-09-27)
 
 - 確認できた問題は、Appが保存例外を一律の文言に変換し、失敗段階と原因を確認できなかったこと。現地の上書き失敗は未再現で、ファイルロック・権限等の根本原因は未確定。上書き問題の解消を実証したものではない。

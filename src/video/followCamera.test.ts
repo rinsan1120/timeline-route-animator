@@ -19,7 +19,7 @@ describe('follow camera pause timeline', () => {
     expect(pausedPlan.events.map((event) => event.endSeconds - event.startSeconds))
       .toEqual(originalPlan.events.map(() => FOLLOW_CAMERA_CONFIG.panDurationSeconds));
 
-    const timeline = buildFollowPlaybackTimeline(pausedPlan);
+    const timeline = buildFollowPlaybackTimeline(pausedPlan, [0, 3, 0]);
     expect(timeline.outputDurationSeconds).toBe(33);
     const pause = timeline.pauses[0];
     expect(samplePlaybackTimeline(timeline, pause.outputStartSeconds + 1)).toMatchObject({
@@ -45,7 +45,7 @@ describe('follow camera pause timeline', () => {
       { id: 'd', latitude: 35.03, longitude: 139.03, source: 'timelinePath', original: true, timestamp: '2026-01-02T11:00:00+09:00' },
     ];
     const plan = buildFollowCameraPlan(boundaryPoints, 'wide', 30);
-    const timeline = buildFollowPlaybackTimeline(plan);
+    const timeline = buildFollowPlaybackTimeline(plan, [0, 2, 3, 0]);
     expect(plan.events.some((event) => event.type === 'day-transition')).toBe(true);
     expect(timeline.pauses[1].baseElapsedSeconds - timeline.pauses[0].baseElapsedSeconds)
       .toBeGreaterThanOrEqual(FOLLOW_CAMERA_CONFIG.panDurationSeconds);

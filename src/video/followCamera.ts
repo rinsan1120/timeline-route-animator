@@ -222,7 +222,7 @@ export function sampleFollowPlayback(plan: FollowCameraPlan, elapsedSeconds: num
   };
 }
 
-export function buildFollowPlaybackTimeline(plan: FollowCameraPlan): PlaybackTimeline {
+export function buildFollowPlaybackTimeline(plan: FollowCameraPlan, pointPauses: readonly number[] = []): PlaybackTimeline {
   const arrivals = tripRoutePointProgresses(plan.points);
   let completedEvents = 0;
   const arrivalSeconds = arrivals.map((routeProgress, pointIndex) => {
@@ -235,7 +235,7 @@ export function buildFollowPlaybackTimeline(plan: FollowCameraPlan): PlaybackTim
     }
     return routeProgress * plan.routeMovementSeconds + completedEvents * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
   });
-  return buildPlaybackTimeline(plan.points, plan.duration, arrivalSeconds);
+  return buildPlaybackTimeline(plan.points, plan.duration, arrivalSeconds, pointPauses);
 }
 
 export function sampleFollowOutputPlayback(

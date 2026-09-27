@@ -3,6 +3,7 @@ import type { RoutePoint } from '../timeline/types';
 
 export const MAX_POINT_PAUSE_SECONDS = 30;
 export const POINT_PAUSE_STEP_SECONDS = 0.5;
+export const PLAYBACK_POST_ROLL_SECONDS = 3;
 
 export interface PlaybackPause {
   pointIndex: number;
@@ -36,19 +37,20 @@ function playablePauseSeconds(value: number | undefined): number {
   return Math.min(MAX_POINT_PAUSE_SECONDS, Math.max(0, value));
 }
 
-export function totalPauseSeconds(points: readonly RoutePoint[]): number {
-  return points.slice(1).reduce((total, point) => total + playablePauseSeconds(point.pauseSeconds), 0);
+export function totalPauseSeconds(pauses: readonly number[]): number {
+  return pauses.reduce((total, seconds) => total + playablePauseSeconds(seconds), 0);
 }
 
 export function buildPlaybackTimeline(
   points: readonly RoutePoint[],
   baseDurationSeconds: number,
   pointArrivalSeconds: readonly number[],
+  pointPauses: readonly number[] = [],
 ): PlaybackTimeline {
   let accumulatedPauseSeconds = 0;
   const pauses: PlaybackPause[] = [];
-  for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
-    const pauseSeconds = playablePauseSeconds(points[pointIndex].pauseSeconds);
+  for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
+    const pauseSeconds = playablePauseSeconds(pointPauses[pointIndex]);
     if (pauseSeconds === 0) continue;
     const baseElapsedSeconds = Math.min(baseDurationSeconds, Math.max(0, pointArrivalSeconds[pointIndex] ?? 0));
     const outputStartSeconds = baseElapsedSeconds + accumulatedPauseSeconds;
@@ -69,8 +71,8 @@ export function buildPlaybackTimeline(
   };
 }
 
-export function buildOverviewPlaybackTimeline(points: readonly RoutePoint[], duration: number): PlaybackTimeline {
-  return buildPlaybackTimeline(points, duration, tripRoutePointProgresses([...points]).map((progress) => progress * duration));
+export function buildOverviewPlaybackTimeline(points: readonly RoutePoint[], duration: number, pointPauses: readonly number[] = []): PlaybackTimeline {
+  return buildPlaybackTimeline(points, duration, tripRoutePointProgresses([...points]).map((progress) => progress * duration), pointPauses);
 }
 
 export function samplePlaybackTimeline(timeline: PlaybackTimeline, outputElapsedSeconds: number): PlaybackTimelineSample {

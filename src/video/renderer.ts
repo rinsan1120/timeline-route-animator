@@ -14,15 +14,17 @@ import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } 
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { routeDistanceProgress } from '../route/routeDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
-import { buildOverviewPlaybackTimeline, samplePlaybackTimeline } from './playbackTimeline';
+import { buildOverviewPlaybackTimeline, samplePlaybackTimeline, PLAYBACK_POST_ROLL_SECONDS } from './playbackTimeline';
 import { buildRoutePointDayNumbers, colorRouteSegments } from '../route/dayRouteColor';
+
+import { balloonPauseSeconds } from './balloonPauses';
 
 const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
 const styleReadyMaps = new WeakSet<maplibregl.Map>();
 export { VIDEO_FPS } from './overviewCamera';
 export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
-export const POST_ROLL_SECONDS = 3;
+export const POST_ROLL_SECONDS = PLAYBACK_POST_ROLL_SECONDS;
 const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
 
 export function outputVideoDuration(duration: number, pauseSeconds = 0): number {
@@ -51,6 +53,7 @@ export interface RenderVideoOptions {
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
   duration: number;
+  commonPauseSeconds?: number;
   revealRoute: boolean;
   annotationStyle?: AnnotationStyle;
   onProgress: (progress: VideoProgress) => void;
@@ -113,7 +116,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
     const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
-    const playbackTimeline = buildOverviewPlaybackTimeline(options.points, options.duration);
+    const playbackTimeline = buildOverviewPlaybackTimeline(options.points, options.duration, balloonPauseSeconds(options.points, options.dayMarkers ?? [], routeMarkerMode, options.commonPauseSeconds ?? 0));
     const animationFrames = Math.round(playbackTimeline.outputDurationSeconds * VIDEO_FPS);
     const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds);
     if (options.introZoomEnabled) {
@@ -157,10 +160,10 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
     const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
-      ? [{ label: point.annotation.label, placement: point.annotation.placement, pixel: pixels[index], arrivalProgress: arrivals[index] }] : []);
+      ? [{ label: point.annotation.label, placement: point.annotation.placement, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
     const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
-      return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], arrivalProgress: arrivals[pointIndex] }];
+      return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], pointIndex, arrivalProgress: arrivals[pointIndex] }];
     });
     const routeSegments = colorRouteSegments(splitRouteByDay(options.points), dayNumberByPointId, options.dayRouteColorsEnabled ?? false).map((segment) => ({
       color: segment.color,
@@ -180,8 +183,9 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         : animationFrame >= animationFrames
           ? playbackTimeline.outputDurationSeconds
           : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
-      const progress = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).baseElapsedSeconds / options.duration;
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false);
+      const sample = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds);
+      const progress = sample.baseElapsedSeconds / options.duration;
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false, sample.pausePointIndex);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -205,13 +209,14 @@ function drawFrame(
   points: RoutePoint[],
   progress: number,
   revealRoute: boolean,
-  annotations: VideoAnnotation[],
-  dayMarkers: VideoDayMarker[],
+  annotations: (VideoAnnotation & { pointIndex: number })[],
+  dayMarkers: (VideoDayMarker & { pointIndex: number })[],
   routeMarkerMode: RouteMarkerMode,
   annotationStyle: AnnotationStyle,
   endpointMarkerPlacements: EndpointMarkerPlacements,
   distanceHud?: DistanceHudOptions,
   dayRouteColorsEnabled = false,
+  pausePointIndex: number | null = null,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -220,22 +225,22 @@ function drawFrame(
   context.shadowColor = 'rgba(0,0,0,.22)';
   context.shadowBlur = 8;
   const position = interpolateTripRoute(points, progress)!;
-  const markerStart = pixels[position.fromIndex];
-  const markerEnd = pixels[position.toIndex];
+  const markerStart = pixels[pausePointIndex ?? position.fromIndex];
+  const markerEnd = pixels[pausePointIndex ?? position.toIndex];
   const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
   const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
   for (const segment of routeSegments) {
     context.beginPath();
     let started = false;
     for (const routePoint of segment.points) {
-      if (revealRoute && routePoint.arrivalProgress > progress) break;
+      if (revealRoute && (pausePointIndex !== null ? routePoint.pointIndex > pausePointIndex : routePoint.arrivalProgress > progress)) break;
       if (started) context.lineTo(routePoint.pixel.x, routePoint.pixel.y);
       else context.moveTo(routePoint.pixel.x, routePoint.pixel.y);
       started = true;
     }
     const segmentStart = segment.points[0]?.pointIndex ?? -1;
     const segmentEnd = segment.points.at(-1)?.pointIndex ?? -1;
-    if (revealRoute && started && position.fromIndex !== position.toIndex
+    if (revealRoute && pausePointIndex === null && started && position.fromIndex !== position.toIndex
       && position.fromIndex >= segmentStart && position.toIndex <= segmentEnd
       && segment.points.some((routePoint) => routePoint.pointIndex === position.toIndex && routePoint.arrivalProgress > progress)) {
       context.lineTo(x, y);
@@ -254,12 +259,12 @@ function drawFrame(
   context.stroke();
 
   for (const annotation of annotations) {
-    if (progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
+    if (pausePointIndex !== null ? annotation.pointIndex <= pausePointIndex : progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
   }
 
   if (routeMarkerMode === 'day') {
     for (const dayMarker of dayMarkers) {
-      if (progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayRouteColorsEnabled);
+      if (pausePointIndex !== null ? dayMarker.pointIndex <= pausePointIndex : progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayRouteColorsEnabled);
     }
   } else if (routeMarkerMode === 'start-goal') {
     if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
@@ -267,7 +272,7 @@ function drawFrame(
     if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
   }
 
-  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, progress), distanceHud);
+  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, progress, pausePointIndex ?? undefined), distanceHud);
   context.fillStyle = 'rgba(255,255,255,.9)';
   context.fillRect(24, HEIGHT - 50, 520, 34);
   context.fillStyle = '#27364a';
@@ -500,7 +505,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
   const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration, options.followCustomZoom);
-  const playbackTimeline = buildFollowPlaybackTimeline(plan);
+  const playbackTimeline = buildFollowPlaybackTimeline(plan, balloonPauseSeconds(options.points, options.dayMarkers ?? [], routeMarkerMode, options.commonPauseSeconds ?? 0));
   const initialPlayback = sampleFollowPlayback(plan, 0);
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });

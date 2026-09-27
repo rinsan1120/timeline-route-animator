@@ -6,6 +6,7 @@ export interface RoutePoint {
   timestamp?: string;
   source: 'timelinePath' | 'manual';
   original: boolean;
+  /** Legacy file compatibility only; playback uses the common balloon pause setting. */
   pauseSeconds?: number;
   annotation?: { label: string; placement?: PopupPlacement };
 }
