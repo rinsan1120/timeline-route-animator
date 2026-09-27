@@ -266,7 +266,7 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
         : /(?:道路|鉄道)/.test(path) ? colors.transportLabel : colors.placeLabel;
       if ('text-halo-color' in paint) paint['text-halo-color'] = colors.labelHalo;
     }
-    if (sourceLayer === 'transp' && cloned.type === 'symbol' && paint['text-color']) {
+    if (cloned.type === 'symbol' && paint['text-color'] && isRouteNumberLayer(cloned, [2901, 2903, 2904])) {
       paint['text-color'] = colors.routeNumberText;
     }
   }
