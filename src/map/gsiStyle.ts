@@ -1,5 +1,7 @@
 import type { ExpressionSpecification, StyleSpecification } from 'maplibre-gl';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from './gsiOfficialStyle';
+import { GSI_COLOR_CONFIG } from './gsiColorConfig';
+import { GSI_ZOOM_CONFIG } from './gsiZoomConfig';
 import { GSI_VECTOR_CONFIG } from './gsiVectorConfig';
 
 type StyleLayer = StyleSpecification['layers'][number];
@@ -11,7 +13,9 @@ type MutableLayer = StyleLayer & {
   'source-layer'?: string;
 };
 
-const { source, lowZoomLand, terrainTint, appearance, zoomTransition, colors, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const { source, lowZoomLand, terrainTint, appearance, zoomTransition, roads, lines, labels, visibility } = GSI_VECTOR_CONFIG;
+const colors = GSI_COLOR_CONFIG;
+
 export const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
 export const GSI_DEM_SOURCE_ID = 'gsi-dem';
 export const GSI_TERRAIN_TINT_LAYER_ID = 'gsi-terrain-tint';
@@ -52,10 +56,29 @@ function isOverviewMajorRoadLayer(layer: StyleLayer): boolean {
   return sourceLayerOf(layer) === 'road' && metadataPathOf(layer) === '道路-主要な道路';
 }
 
+function roadFacilityNameMinZoom(path: string): number | undefined {
+  switch (path) {
+    case '交通構造物-インターチェンジ': return GSI_ZOOM_CONFIG.labels.roadFacilities.interchange;
+    case '交通構造物-スマートインターチェンジ': return GSI_ZOOM_CONFIG.labels.roadFacilities.smartInterchange;
+    case '交通構造物-ジャンクション': return GSI_ZOOM_CONFIG.labels.roadFacilities.junction;
+    case '交通構造物-サービスエリア': return GSI_ZOOM_CONFIG.labels.roadFacilities.serviceArea;
+    case '交通構造物-パーキングエリア': return GSI_ZOOM_CONFIG.labels.roadFacilities.parkingArea;
+    default: return undefined;
+  }
+}
+
+function isRoadFacilityIconLayer(layer: StyleLayer): boolean {
+  return roadFacilityNameMinZoom(metadataPathOf(layer)) !== undefined
+    && layer.type === 'symbol'
+    && layer.layout?.['icon-image'] !== undefined
+    && layer.layout?.['text-field'] === undefined;
+}
+
 function shouldKeepLayer(layer: StyleLayer): boolean {
   const sourceLayer = sourceLayerOf(layer);
   const path = metadataPathOf(layer);
 
+  if (!visibility.roadFacilityIcons && isRoadFacilityIconLayer(layer)) return false;
   if (sourceLayer === 'contour' && !visibility.contours) return false;
   if (sourceLayer === 'elevation' && !visibility.elevation) return false;
   if (sourceLayer === 'building' && !visibility.buildings) return false;
@@ -138,19 +161,19 @@ function applyOpacityFade(
   paint: Record<string, unknown>,
   property: string,
   opacityAtBoundary: number,
-  fadeEndZoom: number = zoomTransition.fadeEndZoom,
+  fadeEndZoom: number = GSI_ZOOM_CONFIG.transition.fadeEndZoom,
 ) {
   const existingOpacity = paint[property];
   if (existingOpacity === undefined) {
     paint[property] = zoomInterpolation(
-      zoomTransition.boundaryZoom,
+      GSI_ZOOM_CONFIG.transition.boundaryZoom,
       opacityAtBoundary,
       fadeEndZoom,
       1,
     );
   } else if (typeof existingOpacity === 'number') {
     paint[property] = zoomInterpolation(
-      zoomTransition.boundaryZoom,
+      GSI_ZOOM_CONFIG.transition.boundaryZoom,
       existingOpacity * opacityAtBoundary,
       fadeEndZoom,
       existingOpacity,
@@ -159,7 +182,7 @@ function applyOpacityFade(
 }
 
 function applyZoomTransition(layer: MutableLayer) {
-  if (layer.minzoom !== zoomTransition.boundaryZoom) return;
+  if (layer.minzoom !== GSI_ZOOM_CONFIG.transition.boundaryZoom) return;
   const sourceLayer = sourceLayerOf(layer);
 
   if (sourceLayer === 'road' && layer.type === 'line') {
@@ -168,9 +191,9 @@ function applyZoomTransition(layer: MutableLayer) {
     if (typeof paint['line-width'] === 'number') {
       const width = paint['line-width'];
       paint['line-width'] = zoomInterpolation(
-        zoomTransition.boundaryZoom,
+        GSI_ZOOM_CONFIG.transition.boundaryZoom,
         width * 0.75,
-        zoomTransition.fadeEndZoom,
+        GSI_ZOOM_CONFIG.transition.fadeEndZoom,
         width,
       );
     }
@@ -182,9 +205,9 @@ function applyZoomTransition(layer: MutableLayer) {
         ? (outline ? colors.motorwayOutline : colors.motorway)
         : (outline ? colors.nationalRoadOutline : colors.nationalRoad);
       paint['line-color'] = zoomInterpolation(
-        zoomTransition.boundaryZoom,
+        GSI_ZOOM_CONFIG.transition.boundaryZoom,
         outline ? colors.overviewMajorRoadOutline : colors.overviewMajorRoad,
-        zoomTransition.fadeEndZoom,
+        GSI_ZOOM_CONFIG.transition.fadeEndZoom,
         targetColor,
       );
     }
@@ -204,7 +227,7 @@ function applyZoomTransition(layer: MutableLayer) {
         paint,
         'text-opacity',
         zoomTransition.municipalityOpacityAtBoundary,
-        Math.min(zoomTransition.fadeEndZoom, zoomTransition.boundaryZoom + 0.5),
+        Math.min(GSI_ZOOM_CONFIG.transition.fadeEndZoom, GSI_ZOOM_CONFIG.transition.boundaryZoom + 0.5),
       );
     } else {
       applyOpacityFade(paint, 'text-opacity', zoomTransition.detailedLabelOpacityAtBoundary);
@@ -222,6 +245,11 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   const sourceLayer = sourceLayerOf(cloned);
   const path = metadataPathOf(cloned);
 
+  const facilityMinZoom = roadFacilityNameMinZoom(path);
+  if (facilityMinZoom !== undefined && cloned.type === 'symbol' && cloned.layout?.['text-field'] !== undefined) {
+    cloned.minzoom = facilityMinZoom;
+  }
+
   if (sourceLayer === 'road') {
     const widthScale = isOverviewMajorRoadLayer(cloned) ? 1 : roads[roadCategory(path)].widthScale;
     scaleProperty(cloned.paint, 'line-width', widthScale);
@@ -234,7 +262,7 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
     scaleProperty(cloned.layout, 'icon-size', labels.routeNumberIconScale);
   }
   if (isRouteNumberLayer(cloned, [2901])) {
-    cloned.minzoom = Math.min(cloned.minzoom ?? labels.nationalRouteNumberMinZoom, labels.nationalRouteNumberMinZoom);
+    cloned.minzoom = Math.min(cloned.minzoom ?? GSI_ZOOM_CONFIG.labels.nationalRouteNumber, GSI_ZOOM_CONFIG.labels.nationalRouteNumber);
   }
   if (labels.prioritizeMunicipalityNames && isMunicipalityLabelLayer(cloned)) {
     cloned.layout = { ...cloned.layout, 'text-allow-overlap': true };
@@ -319,8 +347,8 @@ const configuredLayers = orderConfiguredLayers(
 // 最後の1mで透明にし、5000m以上（NA=83886.08、signed負値を含む）は透明を維持。
 const terrainTintColor: ExpressionSpecification = [
   'interpolate', ['linear'], ['elevation'],
-  ...terrainTint.stops.flatMap(([elevation, color]) => [elevation, color]),
-  terrainTint.invalidElevationCutoff - 1, terrainTint.stops[terrainTint.stops.length - 1][1],
+  ...GSI_COLOR_CONFIG.terrain.stops.flatMap(([elevation, color]) => [elevation, color]),
+  terrainTint.invalidElevationCutoff - 1, GSI_COLOR_CONFIG.terrain.stops[GSI_COLOR_CONFIG.terrain.stops.length - 1][1],
   terrainTint.invalidElevationCutoff, 'rgba(0,0,0,0)',
 ];
 
@@ -335,8 +363,8 @@ export const GSI_STYLE: StyleSpecification = {
         type: 'raster-dem' as const,
         tiles: [terrainTint.sourceUrl],
         tileSize: 256,
-        minzoom: terrainTint.minZoom,
-        maxzoom: terrainTint.maxZoom,
+        minzoom: GSI_ZOOM_CONFIG.terrain.minZoom,
+        maxzoom: GSI_ZOOM_CONFIG.terrain.maxZoom,
         encoding: 'custom' as const,
         redFactor: 655.36,
         greenFactor: 2.56,
@@ -348,16 +376,16 @@ export const GSI_STYLE: StyleSpecification = {
     [GSI_OFFICIAL_SOURCE_ID]: {
       ...officialSource,
       tiles: [source.vectorTileUrl],
-      minzoom: source.minZoom,
-      maxzoom: source.maxZoom,
+      minzoom: GSI_ZOOM_CONFIG.source.minZoom,
+      maxzoom: GSI_ZOOM_CONFIG.source.maxZoom,
       attribution: source.attributionHtml,
     },
     ...(lowZoomLand.enabled ? {
       [GSI_LOW_ZOOM_LAND_SOURCE_ID]: {
         type: 'vector' as const,
         url: `pmtiles://${lowZoomLand.pmtilesUrl}`,
-        minzoom: source.minZoom,
-        maxzoom: source.maxZoom,
+        minzoom: GSI_ZOOM_CONFIG.source.minZoom,
+        maxzoom: GSI_ZOOM_CONFIG.source.maxZoom,
       },
     } : {}),
   },
@@ -367,7 +395,7 @@ export const GSI_STYLE: StyleSpecification = {
       type: 'background',
       paint: {
         'background-color': lowZoomLand.enabled
-          ? ['step', ['zoom'], colors.background, lowZoomLand.minZoom, colors.water, lowZoomLand.maxZoom, colors.background]
+          ? ['step', ['zoom'], colors.background, GSI_ZOOM_CONFIG.lowZoomLand.minZoom, colors.water, GSI_ZOOM_CONFIG.lowZoomLand.maxZoom, colors.background]
           : colors.background,
       },
     },
@@ -376,8 +404,8 @@ export const GSI_STYLE: StyleSpecification = {
       type: 'fill' as const,
       source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
       'source-layer': lowZoomLand.sourceLayer,
-      minzoom: lowZoomLand.minZoom,
-      maxzoom: lowZoomLand.maxZoom,
+      minzoom: GSI_ZOOM_CONFIG.lowZoomLand.minZoom,
+      maxzoom: GSI_ZOOM_CONFIG.lowZoomLand.maxZoom,
       paint: { 'fill-color': colors.background },
     }] : []),
     ...(terrainTint.enabled ? [{
@@ -386,7 +414,7 @@ export const GSI_STYLE: StyleSpecification = {
       source: GSI_DEM_SOURCE_ID,
       paint: {
         'color-relief-color': terrainTintColor,
-        'color-relief-opacity': terrainTint.opacity,
+        'color-relief-opacity': GSI_COLOR_CONFIG.terrain.opacity,
       },
     }] : []),
     ...configuredLayers,

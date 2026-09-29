@@ -1,7 +1,7 @@
+import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
-import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { createOverviewCamera } from './overviewCamera';
 
 const mocks = vi.hoisted(() => ({
@@ -176,7 +176,7 @@ describe('GSI Vector video background', () => {
     const actualNationalRouteNumber = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
     expect(actualNationalRouteNumber).toMatchObject({
       filter: officialNationalRouteNumber?.filter,
-      minzoom: GSI_VECTOR_CONFIG.labels.nationalRouteNumberMinZoom,
+      minzoom: GSI_ZOOM_CONFIG.labels.nationalRouteNumber,
       maxzoom: officialNationalRouteNumber?.maxzoom,
       layout: officialNationalRouteNumber?.layout,
     });

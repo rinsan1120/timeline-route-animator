@@ -1,5 +1,12 @@
 # HANDOFF
 
+## 地図設定の分離（2026-09-29）
+
+- 色とDEM配色・不透明度は `gsiColorConfig.ts`、Zoomは `gsiZoomConfig.ts`、その他は `gsiVectorConfig.ts` に集約。既存値は維持。
+- IC / Smart IC / JCT / SA / PAの名称レイヤはZoom 9.7から表示。タイルに名称データがある場合のみ表示でき、既存maxzoomは維持。
+- 対象道路施設のアイコン専用レイヤは非表示。道の駅を含む汎用注記と道路番号記号は変更しない。
+- 共有 `GSI_STYLE` を通じて通常地図・プレビュー・MP4・スポット画像PNGへ共通反映する。
+
 Last updated: 2026-09-27
 
 - 通常地図・overview/follow MP4・スポット画像PNGのクレジットは、gsiVectorConfig.tsのattributionを正として「出典：国土地理院　地理院タイルを加工して作成」を共通使用する。

@@ -1,3 +1,4 @@
+import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { drawAnnotation } from '../route/annotationCanvas';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement, type EndpointMarkerPlacements } from '../popup/placement';
 import * as maplibregl from 'maplibre-gl';
@@ -621,7 +622,7 @@ function isInVideoViewport(point: { x: number; y: number }): boolean {
 }
 
 function isLowZoomMapView(zoom: number): boolean {
-  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_VECTOR_CONFIG.lowZoomLand.maxZoom;
+  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_ZOOM_CONFIG.lowZoomLand.maxZoom;
 }
 
 function waitForFollowViewportReady(
