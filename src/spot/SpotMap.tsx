@@ -27,6 +27,7 @@ export default function SpotMap(props: Props) {
   const rectangle = useRef<HTMLDivElement>(null);
   const current = useRef(props); current.current = props;
   const [map, setMap] = useState<maplibregl.Map | null>(null);
+  const [mapZoom, setMapZoom] = useState(8);
   const drag = useRef<{ id: number; start: Pixel } | null>(null);
   const moving = useRef<{
     id: number; start: Pixel; initial: ReturnType<typeof imageRectangle>;
@@ -42,6 +43,9 @@ export default function SpotMap(props: Props) {
     installTerrainTintFallback(instance);
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
+    const updateZoomDisplay = () => setMapZoom(instance.getZoom());
+    instance.on('zoom', updateZoomDisplay);
+    updateZoomDisplay();
     instance.on('error', (event) => { if (!isTerrainTintError(event)) current.current.onError('地図の一部を読み込めませんでした。ネットワーク接続を確認してください。'); });
     instance.on('click', (event) => {
       if (event.originalEvent.target instanceof HTMLElement && event.originalEvent.target.closest('.spot-anchor')) return;
@@ -49,7 +53,7 @@ export default function SpotMap(props: Props) {
     });
     const observer = new ResizeObserver(() => instance.resize()); observer.observe(container.current!);
     setMap(instance);
-    return () => { moving.current?.cancel(); observer.disconnect(); instance.remove(); };
+    return () => { moving.current?.cancel(); observer.disconnect(); instance.off('zoom', updateZoomDisplay); instance.remove(); };
   }, []);
   useEffect(() => {
     if (!map) return;
@@ -115,6 +119,7 @@ export default function SpotMap(props: Props) {
   return <>
     <CoordinateJumpControl map={map} hostId="spot-coordinate-jump" disabled={props.busy} onError={props.onError} />
     <div ref={container} className={`map${props.tool === 'add' ? ' map--adding' : ''}`} />
+    <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {map && createPortal(<div className="spot-bounds-overlay" aria-hidden="true"><div ref={rectangle}
       className={`spot-image-rectangle${props.tool === 'select' && !props.busy ? ' spot-image-rectangle--movable' : ''}`}
       title="ドラッグして画像範囲を移動"

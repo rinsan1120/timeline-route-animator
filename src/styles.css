@@ -259,7 +259,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .spot-image-rectangle::before, .spot-image-rectangle::after { content: ''; position: absolute; inset: -4px; border: 6px solid transparent; border-top-color: var(--orange); border-bottom-color: var(--orange); pointer-events: none; clip-path: polygon(0 0, 14px 0, 14px 8px, calc(100% - 14px) 8px, calc(100% - 14px) 0, 100% 0, 100% 100%, calc(100% - 14px) 100%, calc(100% - 14px) calc(100% - 8px), 14px calc(100% - 8px), 14px 100%, 0 100%); }
 .spot-image-rectangle--draft { border-style: dashed; }
 .spot-bounds-input { position: absolute; inset: 0; z-index: 5; touch-action: none; cursor: crosshair; }
-.spot-tool-hint { position: absolute; z-index: 6; top: 10px; left: 10px; max-width: calc(100% - 60px); padding: 7px 10px; border-radius: 6px; background: #ffffffe6; color: #334155; font-size: 11px; pointer-events: none; }
+.spot-tool-hint { position: absolute; z-index: 6; bottom: 100px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 60px); padding: 7px 10px; border-radius: 6px; background: #ffffffe6; color: #334155; font-size: 11px; pointer-events: none; }
 .spot-workspace .toast { z-index: 9; }
 .spot-workspace .edit-toolbar { z-index: 7; max-width: calc(100% - 16px); overflow-x: auto; }
 @media (max-width: 1000px) {
@@ -268,6 +268,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
   .topbar-actions .file-button { min-width: 95px; }
 }
 @media (max-width: 760px) {
+  .spot-tool-hint { bottom: 85px; }
   .topbar-actions { width: 100%; margin-left: 0; }
   .topbar-actions .file-button { flex: 1; min-width: 0; }
   .topbar-actions .file-button span { font-size: clamp(10px, 2.8vw, 13px); white-space: nowrap; }
@@ -285,7 +286,6 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .reference-position-marker::before, .reference-position-marker::after { content: ''; position: absolute; background: #813cba; pointer-events: none; }
 .reference-position-marker::before { width: 2px; height: 40px; left: 13px; top: -6px; }
 .reference-position-marker::after { height: 2px; width: 40px; top: 13px; left: -6px; }
-@media (min-width: 761px) { .spot-workspace .spot-tool-hint { top: 110px; } }
 @media (max-width: 760px) {
   .map-area { order: 1; flex: 1 1 54%; min-height: 290px; }
   .coordinate-jump-control { position: relative; inset: auto; max-width: none; border-radius: 0; box-shadow: none; padding: 8px; }
