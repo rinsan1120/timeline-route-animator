@@ -235,5 +235,7 @@ export const GSI_VECTOR_CONFIG = {
     nationalRouteNumbers: true,
     // transp.ftCode === 2903/2904の高速道路番号表示。falseで高速道路番号記号を除外する。
     expresswayRouteNumbers: true,
+    // 空港・飛行場・自衛隊等の飛行場の記号を表示するか。
+    airports: false,
   },
 } as const;

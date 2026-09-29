@@ -63,7 +63,16 @@ function shouldKeepLayer(layer: StyleLayer): boolean {
   if (sourceLayer === 'boundary' && !visibility.boundaries) return false;
   if (isRouteNumberLayer(layer, [2901]) && (!visibility.nationalRouteNumbers || !labels.showNationalRouteNumbers)) return false;
   if (isRouteNumberLayer(layer, [2903, 2904]) && (!visibility.expresswayRouteNumbers || !labels.showExpresswayRouteNumbers)) return false;
-
+  if (
+    !visibility.airports &&
+    (
+      path === '記号-主要な空港' ||
+      path === '記号-飛行場' ||
+      path === '記号-自衛隊等の飛行場'
+    )
+  ) {
+    return false;
+  }
   // symbol全体は主要都市等も含むため消さず、明確に測量基準点と分かる記号だけを除外する。
   if (sourceLayer === 'symbol' && !visibility.mapSymbols
     && filterContainsValue((layer as MutableLayer).filter, 'ftCode', GEODETIC_POINT_CODES)) return false;
