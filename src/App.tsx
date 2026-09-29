@@ -1,3 +1,4 @@
+import { WORKSPACE_MODE_COPY } from './workspaceModeCopy';
 import { hasRecordedRouteTime } from './video/routeClock';
 import SpotWorkspace from './spot/SpotWorkspace';
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
@@ -827,13 +828,13 @@ export default function App() {
         </div>
         <div className="topbar-actions">
           <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress || previewProgress !== null}>
-            <span>JSONを開く</span><small>Timeline元データ・作業JSON</small>
+            <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>
           </button>
           <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
-            <span>計画モード</span><small>地図から作成</small>
+            <span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small>
           </button>
           <button className="file-button" onClick={startSpotMode} disabled={workspaceMode === 'spot' || busy || !!videoProgress}>
-            <span>スポット画像モード</span><small>地点を配置してPNG保存</small>
+            <span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small>
           </button>
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.currentTarget.value = ''; }} />
@@ -1108,10 +1109,10 @@ export default function App() {
         <div id="plan-coordinate-jump" />
         <section className="map-stage">
           <RouteMap recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
-          {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>Timeline JSONから旅を始めよう</h2><p>Timelineを読み込むか、<br />地図からルートやスポット画像を作成できます。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
-  <span>JSONファイルを選択</span>
-  <small>過去の移動履歴を取り込む</small>
-</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}>計画モード</button><button className="plan-button" onClick={startSpotMode} disabled={busy || !!videoProgress}>スポット画像モード</button></div></div>}
+          {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>旅の道筋を、アニメーションに</h2><p>GoogleマップからエクスポートしたJSONファイルを読み込み、<br />移動履歴をアニメーションに。新しいルートの作成やスポット情報の画像作成も。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
+  <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
+  <small>{WORKSPACE_MODE_COPY.timeline.description}</small>
+</button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small></button><button className="plan-button" onClick={startSpotMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small></button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
           {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
