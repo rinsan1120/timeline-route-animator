@@ -1,3 +1,4 @@
+import { sampleRecordedRouteTime, drawRouteClock, followClockPointIndex } from './routeClock';
 import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { drawAnnotation } from '../route/annotationCanvas';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement, type EndpointMarkerPlacements } from '../popup/placement';
@@ -40,6 +41,7 @@ export function outputVideoFrameCount(duration: number, pauseSeconds = 0): numbe
 
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
+  recordedTimeClockEnabled?: boolean;
   distanceHud?: DistanceHudOptions;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
   points: RoutePoint[];
@@ -153,7 +155,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
           await waitForRenderedMapFrame(map, 20_000);
           await waitForTerrainTintReady(map, 20_000);
         }
-        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
+        drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, 0, 0) : null);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -191,7 +193,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
           : animationFrame / (animationFrames - 1) * playbackTimeline.outputDurationSeconds;
       const sample = samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds);
       const progress = sample.baseElapsedSeconds / options.duration;
-      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false, sample.pausePointIndex);
+      drawFrame(context, background, pixels, routeSegments, options.points, progress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false, sample.pausePointIndex, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, progress, sample.pausePointIndex) : null);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -223,6 +225,7 @@ function drawFrame(
   distanceHud?: DistanceHudOptions,
   dayRouteColorsEnabled = false,
   pausePointIndex: number | null = null,
+  clockText: string | null = null,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -263,6 +266,8 @@ function drawFrame(
   context.lineWidth = 8;
   context.strokeStyle = '#07111f';
   context.stroke();
+
+  drawRouteClock(context, clockText, x, y);
 
   for (const annotation of annotations) {
     if (pausePointIndex !== null ? annotation.pointIndex <= pausePointIndex : progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
@@ -515,7 +520,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         backgroundKey = nextBackgroundKey;
       }
       if (mapLoadError) throw mapLoadError;
-      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false);
+      drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, playback.routeProgress, followClockPointIndex(playback, samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).pausePointIndex)) : null);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -546,6 +551,7 @@ function drawFollowFrame(
   distanceHud?: DistanceHudOptions,
   dayNumberByPointId: ReadonlyMap<string, number> = new Map(),
   dayRouteColorsEnabled = false,
+  clockText: string | null = null,
 ) {
   context.drawImage(background, 0, 0);
   context.lineCap = 'round';
@@ -578,6 +584,8 @@ function drawFollowFrame(
   context.lineWidth = 8;
   context.strokeStyle = '#07111f';
   context.stroke();
+
+  drawRouteClock(context, clockText, markerPixel.x, markerPixel.y);
 
   for (let index = 0; index <= playback.reachedPointIndex; index += 1) {
     const point = points[index];

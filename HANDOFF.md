@@ -1,5 +1,13 @@
 # HANDOFF
 
+## Timeline実績時計（2026-09-29）
+
+- Timelineの実績timestampから現在地時計をHH:mmで表示。地点間・手動点間は同じDAY内のルート距離比で推定し、DAY境界は補間しない。不足・不正時刻の区間は非表示。
+- 記録のtimezone offsetを尊重。offsetが変わる区間は左アンカーのoffsetを使い、右の実績地点でそのoffsetへ切り替える。
+- バルーン停止・Followパン中はマーカー位置に対応する時計も停止。開始・到着後のホールドも同じ位置の時刻を維持する。
+- Timeline作業JSON再開後も既存timestampを利用。計画・Spotでは使用しない。ON/OFFは初期OFFの一時UI stateでJSON非保存。
+- プレビュー・Overview MP4・Follow MP4でrouteClock.tsの共通計算を使用。既存時間軸・カメラ・保存形式は変更しない。
+
 ## 地図設定の分離（2026-09-29）
 
 - 色とDEM配色・不透明度は `gsiColorConfig.ts`、Zoomは `gsiZoomConfig.ts`、その他は `gsiVectorConfig.ts` に集約。既存値は維持。

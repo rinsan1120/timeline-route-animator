@@ -1,3 +1,4 @@
+import { sampleRecordedRouteTime, followClockPointIndex, routeClockRect, ROUTE_CLOCK_STYLE } from '../video/routeClock';
 import CoordinateJumpControl from './CoordinateJumpControl';
 import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from '../popup/placement';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -46,6 +47,7 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  recordedTimeClockEnabled?: boolean;
   coordinateJumpEnabled?: boolean;
   coordinateJumpDisabled?: boolean;
   mobileDayMarkerEditingScale: number;
@@ -127,6 +129,7 @@ function isSelectionAssistActive(props: RouteMapProps): boolean {
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGGElement>(null);
+  const previewClockRef = useRef<SVGGElement>(null);
   const previewMarkerRef = useRef<SVGCircleElement>(null);
   const editPointsOverlayRef = useRef<SVGSVGElement>(null);
   const rangeDeleteBoxRef = useRef<HTMLDivElement>(null);
@@ -253,6 +256,7 @@ export default function RouteMap(props: RouteMapProps) {
     const redrawOverlay = () => {
       const preview = getPreviewState(propsRef.current);
       updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
+      updatePreviewClock(map, propsRef.current, preview, previewClockRef.current);
     };
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
     const updateVideoViewport = () => {
@@ -387,6 +391,7 @@ export default function RouteMap(props: RouteMapProps) {
     map.resize();
     map.triggerRepaint();
     updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
+    updatePreviewClock(map, props, preview, previewClockRef.current);
     updateMapDiagnostics(map, props.points);
     if (previewEnding && previewCameraSnapshotRef.current) {
       map.setTransformConstrain(null);
@@ -396,7 +401,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (previewEnding) {
       previewCameraSnapshotRef.current = null;
     }
-  }, [props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
+  }, [props.recordedTimeClockEnabled, props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -448,6 +453,10 @@ export default function RouteMap(props: RouteMapProps) {
     <div className={`map ${props.addMode || props.insertMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <g ref={routeOverlayRef} />
+      <g ref={previewClockRef} display="none">
+        <rect width={ROUTE_CLOCK_STYLE.width} height={ROUTE_CLOCK_STYLE.height} rx={ROUTE_CLOCK_STYLE.radius} fill={ROUTE_CLOCK_STYLE.background} stroke={ROUTE_CLOCK_STYLE.border} />
+        <text x={ROUTE_CLOCK_STYLE.width / 2} y={ROUTE_CLOCK_STYLE.height / 2} textAnchor="middle" dominantBaseline="central" fontSize={ROUTE_CLOCK_STYLE.fontSize} fontWeight="600" fill={ROUTE_CLOCK_STYLE.color} />
+      </g>
       <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
     {props.editMode && !isPreviewing && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
@@ -640,6 +649,7 @@ function updateRouteOverlay(
 }
 
 interface MapPreviewState {
+  pausePointIndex: number | null;
   routeProgress: number;
   markerPosition: GeoPosition;
   reachedPointIndex: number | null;
@@ -650,13 +660,14 @@ interface MapPreviewState {
 function getPreviewState(props: RouteMapProps): MapPreviewState | null {
   if (props.previewProgress === null || !props.animationPoints.length) return null;
   const outputElapsedSeconds = getPreviewOutputElapsed(props);
-  if (props.cameraMode === 'follow' && props.followCameraPlan) {
-    return sampleFollowOutputPlayback(props.followCameraPlan, props.playbackTimeline, outputElapsedSeconds);
-  }
   const timelineSample = samplePlaybackTimeline(props.playbackTimeline, outputElapsedSeconds);
+  if (props.cameraMode === 'follow' && props.followCameraPlan) {
+    const playback = sampleFollowOutputPlayback(props.followCameraPlan, props.playbackTimeline, outputElapsedSeconds);
+    return { ...playback, pausePointIndex: followClockPointIndex(playback, timelineSample.pausePointIndex) };
+  }
   const movementProgress = timelineSample.baseElapsedSeconds / props.previewDuration;
   const position = interpolateTripRoute(props.animationPoints, movementProgress);
-  return position ? { routeProgress: movementProgress, markerPosition: timelineSample.pausePointIndex === null ? position : props.animationPoints[timelineSample.pausePointIndex], reachedPointIndex: timelineSample.pausePointIndex } : null;
+  return position ? { pausePointIndex: timelineSample.pausePointIndex, routeProgress: movementProgress, markerPosition: timelineSample.pausePointIndex === null ? position : props.animationPoints[timelineSample.pausePointIndex], reachedPointIndex: timelineSample.pausePointIndex } : null;
 }
 
 function getPreviewOutputElapsed(props: RouteMapProps): number {
@@ -813,4 +824,17 @@ function projectedRoutePath(map: MapLibreMap, points: RoutePoint[]): string {
 
 function setEditOverlayPath(overlay: SVGSVGElement, className: string, path: string) {
   overlay.querySelector<SVGPathElement>(`.${className}`)?.setAttribute('d', path);
+}
+
+function updatePreviewClock(map: MapLibreMap, props: RouteMapProps, preview: MapPreviewState | null, group: SVGGElement | null) {
+  if (!group) return;
+  const text = props.recordedTimeClockEnabled && preview
+    ? sampleRecordedRouteTime(props.animationPoints, preview.routeProgress, preview.pausePointIndex) : null;
+  if (!text || !preview) { group.setAttribute('display', 'none'); return; }
+  const pixel = map.project([preview.markerPosition.longitude, preview.markerPosition.latitude]);
+  const viewport = map.getContainer();
+  const rect = routeClockRect(pixel.x, pixel.y, viewport.clientWidth, viewport.clientHeight);
+  group.setAttribute('transform', `translate(${rect.x},${rect.y})`);
+  group.querySelector('text')!.textContent = text;
+  group.removeAttribute('display');
 }
