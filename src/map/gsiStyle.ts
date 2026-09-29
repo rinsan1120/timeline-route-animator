@@ -54,6 +54,8 @@ function isOverviewMajorRoadLayer(layer: StyleLayer): boolean {
 
 function shouldKeepLayer(layer: StyleLayer): boolean {
   const sourceLayer = sourceLayerOf(layer);
+  const path = metadataPathOf(layer);
+
   if (sourceLayer === 'contour' && !visibility.contours) return false;
   if (sourceLayer === 'elevation' && !visibility.elevation) return false;
   if (sourceLayer === 'building' && !visibility.buildings) return false;
@@ -77,7 +79,6 @@ function shouldKeepLayer(layer: StyleLayer): boolean {
   if (sourceLayer === 'symbol' && !visibility.mapSymbols
     && filterContainsValue((layer as MutableLayer).filter, 'ftCode', GEODETIC_POINT_CODES)) return false;
 
-  const path = metadataPathOf(layer);
   if (!labels.showPrefectureNames && path === '注記-都道府県') return false;
   if (!labels.showMunicipalityNames && path === '注記-市区町村') return false;
   if (!labels.showMajorPlaceNames && /^注記-(?:公称|居住地名|集落名称)/.test(path)) return false;
