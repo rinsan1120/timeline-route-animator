@@ -1,10 +1,12 @@
 import type { RoutePoint } from '../timeline/types';
+import { distanceMeters } from '../route/geometry';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 import { interpolateTripRoute, splitRouteByDay, tripRoutePointProgresses } from '../route/tripRoute';
 import { buildPlaybackTimeline, samplePlaybackTimeline, type PlaybackTimeline } from './playbackTimeline';
 
 export type VideoCameraMode = 'overview' | 'follow';
 export type FollowZoomPreset = 'wide' | 'standard' | 'close' | 'custom';
+export type FollowViewMode = 'top' | 'oblique';
 export type FollowPlaybackPhase = 'moving' | 'camera-pan' | 'day-transition';
 
 export interface GeoPosition {
@@ -16,8 +18,8 @@ export interface FollowPlaybackState {
   phase: FollowPlaybackPhase;
   cameraCenter: GeoPosition;
   zoom: number;
-  bearing: 0;
-  pitch: 0;
+  bearing: number;
+  pitch: number;
   routeProgress: number;
   markerPosition: GeoPosition;
   reachedPointIndex: number;
@@ -43,6 +45,11 @@ export interface FollowCameraPlan {
   initialCenter: GeoPosition;
   totalPanSeconds: number;
   routeMovementSeconds: number;
+  viewMode: FollowViewMode;
+  firstBearing: number;
+  secondBearing: number;
+  pitch: number;
+  turnMovementSeconds: number;
   events: FollowCameraEvent[];
 }
 
@@ -73,7 +80,7 @@ const PAN_RIGHT = 2;
 const PAN_TOP = 4;
 const PAN_BOTTOM = 8;
 
-export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPreset, duration: number, customZoom = 10): FollowCameraPlan {
+export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPreset, duration: number, customZoom = 10, viewMode: FollowViewMode = 'top'): FollowCameraPlan {
   if (!points.length) throw new Error('ルート追従にはルートが必要です。');
   const zoom = preset === 'custom' ? customZoom : FOLLOW_ZOOM_BY_PRESET[preset];
   if (!Number.isFinite(zoom) || zoom < 4 || zoom > 16) throw new Error('Zoomは4.0〜16.0で指定してください。');
@@ -89,7 +96,40 @@ export function buildFollowCameraPlan(points: RoutePoint[], preset: FollowZoomPr
     const startSeconds = event.routeProgress * routeMovementSeconds + index * FOLLOW_CAMERA_CONFIG.panDurationSeconds;
     return { ...event, startSeconds, endSeconds: startSeconds + FOLLOW_CAMERA_CONFIG.panDurationSeconds };
   });
-  return { points, duration, zoom, initialCenter, totalPanSeconds, routeMovementSeconds, events: timedEvents };
+  const middle = viewMode === 'oblique' ? interpolateTripRoute(points, 0.5)! : null;
+  const first = middle ? geographicBearing(points[0], middle) : null;
+  const second = middle ? geographicBearing(middle, points.at(-1)!) : null;
+  return {
+    points, duration, zoom, initialCenter, totalPanSeconds, routeMovementSeconds, events: timedEvents,
+    viewMode, firstBearing: first ?? second ?? 0, secondBearing: second ?? first ?? 0,
+    pitch: viewMode === 'oblique' ? 45 : 0,
+    turnMovementSeconds: Math.min(2, routeMovementSeconds / 2),
+  };
+}
+
+function geographicBearing(from: GeoPosition, to: GeoPosition): number | null {
+  // Near-coincident anchors have no useful direction (including GPS jitter).
+  if (distanceMeters(from, to) < 1) return null;
+  const latitudeFrom = from.latitude * Math.PI / 180;
+  const latitudeTo = to.latitude * Math.PI / 180;
+  const longitudeDelta = (to.longitude - from.longitude) * Math.PI / 180;
+  const y = Math.sin(longitudeDelta) * Math.cos(latitudeTo);
+  const x = Math.cos(latitudeFrom) * Math.sin(latitudeTo)
+    - Math.sin(latitudeFrom) * Math.cos(latitudeTo) * Math.cos(longitudeDelta);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x, y) < 1e-12) return null;
+  return normalizeBearing(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+function normalizeBearing(bearing: number): number {
+  return ((bearing % 360) + 360) % 360;
+}
+
+function sampleFollowOrientation(plan: FollowCameraPlan, routeProgress: number) {
+  if (plan.viewMode === 'top') return { bearing: FOLLOW_CAMERA_CONFIG.bearing, pitch: FOLLOW_CAMERA_CONFIG.pitch };
+  const turnProgress = (routeProgress - 0.5) * plan.routeMovementSeconds / plan.turnMovementSeconds;
+  const delta = ((plan.secondBearing - plan.firstBearing + 540) % 360) - 180;
+  // Route progress excludes pans and pauses, so rotation freezes with the marker.
+  return { bearing: normalizeBearing(plan.firstBearing + delta * easeInOutCubic(turnProgress)), pitch: plan.pitch };
 }
 
 function buildUntimedCameraEvents(
@@ -196,8 +236,7 @@ export function sampleFollowPlayback(plan: FollowCameraPlan, elapsedSeconds: num
       phase: activeEvent.type,
       cameraCenter: interpolateGeoPosition(activeEvent.fromCenter, activeEvent.toCenter, easeInOutCubic(eventProgress)),
       zoom: plan.zoom,
-      bearing: FOLLOW_CAMERA_CONFIG.bearing,
-      pitch: FOLLOW_CAMERA_CONFIG.pitch,
+      ...sampleFollowOrientation(plan, activeEvent.routeProgress),
       routeProgress: activeEvent.routeProgress,
       markerPosition: activeEvent.markerBefore,
       reachedPointIndex: activeEvent.reachedPointIndexBefore,
@@ -214,8 +253,7 @@ export function sampleFollowPlayback(plan: FollowCameraPlan, elapsedSeconds: num
     phase: 'moving',
     cameraCenter: completedEvents ? plan.events[completedEvents - 1].toCenter : plan.initialCenter,
     zoom: plan.zoom,
-    bearing: FOLLOW_CAMERA_CONFIG.bearing,
-    pitch: FOLLOW_CAMERA_CONFIG.pitch,
+    ...sampleFollowOrientation(plan, routeProgress),
     routeProgress,
     markerPosition: { longitude: position.longitude, latitude: position.latitude },
     reachedPointIndex,

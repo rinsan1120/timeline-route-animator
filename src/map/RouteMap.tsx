@@ -553,7 +553,7 @@ function getPreviewVideoCamera(props: RouteMapProps, preview = getPreviewState(p
   if (props.previewProgress === null) return null;
   const target = props.cameraMode === 'follow'
     ? preview?.cameraCenter && preview.zoom !== undefined
-      ? { ...preview.cameraCenter, zoom: preview.zoom, bearing: 0, pitch: 0 }
+      ? { ...preview.cameraCenter, zoom: preview.zoom, bearing: preview.bearing ?? 0, pitch: preview.pitch ?? 0 }
       : null
     : props.overviewCamera;
   if (!target) return null;
@@ -655,6 +655,8 @@ interface MapPreviewState {
   reachedPointIndex: number | null;
   cameraCenter?: GeoPosition;
   zoom?: number;
+  bearing?: number;
+  pitch?: number;
 }
 
 function getPreviewState(props: RouteMapProps): MapPreviewState | null {

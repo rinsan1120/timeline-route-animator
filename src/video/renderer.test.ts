@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 import { createOverviewCamera } from './overviewCamera';
+import { buildFollowCameraPlan, type FollowViewMode } from './followCamera';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -104,6 +105,7 @@ vi.mock('maplibre-gl', () => ({
       queueMicrotask(() => {
         if (this.removed) return;
         this.styleLoaded = true;
+        for (const sourceId of Object.keys(this.sources)) this.readySources.add(sourceId);
         this.emit('style.load');
       });
     }
@@ -122,6 +124,56 @@ vi.mock('mediabunny', () => ({
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
 describe('GSI Vector video background', () => {
+  it.each([
+    { viewMode: 'top', introZoomEnabled: false },
+    { viewMode: 'top', introZoomEnabled: true },
+    { viewMode: 'oblique', introZoomEnabled: false },
+    { viewMode: 'oblique', introZoomEnabled: true },
+  ] as { viewMode: FollowViewMode; introZoomEnabled: boolean }[])('uses shared follow orientation and caches fixed backgrounds ($viewMode, intro=$introZoomEnabled)', async ({ viewMode, introZoomEnabled }) => {
+    const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
+    const createImageBitmap = vi.fn(async () => mocks.bitmap);
+    vi.stubGlobal('window', { VideoEncoder: class {}, setTimeout, clearTimeout });
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { queueMicrotask(callback); return 1; });
+    vi.stubGlobal('createImageBitmap', createImageBitmap);
+    vi.stubGlobal('document', {
+      body: { appendChild() {} },
+      createElement: () => ({ style: {}, remove() {}, getContext: () => context }),
+    });
+    const points = [[0, 0], [0.01, 0], [0.01, 0.01]].map(([longitude, latitude], index) => ({
+      id: String(index), longitude, latitude, source: 'manual' as const, original: false,
+    }));
+    const plan = buildFollowCameraPlan(points, 'wide', 5, 10, viewMode);
+    expect(plan.events).toHaveLength(0);
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({
+      points, cameraMode: 'follow', followZoomPreset: 'wide', followViewMode: viewMode,
+      duration: 5, introZoomEnabled, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn(),
+    });
+    const map = mocks.maps[0];
+    expect(map.options).toMatchObject({ bearing: plan.firstBearing, pitch: plan.pitch });
+    const cameras = map.jumpTo.mock.calls.map(([camera]: any[]) => camera);
+    expect(cameras.every((camera: any) => camera.pitch === plan.pitch)).toBe(true);
+    expect(cameras.every((camera: any) => camera.center[0] === 0 && camera.center[1] === 0)).toBe(true);
+    if (introZoomEnabled) {
+      expect(cameras.slice(0, 90).every((camera: any) => camera.bearing === plan.firstBearing)).toBe(true);
+      expect(cameras[0].zoom).toBeLessThan(plan.zoom);
+      expect(cameras[89].zoom).toBe(plan.zoom);
+    }
+    if (viewMode === 'oblique') {
+      expect(cameras.some((camera: any) => camera.bearing > plan.secondBearing && camera.bearing < plan.firstBearing)).toBe(true);
+      expect(cameras.at(-1).bearing).toBeCloseTo(plan.secondBearing, 8);
+      expect(createImageBitmap.mock.calls.length).toBeGreaterThan(introZoomEnabled ? 90 : 2);
+      expect(createImageBitmap.mock.calls.length).toBeLessThan(introZoomEnabled ? 200 : 100);
+    } else {
+      expect(cameras.every((camera: any) => camera.bearing === 0)).toBe(true);
+      expect(createImageBitmap).toHaveBeenCalledTimes(introZoomEnabled ? 90 : 1);
+    }
+    expect(createImageBitmap.mock.calls.length).toBe(cameras.length);
+    expect(mocks.bitmap.close.mock.calls.length).toBe(cameras.length);
+    expect(mocks.add).toHaveBeenCalledTimes(330);
+    expect(map.remove).toHaveBeenCalledOnce();
+  });
+
   it('adds pause seconds to output duration and frame count', async () => {
     const { outputVideoDuration, outputVideoFrameCount } = await import('./renderer');
     expect(outputVideoDuration(30)).toBe(36);

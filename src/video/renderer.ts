@@ -13,7 +13,7 @@ import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DEM_SOURCE
 import { installTerrainTintFallback, isTerrainTintError, removeTerrainTint } from '../map/gsiTerrainTint';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
-import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type VideoCameraMode } from './followCamera';
+import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { routeDistanceProgress } from '../route/routeDistanceProgress';
@@ -52,6 +52,7 @@ export interface RenderVideoOptions {
   cameraMode?: VideoCameraMode;
   followZoomPreset?: FollowZoomPreset;
   followCustomZoom?: number;
+  followViewMode?: FollowViewMode;
   overviewZoomMode?: 'auto' | 'custom';
   overviewCustomZoom?: number;
   overviewCamera?: VideoCamera;
@@ -439,7 +440,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
-  const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration, options.followCustomZoom);
+  const plan = options.followCameraPlan ?? buildFollowCameraPlan(options.points, options.followZoomPreset ?? 'standard', options.duration, options.followCustomZoom, options.followViewMode);
   const playbackTimeline = buildFollowPlaybackTimeline(plan, balloonPauseSeconds(options.points, options.dayMarkers ?? [], routeMarkerMode, options.commonPauseSeconds ?? 0));
   const initialPlayback = sampleFollowPlayback(plan, 0);
   const mapContainer = document.createElement('div');
@@ -450,8 +451,8 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     style: GSI_STYLE,
     center: [initialPlayback.cameraCenter.longitude, initialPlayback.cameraCenter.latitude],
     zoom: initialPlayback.zoom,
-    bearing: 0,
-    pitch: 0,
+    bearing: initialPlayback.bearing,
+    pitch: initialPlayback.pitch,
     interactive: false,
     attributionControl: false,
     pixelRatio: 1,
@@ -507,11 +508,11 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
           ),
         }
         : sampleFollowOutputPlayback(plan, playbackTimeline, outputElapsedSeconds);
-      const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}`;
+      const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}:${playback.bearing}:${playback.pitch}`;
       const introFrame = options.introZoomEnabled && frame < preFrames;
       const lastIntroFrame = introFrame && frame === preFrames - 1;
       if (!background || nextBackgroundKey !== backgroundKey || lastIntroFrame) {
-        map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: 0, pitch: 0 });
+        map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: playback.bearing, pitch: playback.pitch });
         await waitForFollowViewportReady(map, 20_000, () => mapLoadError, options.signal);
         context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
         const nextBackground = await createImageBitmap(canvas);

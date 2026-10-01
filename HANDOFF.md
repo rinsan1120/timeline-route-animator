@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Oblique follow view (2026-10-01)
+
+- Step 03のルート追従に「追従視点：真上／斜め」と共通HelpTipを追加。初期値top、Timeline／計画共用、一時UI stateのみ。プレビュー／MP4生成中は変更不可。Spot・JSON形式／version・Undo/Redoは変更なし。
+- followCamera.tsの既存center・Zoom・pan計画と時間軸を維持。obliqueだけinterpolateTripRoute(animationPoints, 0.5)で距離中間点を求め、START→中間・中間→GOALの地理方位を計画作成時に計算する。1m未満の方向なし区間は他方を共用、双方不明は0°。pitchは45°固定、topは従来の0°／0°。
+- sampleFollowPlaybackがrouteProgress=0.5以降の移動時間から旋回を算出。2秒と残り移動時間の小さい方でeaseInOutCubic・最短角度補間。バルーン停止・DAY遷移・camera-panでは進捗と方位が共に停止し、動画時間を延長しない。
+- RouteMapとrendererは共通のFollowPlaybackStateのbearing／pitchを使用。開始時ZoomもinitialPlaybackの方位・傾きを維持。プレビュー後の通常カメラ復元経路は維持。MP4背景キーに方位・傾きを追加し、固定画角は従来どおり再利用する。
+- followCamera／rendererの回帰テストで真上の既存計画、距離50%・密集点・アニメ範囲、旋回時間・最短方向・停止・同一座標、開始時Zoom、方位変化時の背景再取得と固定時の再利用を確認する。実ブラウザ・Android実機・実MP4の目視確認は未実施。
+- 検証：npm testは15ファイル・102テスト成功、任意の実データ用1ファイルはスキップ。npm run buildはTypeScript／Viteとも成功（チャンクサイズ警告のみ）。git diff --checkは問題なし。
+
 ## Timeline実績時計（2026-09-29）
 
 - Timelineの実績timestampから現在地時計をHH:mmで表示。地点間・手動点間は同じDAY内のルート距離比で推定し、DAY境界は補間しない。不足・不正時刻の区間は非表示。

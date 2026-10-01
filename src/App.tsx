@@ -17,7 +17,7 @@ import { buildRouteDistanceModel } from './route/routeDistanceProgress';
 import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
-import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type VideoCameraMode } from './video/followCamera';
+import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
 import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { balloonPauseSeconds } from './video/balloonPauses';
@@ -80,6 +80,7 @@ export default function App() {
   const [durationInput, setDurationInput] = useState('10');
   const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
   const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
+  const [followViewMode, setFollowViewMode] = useState<FollowViewMode>('top');
   const [overviewZoomMode, setOverviewZoomMode] = useState<'auto' | 'custom'>('auto');
   const [overviewCustomZoom, setOverviewCustomZoom] = useState(10);
   const [overviewCustomZoomInput, setOverviewCustomZoomInput] = useState('10.0');
@@ -756,7 +757,7 @@ export default function App() {
     if (cameraMode === 'follow') {
       setError('');
       try {
-        setFollowCameraPlan(buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom));
+        setFollowCameraPlan(buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode));
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
         return;
@@ -773,7 +774,7 @@ export default function App() {
     let plan: FollowCameraPlan | undefined;
     if (cameraMode === 'follow') {
       try {
-        plan = buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom);
+        plan = buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
         return;
@@ -978,6 +979,10 @@ export default function App() {
                 </div>
               </>}
               {cameraMode === 'follow' && <>
+                <div className="control-label-with-help"><label>追従視点</label><HelpTip helpKey="followView" /></div>
+                <div className="video-mode-options">
+                  {([['top', '真上'], ['oblique', '斜め']] as const).map(([mode, label]) => <button key={mode} className={followViewMode === mode ? 'active' : ''} aria-pressed={followViewMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowViewMode(mode)}>{label}</button>)}
+                </div>
                 <div className="control-label-with-help"><label>表示範囲</label><HelpTip helpKey="followZoom" /></div>
                 <div className="follow-zoom-options">
                   {([['wide', '広め'], ['standard', '標準'], ['close', '寄り'], ['custom', 'カスタム']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}

@@ -7,7 +7,7 @@ button, input, select { font: inherit; }
 button { touch-action: manipulation; }
 .app-shell { height: 100vh; height: 100dvh; min-height: 620px; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { height: 82px; flex: 0 0 auto; display: flex; align-items: center; gap: 16px; padding: 0 28px; color: white; background: var(--navy); border-bottom: 1px solid #26384e; }
-.brand-logo { display: block; width: auto; height: 64px; max-width: min(280px, 100%); min-width: 0; object-fit: contain; object-position: left center; }
+.brand-logo { display: block; width: auto; height: 76px; max-width: min(320px, 100%); min-width: 0; object-fit: contain; object-position: left center; }
 .topbar-actions { margin-left: auto; display: flex; gap: 10px; min-width: 0; }
 .file-button { min-width: 156px; min-height: 48px; border: 1px solid #405169; border-radius: 9px; background: #142b45; color: white; display: flex; align-items: center; justify-content: center; flex-direction: column; cursor: pointer; }
 .file-button.plan-button { background: transparent; }
