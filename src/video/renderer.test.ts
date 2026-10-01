@@ -125,9 +125,9 @@ vi.mock('mediabunny', () => ({
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
 describe('GSI Vector video background', () => {
-  it('keeps sea, land and water fallbacks below terrain and all detailed vector layers at every supported zoom', () => {
+  it('keeps the land background and land/water fallbacks below terrain and all detailed vector layers at every supported zoom', () => {
     expect(GSI_STYLE.layers[0]).toMatchObject({
-      id: 'gsi-background', type: 'background', paint: { 'background-color': GSI_COLOR_CONFIG.water },
+      id: 'gsi-background', type: 'background', paint: { 'background-color': GSI_COLOR_CONFIG.background },
     });
     const land = GSI_STYLE.layers[1];
     const water = GSI_STYLE.layers[2];
