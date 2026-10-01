@@ -6,6 +6,7 @@
 - 低Zoomの2.5秒強制成功とOverviewのFALLBACK_STYLE継続を廃止。必須Vector取得失敗・20秒の待機timeoutでは、失敗したMapを破棄し、同じGSI_STYLEと画角で新しいMapへ1回だけ再試行する。2attempt失敗時は欠けたMP4を生成せず、日本語エラーでAppへ返す。
 - 正常時は同じMapと既存ImageBitmap背景キャッシュを再利用。Followの画角変更とOverviewの開始時Zoomも同じ失敗時再作成処理を使用し、カメラ・ルート速度・3秒intro・FPS・フレーム数は維持。途中失敗時は背景・Mapを破棄し、未完了のエンコードもcancelする。
 - AdmArea／WAの下地・地図配色とDEMの既存optional fallbackは維持。DEMだけのエラー・timeoutは既存gsiTerrainTint.tsで除去してVector地図で続行し、通常編集地図・プレビュー・Spot PNG・UI・JSONには変更なし。
+- 検証：npm testは15ファイル・116テスト成功、任意の実データ用1ファイルはスキップ。低／高Zoomの未完了timeout、初期取得と画角変更・introの再試行、2attempt失敗時の中止、DEMのみ失敗時の継続、正常時のMap／背景再利用を検証。npm run build成功（チャンクサイズ警告のみ）、git diff --check問題なし。実ブラウザ・実MP4の目視確認は未実施。
 
 ## Map underlay fallback (2026-10-01)
 
