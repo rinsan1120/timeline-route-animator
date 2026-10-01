@@ -821,11 +821,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-mark" aria-hidden="true"><span /></div>
-        <div className="brand-copy">
-          <h1>Timeline Route Animator</h1>
-          <p>移動の軌跡を、一本の映像へ。</p>
-        </div>
+        <img className="brand-logo" src={`${import.meta.env.BASE_URL}journey-map-studio-logo.png`} alt="Journey Map Studio" />
         <div className="topbar-actions">
           <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress || previewProgress !== null}>
             <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>

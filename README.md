@@ -1,4 +1,4 @@
-# Timeline Route Animator
+# Journey Map Studio
 
 Android版Google Maps TimelineからエクスポートしたJSONを、端末の外へ送信せずに読み込み、1日・時間帯単位でルートを手動編集してFHD MP4動画にするWebアプリです。
 
