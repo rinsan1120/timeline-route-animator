@@ -394,7 +394,9 @@ export const GSI_STYLE: StyleSpecification = {
       id: 'gsi-background',
       type: 'background',
       paint: {
-        'background-color': colors.background,
+        'background-color': lowZoomLand.enabled
+          ? ['step', ['zoom'], colors.background, GSI_ZOOM_CONFIG.lowZoomLand.minZoom, colors.water, GSI_ZOOM_CONFIG.lowZoomLand.maxZoom, colors.background]
+          : colors.background,
       },
     },
     ...(lowZoomLand.enabled ? [{

@@ -2,6 +2,7 @@ import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
 import { GSI_COLOR_CONFIG } from '../map/gsiColorConfig';
+import { expression } from '@maplibre/maplibre-gl-style-spec';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 import { createOverviewCamera } from './overviewCamera';
 import { buildFollowCameraPlan, type FollowViewMode } from './followCamera';
@@ -260,10 +261,19 @@ describe('MP4 map readiness and retry', () => {
 });
 
 describe('GSI Vector video background', () => {
-  it('keeps the land background and land/water fallbacks below terrain and all detailed vector layers at every supported zoom', () => {
+  it('uses an ocean background only at low zoom and keeps land/water fallbacks below terrain and detailed vectors at every supported zoom', () => {
     expect(GSI_STYLE.layers[0]).toMatchObject({
-      id: 'gsi-background', type: 'background', paint: { 'background-color': GSI_COLOR_CONFIG.background },
+      id: 'gsi-background', type: 'background', paint: {
+        'background-color': ['step', ['zoom'], GSI_COLOR_CONFIG.background, 4, GSI_COLOR_CONFIG.water, 8, GSI_COLOR_CONFIG.background],
+      },
     });
+    const background = GSI_STYLE.layers[0];
+    if (background.type !== 'background') throw new Error('Expected background layer');
+    const parsed = expression.createExpression(background.paint?.['background-color'], 'layers[0].paint.background-color');
+    if (parsed.result !== 'success') throw new Error('Invalid background expression');
+    for (const [zoom, color] of [[0, GSI_COLOR_CONFIG.background], [3.99, GSI_COLOR_CONFIG.background], [4, GSI_COLOR_CONFIG.water], [7.99, GSI_COLOR_CONFIG.water], [8, GSI_COLOR_CONFIG.background], [16, GSI_COLOR_CONFIG.background]] as const) {
+      expect(parsed.value.evaluate({ zoom })).toBe(color);
+    }
     const land = GSI_STYLE.layers[1];
     const water = GSI_STYLE.layers[2];
     expect(land).toMatchObject({

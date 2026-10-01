@@ -10,10 +10,10 @@
 
 ## Map underlay fallback (2026-10-01)
 
-- 通常の陸地が青みがかることを避けるため、最下層背景はcolors.backgroundを使用。既存optimal_bvmapのAdmAreaを陸地fallback（colors.background）、WAを水域fallback（colors.water）としてZoom 4以上の全Zoomで詳細Vectorの下地に使用する。ソースのminzoom 4／maxzoom 16、既存URL・設定値は維持。
-- 共有GSI_STYLEの順序は陸地色背景→AdmArea陸地色→WA水域色→既存DEM→既存詳細Vector。AdmArea／WAでも補えない領域はcolors.backgroundが見える。通常地図・プレビュー・全体／真上／斜め追従MP4・スポット画像へ共通反映。DEM配色・optional error fallback・詳細レイヤのデザインは変更なし。
-- 追従MP4のwaitForFollowViewportReadyは、補助ソース有効時にZoomによらずその準備を確認。公式Vectorの待機条件、カメラ・時間軸・背景キャッシュ・UI・保存JSONは変更なし。
-- 検証：npm testは15ファイル・105テスト成功、任意の実データ用1ファイルはスキップ。背景色・下地のZoom制限解除・レイヤ順と、Zoom 4／8／12の追従ソース確認を回帰テストで検証。npm run build成功（チャンクサイズ警告のみ）、git diff --check問題なし。実ブラウザ・実MP4の目視確認は未実施。
+- 最下層背景はlowZoomLand有効時にZoom 4未満をcolors.background、Zoom 4以上〜8未満をcolors.water、Zoom 8以上をcolors.backgroundとする（無効時はcolors.background）。低ZoomではAdmArea外側の外洋を背景の海色で補完し、高Zoomでは陸地が青みがからないよう背景を陸地色へ戻す。既存optimal_bvmapのAdmArea／WAはZoom 4以上の全Zoomで詳細Vectorの下地fallbackとして維持。ソースのminzoom 4／maxzoom 16、既存URL・設定値は変更なし。
+- 共有GSI_STYLEの順序はZoom別背景→AdmArea陸地色（colors.background）→WA水域色（colors.water）→既存DEM→既存詳細Vector。通常地図・プレビュー・全体／真上／斜め追従MP4・スポット画像へ共通反映。レイヤ順・DEM配色・optional error fallback・詳細レイヤのデザインは変更なし。
+- MP4の共通waitForVideoViewportReadyは、補助ソース有効時にZoomによらずその準備を確認。直前の厳格な待機・Map再作成による1回再試行・2attempt失敗時の中止を維持し、renderer.tsは今回変更していない。
+- 検証：npm testは15ファイル・116テスト成功、任意の実データ用1ファイルはスキップ。背景色をZoom 0／3.99／4／7.99／8／16で式評価し、全Zoomの下地とレイヤ順を確認。MP4 readiness／retryと真上／斜めFollowの既存テストも成功。npm run build成功（チャンクサイズ警告のみ）、git diff --check問題なし。実ブラウザ・実MP4の目視確認は未実施。
 
 ## Oblique follow view (2026-10-01)
 
