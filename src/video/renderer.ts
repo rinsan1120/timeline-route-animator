@@ -642,7 +642,7 @@ function waitForFollowViewportReady(
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const requiredSources: string[] = [GSI_OFFICIAL_SOURCE_ID];
-    if (isLowZoomMapView(map.getZoom())) requiredSources.push(GSI_LOW_ZOOM_LAND_SOURCE_ID);
+    if (GSI_VECTOR_CONFIG.lowZoomLand.enabled) requiredSources.push(GSI_LOW_ZOOM_LAND_SOURCE_ID);
     const cleanup = () => {
       window.clearTimeout(timer);
       map.off('idle', onIdle);

@@ -1,6 +1,7 @@
 import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID } from '../map/gsiStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
+import { GSI_COLOR_CONFIG } from '../map/gsiColorConfig';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 import { createOverviewCamera } from './overviewCamera';
 import { buildFollowCameraPlan, type FollowViewMode } from './followCamera';
@@ -124,12 +125,38 @@ vi.mock('mediabunny', () => ({
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
 
 describe('GSI Vector video background', () => {
+  it('keeps sea, land and water fallbacks below terrain and all detailed vector layers at every supported zoom', () => {
+    expect(GSI_STYLE.layers[0]).toMatchObject({
+      id: 'gsi-background', type: 'background', paint: { 'background-color': GSI_COLOR_CONFIG.water },
+    });
+    const land = GSI_STYLE.layers[1];
+    const water = GSI_STYLE.layers[2];
+    expect(land).toMatchObject({
+      id: 'gsi-lowzoom-land', type: 'fill', source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      'source-layer': 'AdmArea', minzoom: 4, paint: { 'fill-color': GSI_COLOR_CONFIG.background },
+    });
+    expect(water).toMatchObject({
+      id: 'gsi-fallback-water', type: 'fill', source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      'source-layer': 'WA', minzoom: 4, paint: { 'fill-color': GSI_COLOR_CONFIG.water },
+    });
+    expect(land.maxzoom).toBeUndefined();
+    expect(water.maxzoom).toBeUndefined();
+    expect(GSI_STYLE.sources[GSI_LOW_ZOOM_LAND_SOURCE_ID]).toMatchObject({
+      type: 'vector', minzoom: 4, maxzoom: 16,
+      url: 'pmtiles://https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles',
+    });
+    expect(GSI_STYLE.layers[3].id).toBe(GSI_TERRAIN_TINT_LAYER_ID);
+    expect(GSI_STYLE.layers.slice(4).every((layer) => 'source' in layer && layer.source === GSI_OFFICIAL_SOURCE_ID)).toBe(true);
+  });
+
   it.each([
-    { viewMode: 'top', introZoomEnabled: false },
-    { viewMode: 'top', introZoomEnabled: true },
-    { viewMode: 'oblique', introZoomEnabled: false },
-    { viewMode: 'oblique', introZoomEnabled: true },
-  ] as { viewMode: FollowViewMode; introZoomEnabled: boolean }[])('uses shared follow orientation and caches fixed backgrounds ($viewMode, intro=$introZoomEnabled)', async ({ viewMode, introZoomEnabled }) => {
+    { viewMode: 'top', introZoomEnabled: false, zoom: 8 },
+    { viewMode: 'top', introZoomEnabled: true, zoom: 8 },
+    { viewMode: 'oblique', introZoomEnabled: false, zoom: 8 },
+    { viewMode: 'oblique', introZoomEnabled: true, zoom: 8 },
+    { viewMode: 'top', introZoomEnabled: false, zoom: 4 },
+    { viewMode: 'oblique', introZoomEnabled: false, zoom: 12 },
+  ] as { viewMode: FollowViewMode; introZoomEnabled: boolean; zoom: number }[])('uses shared follow orientation and caches fixed backgrounds ($viewMode, intro=$introZoomEnabled, zoom=$zoom)', async ({ viewMode, introZoomEnabled, zoom }) => {
     const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
     const createImageBitmap = vi.fn(async () => mocks.bitmap);
     vi.stubGlobal('window', { VideoEncoder: class {}, setTimeout, clearTimeout });
@@ -142,14 +169,17 @@ describe('GSI Vector video background', () => {
     const points = [[0, 0], [0.01, 0], [0.01, 0.01]].map(([longitude, latitude], index) => ({
       id: String(index), longitude, latitude, source: 'manual' as const, original: false,
     }));
-    const plan = buildFollowCameraPlan(points, 'wide', 5, 10, viewMode);
+    const plan = buildFollowCameraPlan(points, 'custom', 5, zoom, viewMode);
     expect(plan.events).toHaveLength(0);
     const { renderRouteVideo } = await import('./renderer');
     await renderRouteVideo({
-      points, cameraMode: 'follow', followZoomPreset: 'wide', followViewMode: viewMode,
+      points, cameraMode: 'follow', followZoomPreset: 'custom', followCustomZoom: zoom, followViewMode: viewMode,
       duration: 5, introZoomEnabled, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn(),
     });
     const map = mocks.maps[0];
+    expect(map.isSourceLoaded).toHaveBeenCalledWith(GSI_LOW_ZOOM_LAND_SOURCE_ID);
+    const fallbackReadyIndex = map.isSourceLoaded.mock.calls.findIndex(([id]: any[]) => id === GSI_LOW_ZOOM_LAND_SOURCE_ID);
+    expect(map.isSourceLoaded.mock.invocationCallOrder[fallbackReadyIndex]).toBeLessThan(map.getCanvas.mock.invocationCallOrder[0]);
     expect(map.options).toMatchObject({ bearing: plan.firstBearing, pitch: plan.pitch });
     const cameras = map.jumpTo.mock.calls.map(([camera]: any[]) => camera);
     expect(cameras.every((camera: any) => camera.pitch === plan.pitch)).toBe(true);

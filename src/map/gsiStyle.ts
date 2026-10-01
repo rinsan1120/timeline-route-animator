@@ -394,9 +394,7 @@ export const GSI_STYLE: StyleSpecification = {
       id: 'gsi-background',
       type: 'background',
       paint: {
-        'background-color': lowZoomLand.enabled
-          ? ['step', ['zoom'], colors.background, GSI_ZOOM_CONFIG.lowZoomLand.minZoom, colors.water, GSI_ZOOM_CONFIG.lowZoomLand.maxZoom, colors.background]
-          : colors.background,
+        'background-color': colors.water,
       },
     },
     ...(lowZoomLand.enabled ? [{
@@ -405,8 +403,14 @@ export const GSI_STYLE: StyleSpecification = {
       source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
       'source-layer': lowZoomLand.sourceLayer,
       minzoom: GSI_ZOOM_CONFIG.lowZoomLand.minZoom,
-      maxzoom: GSI_ZOOM_CONFIG.lowZoomLand.maxZoom,
       paint: { 'fill-color': colors.background },
+    }, {
+      id: 'gsi-fallback-water',
+      type: 'fill' as const,
+      source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      'source-layer': 'WA',
+      minzoom: GSI_ZOOM_CONFIG.lowZoomLand.minZoom,
+      paint: { 'fill-color': colors.water },
     }] : []),
     ...(terrainTint.enabled ? [{
       id: GSI_TERRAIN_TINT_LAYER_ID,

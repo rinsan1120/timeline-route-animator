@@ -1,5 +1,12 @@
 # HANDOFF
 
+## Map underlay fallback (2026-10-01)
+
+- 詳細Vector地図が欠けた際の白背景露出を防ぐため、既存optimal_bvmapのAdmArea／WAをZoom 4以上の全Zoomで下地fallbackとして使用し、最下層背景を常に海色にした。ソースのminzoom 4／maxzoom 16、既存URL・設定値は維持。
+- 共有GSI_STYLEの順序は海色背景→AdmArea陸地色→WA海色→既存DEM→既存詳細Vector。通常地図・プレビュー・全体／真上／斜め追従MP4・スポット画像へ共通反映。DEM配色・optional error fallback・詳細レイヤのデザインは変更なし。
+- 追従MP4のwaitForFollowViewportReadyは、補助ソース有効時にZoomによらずその準備を確認。公式Vectorの待機条件、カメラ・時間軸・背景キャッシュ・UI・保存JSONは変更なし。
+- 検証：npm testは15ファイル・105テスト成功、任意の実データ用1ファイルはスキップ。背景色・下地のZoom制限解除・レイヤ順と、Zoom 4／8／12の追従ソース確認を回帰テストで検証。npm run build成功（チャンクサイズ警告のみ）、git diff --check問題なし。実ブラウザ・実MP4の目視確認は未実施。
+
 ## Oblique follow view (2026-10-01)
 
 - Step 03のルート追従に「追従視点：真上／斜め」と共通HelpTipを追加。初期値top、Timeline／計画共用、一時UI stateのみ。プレビュー／MP4生成中は変更不可。Spot・JSON形式／version・Undo/Redoは変更なし。
