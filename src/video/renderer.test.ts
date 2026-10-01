@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   maps: [] as any[],
   add: vi.fn(async () => {}),
   bitmap: { close: vi.fn() },
+  cancel: vi.fn(async () => {}),
+  configureMap: null as null | ((map: any, index: number) => void),
 }));
 
 vi.mock('maplibre-gl', () => ({
@@ -103,6 +105,7 @@ vi.mock('maplibre-gl', () => ({
       this.sources = { ...options.style.sources };
       this.layers = Object.fromEntries(options.style.layers.map((layer: any) => [layer.id, layer]));
       mocks.maps.push(this);
+      mocks.configureMap?.(this, mocks.maps.length - 1);
       queueMicrotask(() => {
         if (this.removed) return;
         this.styleLoaded = true;
@@ -117,12 +120,144 @@ vi.mock('mediabunny', () => ({
   BufferTarget: class { buffer = new ArrayBuffer(8); },
   CanvasSource: class { add = mocks.add; close() {} },
   Mp4OutputFormat: class { getSupportedVideoCodecs() { return ['avc']; } },
-  Output: class { addVideoTrack() {} async start() {} async finalize() {} },
+  Output: class { addVideoTrack() {} async start() {} async finalize() {} cancel = mocks.cancel; },
   Quality: class {},
   getFirstEncodableVideoCodec: async () => 'avc',
 }));
 
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.maps.length = 0; mocks.configureMap = null; });
+
+function setupVideoEnvironment() {
+  const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
+  const createImageBitmap = vi.fn(async () => mocks.bitmap);
+  vi.stubGlobal('window', { VideoEncoder: class {}, setTimeout, clearTimeout });
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { queueMicrotask(callback); return 1; });
+  vi.stubGlobal('createImageBitmap', createImageBitmap);
+  vi.stubGlobal('document', {
+    body: { appendChild() {} },
+    createElement: () => ({ style: {}, remove() {}, getContext: () => context }),
+  });
+  const points = [[0, 0], [0.01, 0], [0.01, 0.01]].map(([longitude, latitude], index) => ({
+    id: String(index), longitude, latitude, source: 'manual' as const, original: false,
+  }));
+  return { context, createImageBitmap, points };
+}
+
+function failMapJump(map: any, jumpNumber: number, sourceId: string) {
+  const jump = map.jumpTo.getMockImplementation()!;
+  map.jumpTo.mockImplementation((camera: any) => {
+    jump(camera);
+    if (map.jumpTo.mock.calls.length === jumpNumber) {
+      queueMicrotask(() => map.emit('error', { sourceId, error: new Error('synthetic tile failure') }));
+    }
+    return map;
+  });
+}
+
+describe('MP4 map readiness and retry', () => {
+  it.each([4, 10])('never captures an incomplete overview at zoom %s, even after 2.5 seconds, and stops after two timeouts', async (zoom) => {
+    vi.useFakeTimers();
+    const { createImageBitmap, points } = setupVideoEnvironment();
+    mocks.configureMap = (map) => {
+      map.areTilesLoaded = () => false;
+      // An idle notification alone must not bypass readiness checks.
+      map.triggerRepaint.mockImplementation(() => {
+        queueMicrotask(() => { if (!map.removed) { map.emit('render'); map.emit('idle'); } });
+        return map;
+      });
+    };
+    const { renderRouteVideo } = await import('./renderer');
+    const rejection = expect(renderRouteVideo({
+      points, overviewCamera: { longitude: 0, latitude: 0, zoom, bearing: 0, pitch: 0 },
+      duration: 5, revealRoute: true, onProgress: vi.fn(),
+    })).rejects.toThrow('動画用の地図データを完全に読み込めませんでした');
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.maps).toHaveLength(1);
+    expect(mocks.maps[0].getCanvas).not.toHaveBeenCalled();
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(17_500);
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].remove).toHaveBeenCalledOnce();
+    expect(mocks.maps[1].options).toEqual(mocks.maps[0].options);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    expect(mocks.maps.every((map) => map.options.style === GSI_STYLE && map.removed && map.getCanvas.mock.calls.length === 0)).toBe(true);
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+
+  it.each(['overview', 'follow'] as const)('recreates the map once after an initial Vector error in %s', async (cameraMode) => {
+    const { points } = setupVideoEnvironment();
+    mocks.configureMap = (map, index) => { if (index === 0) failMapJump(map, 1, GSI_OFFICIAL_SOURCE_ID); };
+    const { renderRouteVideo } = await import('./renderer');
+    const blob = await renderRouteVideo({ points, cameraMode, duration: 5, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(blob.type).toBe('video/mp4');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].getCanvas).not.toHaveBeenCalled();
+    expect(mocks.maps[0].remove).toHaveBeenCalledOnce();
+    expect(mocks.maps[1].options).toEqual(mocks.maps[0].options);
+    expect(mocks.maps[0].remove.mock.invocationCallOrder[0]).toBeLessThan(mocks.maps[1].jumpTo.mock.invocationCallOrder[0]);
+    expect(mocks.add).toHaveBeenCalledTimes(330);
+  });
+
+  it.each(['overview', 'follow'] as const)('rejects two initial Vector failures in %s without encoding any frame', async (cameraMode) => {
+    const { points, createImageBitmap } = setupVideoEnvironment();
+    mocks.configureMap = (map) => failMapJump(map, 1, GSI_LOW_ZOOM_LAND_SOURCE_ID);
+    const { renderRouteVideo } = await import('./renderer');
+    await expect(renderRouteVideo({ points, cameraMode, duration: 5, revealRoute: true, onProgress: vi.fn() }))
+      .rejects.toThrow('もう一度MP4を生成してください');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps.every((map) => map.removed && map.listeners.size === 0)).toBe(true);
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('retries a changed oblique follow background once (second failure=%s)', async (failAgain) => {
+    const { points } = setupVideoEnvironment();
+    mocks.configureMap = (map, index) => {
+      if (index === 0) failMapJump(map, 3, GSI_OFFICIAL_SOURCE_ID);
+      if (index === 1 && failAgain) failMapJump(map, 1, GSI_OFFICIAL_SOURCE_ID);
+    };
+    const { renderRouteVideo } = await import('./renderer');
+    const result = renderRouteVideo({ points, cameraMode: 'follow', followViewMode: 'oblique', duration: 5, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    if (failAgain) await expect(result).rejects.toThrow('もう一度MP4を生成してください');
+    else expect((await result).type).toBe('video/mp4');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].getCanvas).toHaveBeenCalledOnce();
+    const failedCamera = mocks.maps[0].jumpTo.mock.calls[2][0];
+    expect(mocks.maps[1].jumpTo.mock.calls[0][0]).toEqual(failedCamera);
+    expect(failedCamera.pitch).toBe(45);
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+    if (failAgain) {
+      expect(mocks.maps[1].getCanvas).not.toHaveBeenCalled();
+      expect(mocks.add.mock.calls.length).toBeLessThan(330);
+      expect(mocks.cancel).toHaveBeenCalledOnce();
+    } else expect(mocks.add).toHaveBeenCalledTimes(330);
+  });
+
+  it.each(['overview', 'follow'] as const)('keeps DEM-only failure optional in %s', async (cameraMode) => {
+    const { points } = setupVideoEnvironment();
+    mocks.configureMap = (map) => failMapJump(map, 1, GSI_DEM_SOURCE_ID);
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, duration: 5, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(mocks.maps).toHaveLength(1);
+    expect(mocks.maps[0].removeSource).toHaveBeenCalledWith(GSI_DEM_SOURCE_ID);
+    expect(mocks.maps[0].removeLayer).toHaveBeenCalledWith(GSI_TERRAIN_TINT_LAYER_ID);
+    expect(mocks.maps[0].getSource(GSI_OFFICIAL_SOURCE_ID)).toBeDefined();
+    expect(mocks.add).toHaveBeenCalledTimes(330);
+  });
+
+  it('waits for every overview intro viewport and retries its failed frame without changing frame count', async () => {
+    const { points } = setupVideoEnvironment();
+    mocks.configureMap = (map, index) => { if (index === 0) failMapJump(map, 3, GSI_OFFICIAL_SOURCE_ID); };
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, introZoomEnabled: true, duration: 5, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[1].jumpTo.mock.calls[0][0]).toEqual(mocks.maps[0].jumpTo.mock.calls[2][0]);
+    expect(mocks.add).toHaveBeenCalledTimes(330);
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+  });
+});
 
 describe('GSI Vector video background', () => {
   it('keeps the land background and land/water fallbacks below terrain and all detailed vector layers at every supported zoom', () => {
@@ -181,7 +316,7 @@ describe('GSI Vector video background', () => {
     const fallbackReadyIndex = map.isSourceLoaded.mock.calls.findIndex(([id]: any[]) => id === GSI_LOW_ZOOM_LAND_SOURCE_ID);
     expect(map.isSourceLoaded.mock.invocationCallOrder[fallbackReadyIndex]).toBeLessThan(map.getCanvas.mock.invocationCallOrder[0]);
     expect(map.options).toMatchObject({ bearing: plan.firstBearing, pitch: plan.pitch });
-    const cameras = map.jumpTo.mock.calls.map(([camera]: any[]) => camera);
+    const cameras = map.jumpTo.mock.calls.slice(1).map(([camera]: any[]) => camera);
     expect(cameras.every((camera: any) => camera.pitch === plan.pitch)).toBe(true);
     expect(cameras.every((camera: any) => camera.center[0] === 0 && camera.center[1] === 0)).toBe(true);
     if (introZoomEnabled) {
@@ -202,6 +337,7 @@ describe('GSI Vector video background', () => {
     expect(mocks.bitmap.close.mock.calls.length).toBe(cameras.length);
     expect(mocks.add).toHaveBeenCalledTimes(330);
     expect(map.remove).toHaveBeenCalledOnce();
+    expect(mocks.maps).toHaveLength(1);
   });
 
   it('adds pause seconds to output duration and frame count', async () => {
@@ -262,10 +398,10 @@ describe('GSI Vector video background', () => {
       maxzoom: officialNationalRouteNumber?.maxzoom,
       layout: officialNationalRouteNumber?.layout,
     });
-    expect(map.once.mock.calls.map((call: any[]) => call[0])).toEqual(['remove', 'style.load', 'idle']);
+    expect(map.once.mock.calls.map((call: any[]) => call[0])).toEqual(['remove', 'style.load']);
     expect(map.jumpTo).toHaveBeenCalledWith({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
-    const idleWaitIndex = map.once.mock.calls.findIndex(([event]: any[]) => event === 'idle');
-    expect(map.jumpTo.mock.invocationCallOrder[0]).toBeLessThan(map.once.mock.invocationCallOrder[idleWaitIndex]);
+    const idleWaitIndex = map.on.mock.calls.findIndex(([event]: any[]) => event === 'idle');
+    expect(map.jumpTo.mock.invocationCallOrder[0]).toBeLessThan(map.on.mock.invocationCallOrder[idleWaitIndex]);
     const demReadyIndex = map.isSourceLoaded.mock.calls.findIndex(([id]: any[]) => id === GSI_DEM_SOURCE_ID);
     expect(demReadyIndex).toBeGreaterThanOrEqual(0);
     expect(map.jumpTo.mock.invocationCallOrder[0]).toBeLessThan(map.isSourceLoaded.mock.invocationCallOrder[demReadyIndex]);

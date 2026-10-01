@@ -1,5 +1,12 @@
 # HANDOFF
 
+## MP4 map readiness and retry (2026-10-01)
+
+- MP4では未完成の地図viewportをフレームへ採用しない。Overview／Follow／開始時Zoomとも、style準備・必須Vectorの存在とloaded・map.loaded／areTilesLoaded・カメラ変更後のidle・非DEMエラーなしを共通処理で確認してから背景を取り込む。
+- 低Zoomの2.5秒強制成功とOverviewのFALLBACK_STYLE継続を廃止。必須Vector取得失敗・20秒の待機timeoutでは、失敗したMapを破棄し、同じGSI_STYLEと画角で新しいMapへ1回だけ再試行する。2attempt失敗時は欠けたMP4を生成せず、日本語エラーでAppへ返す。
+- 正常時は同じMapと既存ImageBitmap背景キャッシュを再利用。Followの画角変更とOverviewの開始時Zoomも同じ失敗時再作成処理を使用し、カメラ・ルート速度・3秒intro・FPS・フレーム数は維持。途中失敗時は背景・Mapを破棄し、未完了のエンコードもcancelする。
+- AdmArea／WAの下地・地図配色とDEMの既存optional fallbackは維持。DEMだけのエラー・timeoutは既存gsiTerrainTint.tsで除去してVector地図で続行し、通常編集地図・プレビュー・Spot PNG・UI・JSONには変更なし。
+
 ## Map underlay fallback (2026-10-01)
 
 - 通常の陸地が青みがかることを避けるため、最下層背景はcolors.backgroundを使用。既存optimal_bvmapのAdmAreaを陸地fallback（colors.background）、WAを水域fallback（colors.water）としてZoom 4以上の全Zoomで詳細Vectorの下地に使用する。ソースのminzoom 4／maxzoom 16、既存URL・設定値は維持。

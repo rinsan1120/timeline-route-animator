@@ -1,5 +1,4 @@
 import { sampleRecordedRouteTime, drawRouteClock, followClockPointIndex } from './routeClock';
-import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { drawAnnotation } from '../route/annotationCanvas';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement, type EndpointMarkerPlacements } from '../popup/placement';
 import * as maplibregl from 'maplibre-gl';
@@ -9,8 +8,8 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DEM_SOURCE_ID } from '../map/gsiStyle';
-import { installTerrainTintFallback, isTerrainTintError, removeTerrainTint } from '../map/gsiTerrainTint';
+import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
+import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrainTint';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './followCamera';
@@ -29,7 +28,53 @@ const styleReadyMaps = new WeakSet<maplibregl.Map>();
 export { VIDEO_FPS } from './overviewCamera';
 export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
 export const POST_ROLL_SECONDS = PLAYBACK_POST_ROLL_SECONDS;
-const FALLBACK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e7edef' } }] };
+const VIDEO_MAP_TIMEOUT = 20_000;
+const VIDEO_MAP_ERROR = '動画用の地図データを完全に読み込めませんでした。通信状況を確認して、もう一度MP4を生成してください。';
+
+// Only map preparation is retried; successful maps and captured backgrounds are reused.
+function createVideoMapSession(container: HTMLElement, signal?: AbortSignal) {
+  let map: maplibregl.Map | null = null;
+  let loadError: Error | null = null;
+  const onError = (event: maplibregl.ErrorEvent) => {
+    if (!isTerrainTintError(event)) loadError = new Error(VIDEO_MAP_ERROR);
+  };
+  const dispose = () => {
+    if (map) {
+      map.off('error', onError);
+      map.remove();
+      map = null;
+    }
+    loadError = null;
+  };
+  const prepare = async (camera: VideoCamera, move = true): Promise<maplibregl.Map> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
+      try {
+        const created = !map;
+        if (!map) {
+          map = new maplibregl.Map({
+            container, style: GSI_STYLE, center: [camera.longitude, camera.latitude],
+            zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch,
+            interactive: false, attributionControl: false, pixelRatio: 1,
+            canvasContextAttributes: { preserveDrawingBuffer: true },
+          });
+          installTerrainTintFallback(map);
+          map.on('error', onError);
+        }
+        await waitForStyle(map, VIDEO_MAP_TIMEOUT, () => loadError, signal);
+        if (created || move) map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
+        await waitForVideoViewportReady(map, VIDEO_MAP_TIMEOUT, () => loadError, signal);
+        return map;
+      } catch (error) {
+        dispose();
+        if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+        if (attempt === 1) throw new Error(VIDEO_MAP_ERROR, { cause: error });
+      }
+    }
+    throw new Error(VIDEO_MAP_ERROR);
+  };
+  return { prepare, dispose, hasError: () => loadError !== null };
+}
 
 export function outputVideoDuration(duration: number, pauseSeconds = 0): number {
   return PRE_ROLL_SECONDS + duration + pauseSeconds + POST_ROLL_SECONDS;
@@ -87,25 +132,11 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
   document.body.appendChild(mapContainer);
-  const map = new maplibregl.Map({ container: mapContainer, style: GSI_STYLE, center: [options.points[0].longitude, options.points[0].latitude], zoom: 10, interactive: false, attributionControl: false, pixelRatio: 1, canvasContextAttributes: { preserveDrawingBuffer: true } });
-  let mapRemoved = false;
-  installTerrainTintFallback(map);
+  const videoMap = createVideoMapSession(mapContainer, options.signal);
+  let background: ImageBitmap | null = null;
+  let unfinishedOutput: Output | null = null;
   try {
-    await waitForStyle(map, 20_000);
-    map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
-    await waitForTerrainTintReady(map, 20_000);
-    if (isLowZoomMapView(map.getZoom())) {
-      await waitForLowZoomVisualReady(map, 20_000);
-    } else {
-      try {
-        await waitForIdle(map, 20_000);
-      } catch {
-        map.setStyle(FALLBACK_STYLE);
-        await waitForStyle(map, 5_000);
-      }
-    }
-    map.triggerRepaint();
-    await nextPaint();
+    let map = await videoMap.prepare(camera);
 
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
@@ -120,6 +151,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    unfinishedOutput = output;
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
@@ -131,8 +163,6 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       const targetCenter = { lng: camera.longitude, lat: camera.latitude };
       const targetZoom = camera.zoom;
       const startZoom = getIntroStartZoom(targetZoom, VIDEO_MIN_ZOOM);
-      map.jumpTo({ center: targetCenter, zoom: startZoom, bearing: 0, pitch: 0 });
-      let previousBandKey: string | null = null;
       const introPlayback: FollowPlaybackState = {
         phase: 'moving',
         routeProgress: 0,
@@ -147,25 +177,16 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
         const introProgress = preFrames <= 1 ? 1 : frame / (preFrames - 1);
         const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
-        map.jumpTo({ center: targetCenter, zoom, bearing: 0, pitch: 0 });
-        const bandKey = introZoomBandKey(zoom);
-        if (bandKey !== previousBandKey) {
-          await waitForIntroZoomBandReady(map, zoom, 20_000);
-          previousBandKey = bandKey;
-        } else {
-          await waitForRenderedMapFrame(map, 20_000);
-          await waitForTerrainTintReady(map, 20_000);
-        }
+        map = await videoMap.prepare({ longitude: targetCenter.lng, latitude: targetCenter.lat, zoom, bearing: 0, pitch: 0 });
         drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, 0, 0) : null);
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
-      map.jumpTo({ center: targetCenter, zoom: targetZoom, bearing: 0, pitch: 0 });
-      await waitForIntroZoomBandReady(map, targetZoom, 20_000);
     }
+    map = await videoMap.prepare(camera, !!options.introZoomEnabled);
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
-    const background = await createImageBitmap(canvas);
+    background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
     const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
@@ -182,8 +203,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       }),
     }));
     // Encoding uses only the captured bitmap and projected route from this point on.
-    map.remove();
-    mapRemoved = true;
+    videoMap.dispose();
     for (let frame = options.introZoomEnabled ? preFrames : 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const animationFrame = frame - preFrames;
@@ -201,12 +221,15 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     }
     source.close();
     await output.finalize();
-    background.close();
+    unfinishedOutput = null;
     if (!target.buffer) throw new Error('MP4データを作成できませんでした。');
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
-    if (!mapRemoved) map.remove();
+    background?.close();
+    videoMap.dispose();
     mapContainer.remove();
+    // Keep the original failure if encoder cancellation also fails.
+    await unfinishedOutput?.cancel().catch(() => {});
   }
 }
 
@@ -446,30 +469,11 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   const mapContainer = document.createElement('div');
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${WIDTH}px`, height: `${HEIGHT}px`, pointerEvents: 'none' });
   document.body.appendChild(mapContainer);
-  const map = new maplibregl.Map({
-    container: mapContainer,
-    style: GSI_STYLE,
-    center: [initialPlayback.cameraCenter.longitude, initialPlayback.cameraCenter.latitude],
-    zoom: initialPlayback.zoom,
-    bearing: initialPlayback.bearing,
-    pitch: initialPlayback.pitch,
-    interactive: false,
-    attributionControl: false,
-    pixelRatio: 1,
-    canvasContextAttributes: { preserveDrawingBuffer: true },
-  });
+  const videoMap = createVideoMapSession(mapContainer, options.signal);
   let background: ImageBitmap | null = null;
-  installTerrainTintFallback(map);
-  // Failed tiles may count as loaded in MapLibre. Keep errors across camera changes.
-  let mapLoadError: Error | null = null;
-  const onMapError = (event: maplibregl.ErrorEvent) => {
-    if (isTerrainTintError(event)) return;
-    mapLoadError = new Error('追従動画用の地図データを読み込めませんでした。ネットワーク接続を確認してください。');
-  };
-  map.on('error', onMapError);
+  let unfinishedOutput: Output | null = null;
   try {
-    await waitForStyle(map, 20_000);
-    await waitForFollowViewportReady(map, 20_000, () => mapLoadError, options.signal);
+    let map = await videoMap.prepare({ ...initialPlayback.cameraCenter, zoom: initialPlayback.zoom, bearing: initialPlayback.bearing, pitch: initialPlayback.pitch });
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
@@ -483,6 +487,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     const dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
     const target = new BufferTarget();
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target });
+    unfinishedOutput = output;
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
@@ -511,16 +516,14 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
       const nextBackgroundKey = `${playback.cameraCenter.longitude.toFixed(9)}:${playback.cameraCenter.latitude.toFixed(9)}:${playback.zoom}:${playback.bearing}:${playback.pitch}`;
       const introFrame = options.introZoomEnabled && frame < preFrames;
       const lastIntroFrame = introFrame && frame === preFrames - 1;
-      if (!background || nextBackgroundKey !== backgroundKey || lastIntroFrame) {
-        map.jumpTo({ center: [playback.cameraCenter.longitude, playback.cameraCenter.latitude], zoom: playback.zoom, bearing: playback.bearing, pitch: playback.pitch });
-        await waitForFollowViewportReady(map, 20_000, () => mapLoadError, options.signal);
+      if (!background || nextBackgroundKey !== backgroundKey || lastIntroFrame || videoMap.hasError()) {
+        map = await videoMap.prepare({ ...playback.cameraCenter, zoom: playback.zoom, bearing: playback.bearing, pitch: playback.pitch });
         context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
         const nextBackground = await createImageBitmap(canvas);
         background?.close();
         background = nextBackground;
         backgroundKey = nextBackgroundKey;
       }
-      if (mapLoadError) throw mapLoadError;
       drawFollowFrame(context, background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, playback.routeProgress, followClockPointIndex(playback, samplePlaybackTimeline(playbackTimeline, outputElapsedSeconds).pausePointIndex)) : null);
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
@@ -528,13 +531,14 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     }
     source.close();
     await output.finalize();
+    unfinishedOutput = null;
     if (!target.buffer) throw new Error('MP4データを作成できませんでした。');
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
     background?.close();
-    map.off('error', onMapError);
-    map.remove();
+    videoMap.dispose();
     mapContainer.remove();
+    await unfinishedOutput?.cancel().catch(() => {});
   }
 }
 
@@ -630,11 +634,7 @@ function isInVideoViewport(point: { x: number; y: number }): boolean {
   return point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
 }
 
-function isLowZoomMapView(zoom: number): boolean {
-  return GSI_VECTOR_CONFIG.lowZoomLand.enabled && zoom < GSI_ZOOM_CONFIG.lowZoomLand.maxZoom;
-}
-
-function waitForFollowViewportReady(
+function waitForVideoViewportReady(
   map: maplibregl.Map,
   timeout: number,
   getLoadError: () => Error | null,
@@ -654,7 +654,7 @@ function waitForFollowViewportReady(
       reject(error);
     };
     const onError = (event: maplibregl.ErrorEvent) => {
-      if (!isTerrainTintError(event)) fail(getLoadError() ?? new Error('追従動画用の地図データを読み込めませんでした。'));
+      if (!isTerrainTintError(event)) fail(getLoadError() ?? new Error(VIDEO_MAP_ERROR));
     };
     const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
     const onIdle = () => {
@@ -665,7 +665,7 @@ function waitForFollowViewportReady(
           if (!map.getSource(sourceId)) return fail(new Error(`動画用の地図データが見つかりません（${sourceId}）。`));
         }
         // loaded/areTilesLoadedはDEMも含む全sourceを待つ。DEM失敗時だけ共有処理がsourceを外す。
-        if (!map.loaded() || !map.areTilesLoaded() || !requiredSources.every((sourceId) => map.isSourceLoaded(sourceId))) return;
+        if (!map.isStyleLoaded() || !map.loaded() || !map.areTilesLoaded() || !requiredSources.every((sourceId) => map.isSourceLoaded(sourceId))) return;
         cleanup();
         resolve();
       } catch (error) {
@@ -673,7 +673,7 @@ function waitForFollowViewportReady(
       }
     };
     const timer = window.setTimeout(() => {
-      fail(new Error('追従動画用の地図データの読み込みがタイムアウトしました。動画生成を中止しました。'));
+      fail(new Error(VIDEO_MAP_ERROR));
     }, timeout);
     map.on('idle', onIdle);
     map.on('error', onError);
@@ -692,131 +692,12 @@ function waitForFollowViewportReady(
   });
 }
 
-async function waitForRenderedMapFrame(map: maplibregl.Map, timeout: number): Promise<void> {
-  // style.load完了後のタイル取得を、スタイル自体の未ロードと混同しない。
-  if (!styleReadyMaps.has(map)) await waitForStyle(map, timeout);
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      map.off('render', onRender);
-    };
-    const onRender = () => {
-      cleanup();
-      resolve();
-    };
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('動画用地図を描画できませんでした。'));
-    }, timeout);
-    map.on('render', onRender);
-    try {
-      map.triggerRepaint();
-    } catch (error) {
-      cleanup();
-      reject(error);
-    }
-  });
-  await nextPaint();
-}
-
-async function waitForLowZoomVisualReady(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (!styleReadyMaps.has(map)) await waitForStyle(map, timeout);
-  if (!(map.loaded() && map.areTilesLoaded())) {
-    // 初回Range Requestに猶予を与えるが、全タイルの完了は必須にしない。
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => {
-        window.clearTimeout(timer);
-        map.off('idle', onReady);
-        map.off('render', onRender);
-      };
-      const onReady = () => { cleanup(); resolve(); };
-      const onRender = () => {
-        if (map.loaded() && map.areTilesLoaded()) onReady();
-      };
-      const timer = window.setTimeout(onReady, Math.min(timeout, 2_500));
-      map.on('idle', onReady);
-      map.on('render', onRender);
-      try {
-        map.triggerRepaint();
-      } catch (error) {
-        cleanup();
-        reject(error);
-      }
-    });
-  }
-  await waitForRenderedMapFrame(map, timeout);
-}
-
-async function waitForPrimaryVectorReady(map: maplibregl.Map, timeout: number): Promise<void> {
-  await waitForMapSourceReady(map, GSI_OFFICIAL_SOURCE_ID, timeout);
-}
-
-function introZoomBandKey(zoom: number): string {
-  return `${isLowZoomMapView(zoom) ? 'low' : 'main'}:${Math.floor(zoom)}`;
-}
-
-async function waitForIntroZoomBandReady(map: maplibregl.Map, zoom: number, timeout: number): Promise<void> {
-  await waitForPrimaryVectorReady(map, timeout);
-  if (isLowZoomMapView(zoom)) await waitForMapSourceReady(map, GSI_LOW_ZOOM_LAND_SOURCE_ID, timeout);
-  await waitForTerrainTintReady(map, timeout);
-}
-
-async function waitForTerrainTintReady(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (!map.getSource(GSI_DEM_SOURCE_ID)) return;
-  await waitForMapSourceReady(map, GSI_DEM_SOURCE_ID, timeout, true);
-}
-
-async function waitForMapSourceReady(map: maplibregl.Map, sourceId: string, timeout: number, optionalTerrain = false): Promise<void> {
-  // view変更を反映してから、指定sourceだけの準備完了を確認する。
-  await waitForRenderedMapFrame(map, timeout);
-  if (!map.getSource(sourceId)) {
-    if (optionalTerrain) return;
-    throw new Error(`動画用の地図データが見つかりません（${sourceId}）。`);
-  }
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      map.off('sourcedata', checkReady);
-      map.off('render', checkReady);
-    };
-    const checkReady = () => {
-      try {
-        if ((!map.getSource(sourceId) && optionalTerrain) || (map.getSource(sourceId) && map.isSourceLoaded(sourceId))) {
-          cleanup();
-          resolve();
-        }
-      } catch (error) {
-        cleanup();
-        reject(error);
-      }
-    };
-    const timer = window.setTimeout(() => {
-      cleanup();
-      if (optionalTerrain) {
-        removeTerrainTint(map);
-        resolve();
-        return;
-      }
-      reject(new Error(`動画用の地図データの読み込みがタイムアウトしました（${sourceId}）。`));
-    }, timeout);
-    map.on('sourcedata', checkReady);
-    map.on('render', checkReady);
-    checkReady();
-  });
-  await waitForRenderedMapFrame(map, timeout);
-}
-
-function waitForIdle(map: maplibregl.Map, timeout: number): Promise<void> {
-  if (map.loaded() && map.areTilesLoaded()) return nextPaint();
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('動画用地図の読み込みがタイムアウトしました。')), timeout);
-    map.once('idle', () => { window.clearTimeout(timer); resolve(); });
-  });
-}
-
-function waitForStyle(map: maplibregl.Map, timeout: number): Promise<void> {
-  styleReadyMaps.delete(map);
-  if (map.isStyleLoaded()) {
+function waitForStyle(map: maplibregl.Map, timeout: number, getLoadError: () => Error | null, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
+  const error = getLoadError();
+  if (error) return Promise.reject(error);
+  // isStyleLoaded also reflects tile readiness; style.load itself fires only once.
+  if (styleReadyMaps.has(map) || map.isStyleLoaded()) {
     styleReadyMaps.add(map);
     return Promise.resolve();
   }
@@ -824,20 +705,25 @@ function waitForStyle(map: maplibregl.Map, timeout: number): Promise<void> {
     const cleanup = () => {
       window.clearTimeout(timer);
       map.off('style.load', onLoad);
+      map.off('error', onError);
+      signal?.removeEventListener('abort', onAbort);
     };
     const onLoad = () => {
       cleanup();
       styleReadyMaps.add(map);
       resolve();
     };
+    const fail = (error: unknown) => { cleanup(); reject(error); };
+    const onError = (event: maplibregl.ErrorEvent) => {
+      if (!isTerrainTintError(event)) fail(getLoadError() ?? new Error(VIDEO_MAP_ERROR));
+    };
+    const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
     const timer = window.setTimeout(() => {
       cleanup();
       reject(new Error('動画用地図を準備できませんでした。'));
     }, timeout);
     map.once('style.load', onLoad);
+    map.on('error', onError);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
-}
-
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
