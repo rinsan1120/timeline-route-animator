@@ -20,8 +20,9 @@ button { touch-action: manipulation; }
 .panel-section { padding: 22px 22px 20px; border-bottom: 1px solid #e8ebef; }
 .section-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
 .step { display: grid; place-items: center; min-width: 30px; height: 30px; color: var(--orange); border: 1.5px solid #ffad98; border-radius: 50%; font-size: 11px; font-weight: 700; }
+.section-heading > div { flex: 1; min-width: 0; }
 .section-heading h2 { font-size: 15px; margin: 1px 0 4px; }
-.section-heading p { color: var(--muted); font-size: 10px; margin: 0; max-width: 225px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.section-heading p { color: var(--muted); font-size: 10px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
 label { color: #536177; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 select, input[type='time'], input[type='date'] { width: 100%; height: 39px; margin-top: 7px; color: #162943; background: #f8fafb; border: 1px solid #d9e0e6; border-radius: 7px; padding: 0 11px; font-size: 12px; outline: none; }
 select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(255,93,55,.1); }
