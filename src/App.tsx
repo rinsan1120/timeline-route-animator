@@ -20,6 +20,7 @@ import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
 import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
+import { DEFAULT_PRE_ROLL_SECONDS, DEFAULT_POST_ROLL_SECONDS } from './video/outputTiming';
 import { balloonPauseSeconds } from './video/balloonPauses';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
@@ -61,6 +62,10 @@ export default function App() {
   const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(false);
   const [commonPauseSeconds, setCommonPauseSeconds] = useState(0);
   const [commonPauseInput, setCommonPauseInput] = useState('0.0');
+  const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_PRE_ROLL_SECONDS);
+  const [preRollInput, setPreRollInput] = useState(DEFAULT_PRE_ROLL_SECONDS.toFixed(1));
+  const [postRollSeconds, setPostRollSeconds] = useState(DEFAULT_POST_ROLL_SECONDS);
+  const [postRollInput, setPostRollInput] = useState(DEFAULT_POST_ROLL_SECONDS.toFixed(1));
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
   const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
@@ -365,7 +370,7 @@ export default function App() {
 
   useEffect(() => {
     if (previewProgress === null) return;
-    const previewDuration = outputVideoDuration(duration, animationPauseSeconds);
+    const previewDuration = outputVideoDuration(duration, animationPauseSeconds, preRollSeconds, postRollSeconds);
     const startedAt = performance.now() - previewProgress * previewDuration * 1000;
     let frame = 0;
     const animate = (now: number) => {
@@ -383,7 +388,7 @@ export default function App() {
       if (previewEndTimerRef.current !== null) window.clearTimeout(previewEndTimerRef.current);
       previewEndTimerRef.current = null;
     };
-  }, [previewProgress === null, duration, animationPauseSeconds, introZoomEnabled]);
+  }, [previewProgress === null, duration, animationPauseSeconds, preRollSeconds, postRollSeconds, introZoomEnabled]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -780,11 +785,11 @@ export default function App() {
         return;
       }
     }
-    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration, animationPauseSeconds), percent: 0 });
+    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration, animationPauseSeconds, preRollSeconds, postRollSeconds), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ recordedTimeClockEnabled: showRecordedTimeClock, points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, commonPauseSeconds, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
+      const blob = await renderRouteVideo({ recordedTimeClockEnabled: showRecordedTimeClock, points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       setVideoUrl(URL.createObjectURL(blob));
       videoBlobRef.current = blob;
@@ -1019,7 +1024,7 @@ export default function App() {
                 {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
               </div>
               <div className="control-label-with-help control-label-with-help--toggle">
-                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始3秒で広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
+                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始前の時間を使って広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="introZoom" />
               </div>
               <div className="control-label-with-help control-label-with-help--toggle">
@@ -1060,11 +1065,37 @@ export default function App() {
                   onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); }} />
                 秒
               </label>
+              <div className="control-label-with-help"><label htmlFor="pre-roll-seconds">開始前の時間</label><HelpTip helpKey="videoHoldTimes" /></div>
+              <label className="duration-number" htmlFor="pre-roll-seconds">
+                <input id="pre-roll-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
+                  value={preRollInput} disabled={previewProgress !== null || !!videoProgress}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setPreRollInput(value);
+                    if (value.trim() && Number.isFinite(Number(value))) setPreRollSeconds(normalizePauseSeconds(Number(value)));
+                  }} onBlur={() => setPreRollInput(preRollSeconds.toFixed(1))}
+                  onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); }} />
+                秒
+              </label>
+              <div className="control-label-with-help"><label htmlFor="post-roll-seconds">到着後の停止</label><HelpTip helpKey="videoHoldTimes" /></div>
+              <label className="duration-number" htmlFor="post-roll-seconds">
+                <input id="post-roll-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
+                  value={postRollInput} disabled={previewProgress !== null || !!videoProgress}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setPostRollInput(value);
+                    if (value.trim() && Number.isFinite(Number(value))) setPostRollSeconds(normalizePauseSeconds(Number(value)));
+                  }} onBlur={() => setPostRollInput(postRollSeconds.toFixed(1))}
+                  onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); }} />
+                秒
+              </label>
               <div className="video-duration-note">
                 <span>移動時間: {duration}秒</span>
-                <span>停止時間: 合計{animationPauseSeconds}秒</span>
-                <span>出力時間: {outputVideoDuration(duration, animationPauseSeconds)}秒</span>
-                <span>※ 出力動画は、移動時間にバルーン表示時の停止時間・開始前3秒・到着後3秒が追加されます。</span>
+                <span>地点停止: 合計{animationPauseSeconds}秒</span>
+                <span>開始前: {preRollSeconds}秒</span>
+                <span>到着後: {postRollSeconds}秒</span>
+                <span>出力時間: {outputVideoDuration(duration, animationPauseSeconds, preRollSeconds, postRollSeconds)}秒</span>
+                <span>※ 出力時間には、移動時間に加えて地点停止・開始前・到着後の時間が含まれます。</span>
               </div>
             </div>
             <div className="distance-hud-controls">
@@ -1109,7 +1140,7 @@ export default function App() {
         <div className="map-area">
         <div id="plan-coordinate-jump" />
         <section className="map-stage">
-          <RouteMap recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} preRollSeconds={preRollSeconds} postRollSeconds={postRollSeconds} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>旅の道筋を、アニメーションに</h2><p>GoogleマップからエクスポートしたJSONファイルを読み込み、<br />移動履歴をアニメーションに。新しいルートの作成やスポット情報の画像作成も。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
   <small>{WORKSPACE_MODE_COPY.timeline.description}</small>

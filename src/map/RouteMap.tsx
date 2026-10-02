@@ -16,9 +16,10 @@ import type { DistanceHudOptions, DistanceHudPlacement } from '../video/distance
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { sampleFollowOutputPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
-import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from '../video/introZoom';
-import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera } from '../video/overviewCamera';
-import { samplePlaybackTimeline, PLAYBACK_POST_ROLL_SECONDS, type PlaybackTimeline } from '../video/playbackTimeline';
+import { getIntroStartZoom, interpolateIntroZoom } from '../video/introZoom';
+import { constrainVideoCamera, getVideoPreviewViewport, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_MIN_ZOOM, type VideoCamera } from '../video/overviewCamera';
+import { samplePlaybackTimeline, type PlaybackTimeline } from '../video/playbackTimeline';
+import { sampleVideoOutputTime } from '../video/outputTiming';
 import { colorRouteSegments, type DayRouteSegment } from '../route/dayRouteColor';
 
 function routeCollection(segments: DayRouteSegment[]) {
@@ -78,6 +79,8 @@ interface RouteMapProps {
   previewProgress: number | null;
   previewDuration: number;
   playbackTimeline: PlaybackTimeline;
+  preRollSeconds: number;
+  postRollSeconds: number;
   introZoomEnabled: boolean;
   revealRoute: boolean;
   cameraMode: VideoCameraMode;
@@ -401,7 +404,7 @@ export default function RouteMap(props: RouteMapProps) {
     if (previewEnding) {
       previewCameraSnapshotRef.current = null;
     }
-  }, [props.recordedTimeClockEnabled, props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
+  }, [props.recordedTimeClockEnabled, props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.preRollSeconds, props.postRollSeconds, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -674,18 +677,12 @@ function getPreviewState(props: RouteMapProps): MapPreviewState | null {
 
 function getPreviewOutputElapsed(props: RouteMapProps): number {
   if (props.previewProgress === null) return 0;
-  const totalDuration = INTRO_ZOOM_DURATION_SECONDS + props.playbackTimeline.outputDurationSeconds + PLAYBACK_POST_ROLL_SECONDS;
-  const elapsed = props.previewProgress * totalDuration;
-  return Math.max(0, Math.min(props.playbackTimeline.outputDurationSeconds, elapsed - INTRO_ZOOM_DURATION_SECONDS));
+  return sampleVideoOutputTime(props.previewProgress, props.playbackTimeline.outputDurationSeconds, props.preRollSeconds, props.postRollSeconds).playbackElapsedSeconds;
 }
 
 function getPreviewIntroProgress(props: RouteMapProps): number | null {
   if (!props.introZoomEnabled || props.previewProgress === null) return null;
-  const elapsed = props.previewProgress * (INTRO_ZOOM_DURATION_SECONDS + props.playbackTimeline.outputDurationSeconds + PLAYBACK_POST_ROLL_SECONDS);
-  // MP4 samples the intro at frames 0..89, reaching the target on frame 89.
-  // Match that camera trajectory without changing preview route timing.
-  return elapsed <= INTRO_ZOOM_DURATION_SECONDS
-    ? Math.min(1, elapsed * VIDEO_FPS / (INTRO_ZOOM_DURATION_SECONDS * VIDEO_FPS - 1)) : null;
+  return sampleVideoOutputTime(props.previewProgress, props.playbackTimeline.outputDurationSeconds, props.preRollSeconds, props.postRollSeconds).introZoomProgress;
 }
 
 function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latitude: number } | null, marker: SVGCircleElement | null) {

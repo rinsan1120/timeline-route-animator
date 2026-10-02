@@ -357,6 +357,41 @@ describe('GSI Vector video background', () => {
     expect(outputVideoFrameCount(30, 5)).toBe(41 * 30);
   });
 
+  it.each(['overview', 'follow'] as const)('holds the first and final states for configured durations in %s', async (cameraMode) => {
+    const { context, points } = setupVideoEnvironment();
+    mocks.configureMap = (map) => {
+      map.project = vi.fn(([longitude, latitude]: number[]) => ({ x: 100 + longitude * 10_000, y: 100 + latitude * 10_000 }));
+    };
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, duration: 5, preRollSeconds: 2, postRollSeconds: 5,
+      introZoomEnabled: false, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    const markerPositions = context.arc.mock.calls.map(([x, y]: number[]) => [x, y]);
+    expect(markerPositions).toHaveLength(360);
+    expect(markerPositions.slice(0, 61).every(([x, y]: number[]) => x === markerPositions[0][0] && y === markerPositions[0][1])).toBe(true);
+    expect(markerPositions[61]).not.toEqual(markerPositions[0]);
+    expect(markerPositions.slice(210).every(([x, y]: number[]) => x === markerPositions[209][0] && y === markerPositions[209][1])).toBe(true);
+    expect(mocks.add).toHaveBeenCalledTimes(360);
+    expect(mocks.maps[0].jumpTo.mock.calls.some(([camera]: any[]) => camera.zoom < mocks.maps[0].options.zoom)).toBe(false);
+  });
+
+  it.each(['overview', 'follow'] as const)('skips pre/post holds and intro zoom at zero seconds in %s', async (cameraMode) => {
+    const { points } = setupVideoEnvironment();
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, duration: 5, preRollSeconds: 0, postRollSeconds: 0,
+      introZoomEnabled: true, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(mocks.add).toHaveBeenCalledTimes(150);
+    expect(mocks.maps[0].jumpTo.mock.calls.some(([camera]: any[]) => camera.zoom < mocks.maps[0].options.zoom)).toBe(false);
+  });
+
+  it.each(['overview', 'follow'] as const)('encodes 15 intro and 15 final frames for half-second holds in %s', async (cameraMode) => {
+    const { points } = setupVideoEnvironment();
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, duration: 5, preRollSeconds: 0.5, postRollSeconds: 0.5,
+      introZoomEnabled: true, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(mocks.add).toHaveBeenCalledTimes(180);
+    expect(mocks.maps[0].jumpTo.mock.calls.some(([camera]: any[]) => camera.zoom < mocks.maps[0].options.zoom)).toBe(true);
+  });
+
   it('loads the shared vector style, applies the video camera before waiting for tiles and reuses one capture for every frame', async () => {
     const context = Object.fromEntries(['drawImage', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'arc', 'fill', 'fillRect', 'fillText'].map((name) => [name, vi.fn()]));
     const createImageBitmap = vi.fn(async () => mocks.bitmap);

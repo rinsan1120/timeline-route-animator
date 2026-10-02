@@ -13,11 +13,13 @@ import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrai
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './followCamera';
-import { getIntroStartZoom, interpolateIntroZoom, INTRO_ZOOM_DURATION_SECONDS } from './introZoom';
+import { getIntroStartZoom, interpolateIntroZoom } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { routeDistanceProgress } from '../route/routeDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
-import { buildOverviewPlaybackTimeline, samplePlaybackTimeline, PLAYBACK_POST_ROLL_SECONDS } from './playbackTimeline';
+import { buildOverviewPlaybackTimeline, normalizePauseSeconds, samplePlaybackTimeline } from './playbackTimeline';
+import { DEFAULT_PRE_ROLL_SECONDS, DEFAULT_POST_ROLL_SECONDS, introZoomFrameProgress, outputVideoFrameCount } from './outputTiming';
+export { outputVideoDuration, outputVideoFrameCount } from './outputTiming';
 import { buildRoutePointDayNumbers, colorRouteSegments } from '../route/dayRouteColor';
 
 import { balloonPauseSeconds } from './balloonPauses';
@@ -26,8 +28,6 @@ const WIDTH = VIDEO_VIEWPORT.width;
 const HEIGHT = VIDEO_VIEWPORT.height;
 const styleReadyMaps = new WeakSet<maplibregl.Map>();
 export { VIDEO_FPS } from './overviewCamera';
-export const PRE_ROLL_SECONDS = INTRO_ZOOM_DURATION_SECONDS;
-export const POST_ROLL_SECONDS = PLAYBACK_POST_ROLL_SECONDS;
 const VIDEO_MAP_TIMEOUT = 20_000;
 const VIDEO_MAP_ERROR = '動画用の地図データを完全に読み込めませんでした。通信状況を確認して、もう一度MP4を生成してください。';
 
@@ -76,14 +76,6 @@ function createVideoMapSession(container: HTMLElement, signal?: AbortSignal) {
   return { prepare, dispose, hasError: () => loadError !== null };
 }
 
-export function outputVideoDuration(duration: number, pauseSeconds = 0): number {
-  return PRE_ROLL_SECONDS + duration + pauseSeconds + POST_ROLL_SECONDS;
-}
-
-export function outputVideoFrameCount(duration: number, pauseSeconds = 0): number {
-  return Math.round(outputVideoDuration(duration, pauseSeconds) * VIDEO_FPS);
-}
-
 export interface VideoProgress { current: number; total: number; percent: number }
 export interface RenderVideoOptions {
   recordedTimeClockEnabled?: boolean;
@@ -105,6 +97,8 @@ export interface RenderVideoOptions {
   introZoomEnabled?: boolean;
   duration: number;
   commonPauseSeconds?: number;
+  preRollSeconds?: number;
+  postRollSeconds?: number;
   revealRoute: boolean;
   annotationStyle?: AnnotationStyle;
   onProgress: (progress: VideoProgress) => void;
@@ -155,11 +149,13 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
-    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
+    const preRollSeconds = normalizePauseSeconds(options.preRollSeconds ?? DEFAULT_PRE_ROLL_SECONDS);
+    const postRollSeconds = normalizePauseSeconds(options.postRollSeconds ?? DEFAULT_POST_ROLL_SECONDS);
+    const preFrames = Math.round(preRollSeconds * VIDEO_FPS);
     const playbackTimeline = buildOverviewPlaybackTimeline(options.points, options.duration, balloonPauseSeconds(options.points, options.dayMarkers ?? [], routeMarkerMode, options.commonPauseSeconds ?? 0));
     const animationFrames = Math.round(playbackTimeline.outputDurationSeconds * VIDEO_FPS);
-    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds);
-    if (options.introZoomEnabled) {
+    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds, preRollSeconds, postRollSeconds);
+    if (options.introZoomEnabled && preFrames > 0) {
       const targetCenter = { lng: camera.longitude, lat: camera.latitude };
       const targetZoom = camera.zoom;
       const startZoom = getIntroStartZoom(targetZoom, VIDEO_MIN_ZOOM);
@@ -175,7 +171,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
       };
       for (let frame = 0; frame < preFrames; frame += 1) {
         if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
-        const introProgress = preFrames <= 1 ? 1 : frame / (preFrames - 1);
+        const introProgress = introZoomFrameProgress(frame, preFrames);
         const zoom = interpolateIntroZoom(startZoom, targetZoom, introProgress);
         map = await videoMap.prepare({ longitude: targetCenter.lng, latitude: targetCenter.lat, zoom, bearing: 0, pitch: 0 });
         drawFollowFrame(context, map.getCanvas(), map, options.points, { ...introPlayback, zoom }, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, options.recordedTimeClockEnabled ? sampleRecordedRouteTime(options.points, 0, 0) : null);
@@ -184,7 +180,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
     }
-    map = await videoMap.prepare(camera, !!options.introZoomEnabled);
+    map = await videoMap.prepare(camera, !!options.introZoomEnabled && preFrames > 0);
     context.drawImage(map.getCanvas(), 0, 0, WIDTH, HEIGHT);
     background = await createImageBitmap(canvas);
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
@@ -491,9 +487,11 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     const source = new CanvasSource(canvas, { codec: 'avc', quality: new Quality({ bitrate: 8_000_000 }), keyFrameInterval: VIDEO_FPS * 2 });
     output.addVideoTrack(source, { frameRate: VIDEO_FPS });
     await output.start();
-    const preFrames = PRE_ROLL_SECONDS * VIDEO_FPS;
+    const preRollSeconds = normalizePauseSeconds(options.preRollSeconds ?? DEFAULT_PRE_ROLL_SECONDS);
+    const postRollSeconds = normalizePauseSeconds(options.postRollSeconds ?? DEFAULT_POST_ROLL_SECONDS);
+    const preFrames = Math.round(preRollSeconds * VIDEO_FPS);
     const animationFrames = Math.round(playbackTimeline.outputDurationSeconds * VIDEO_FPS);
-    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds);
+    const total = outputVideoFrameCount(options.duration, playbackTimeline.totalPauseSeconds, preRollSeconds, postRollSeconds);
     let backgroundKey = '';
     for (let frame = 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
@@ -509,7 +507,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
           zoom: interpolateIntroZoom(
             getIntroStartZoom(initialPlayback.zoom, VIDEO_MIN_ZOOM),
             initialPlayback.zoom,
-            preFrames <= 1 ? 1 : frame / (preFrames - 1),
+            introZoomFrameProgress(frame, preFrames),
           ),
         }
         : sampleFollowOutputPlayback(plan, playbackTimeline, outputElapsedSeconds);

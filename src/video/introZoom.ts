@@ -1,4 +1,3 @@
-export const INTRO_ZOOM_DURATION_SECONDS = 3;
 export const INTRO_ZOOM_MAX_START = 5;
 export const INTRO_ZOOM_MIN_DELTA = 1;
 

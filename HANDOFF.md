@@ -1,5 +1,12 @@
 # HANDOFF
 
+## Configurable video start and end times (2026-10-02)
+
+- Step 03で開始前の時間と到着後の停止を個別に0〜30秒・0.5秒刻みで設定可能。初期値は各3秒。移動時間と地点停止の意味は維持。
+- 開始時ズームONでは開始前の時間全体でズームし、OFFでは開始地点を静止表示。0秒なら追加時間なし。
+- preview／Overview MP4／Follow MP4は共通の前後時間と出力時間計算を使用。FollowCameraPlanの移動時間は変更しない。
+- 前後時間は一時UI設定で、作業JSON・計画JSON・Undo／Redoには保存しない。
+
 ## MP4 map readiness and retry (2026-10-01)
 
 - MP4では未完成の地図viewportをフレームへ採用しない。Overview／Follow／開始時Zoomとも、style準備・必須Vectorの存在とloaded・map.loaded／areTilesLoaded・カメラ変更後のidle・非DEMエラーなしを共通処理で確認してから背景を取り込む。

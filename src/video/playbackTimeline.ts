@@ -3,7 +3,6 @@ import type { RoutePoint } from '../timeline/types';
 
 export const MAX_POINT_PAUSE_SECONDS = 30;
 export const POINT_PAUSE_STEP_SECONDS = 0.5;
-export const PLAYBACK_POST_ROLL_SECONDS = 3;
 
 export interface PlaybackPause {
   pointIndex: number;
