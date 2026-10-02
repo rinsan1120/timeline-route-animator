@@ -352,11 +352,11 @@ export default function App() {
             routeLoadedNoticeTimerRef.current = null;
           }, 5000);
         } else {
-          setNotice('指定時間内にtimelinePathがありません。時間範囲を変更してください。');
+          setNotice('指定時間内にルートの記録がありません。時間範囲を変更してください。');
         }
       }
     };
-    worker.onerror = () => { setError('Worker処理に失敗しました。'); setBusy(false); };
+    worker.onerror = () => { setError('移動履歴の読み込みに失敗しました。'); setBusy(false); };
     return () => {
       worker.terminate();
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
@@ -446,7 +446,7 @@ export default function App() {
       }
       const buffer = await readTimelineFile(file);
       const worker = workerRef.current;
-      if (!worker) throw new Error('Worker処理に失敗しました。');
+      if (!worker) throw new Error('移動履歴の読み込みに失敗しました。');
       console.info('[Timeline] sending buffer to Worker', { byteLength: buffer.byteLength });
       worker.postMessage({ type: 'load', buffer, fileName: file.name }, [buffer]);
     } catch (reason) {
@@ -515,7 +515,7 @@ export default function App() {
       if (name) setWorkSaveName(name);
       setError('');
     } catch (reason) {
-      setError(saveErrorMessage(reason, 'Timeline作業データを保存できませんでした。もう一度お試しください。'));
+      setError(saveErrorMessage(reason, '作業データを保存できませんでした。もう一度お試しください。'));
     } finally {
       setBusy(false);
     }
@@ -575,7 +575,7 @@ export default function App() {
       setError('');
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
       routeLoadedNoticeTimerRef.current = null;
-      setNotice('Timeline作業データを復元しました。元JSONなしで編集を続けられます。測位データは含まれていません。');
+      setNotice('作業データを復元しました。元のJSONファイルなしで編集を続けられます。測位データは含まれていません。');
     } catch {
       setNotice('');
       setError(WORK_FILE_ERROR);
@@ -843,7 +843,7 @@ export default function App() {
         <aside className="control-panel">
           <section className="panel-section source-section">
             {workspaceMode === 'timeline' ? <>
-            <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'Timeline JSONを読み込んでください'}</p></div></div>
+            <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'GoogleマップからエクスポートしたJSONファイルを読み込んでください'}</p></div></div>
             <div className="date-grid">
               <label>開始日<input type="date" value={startDate} min={minAvailableDate} max={maxAvailableDate} disabled={!dates.length || busy} onChange={(event) => {
                 const value = event.target.value;
@@ -869,7 +869,7 @@ export default function App() {
             </div>
             <div className="control-label-with-help range-help"><p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p><HelpTip helpKey="timelineRange" /></div>
             <button className="secondary-button wide" disabled={!dates.length || !startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
-            <div className="control-label-with-help range-help"><p className="range-note">Timeline編集途中の専用JSON</p><HelpTip helpKey="timelineWork" /></div>
+            <div className="control-label-with-help range-help"><p className="range-note">編集中の作業を保存・再開</p><HelpTip helpKey="timelineWork" /></div>
             <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress || previewProgress !== null} onClick={saveWork}>作業を保存</button>
             <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => workFileInputRef.current?.click()}>作業を再開</button>
             <input ref={workFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
@@ -891,7 +891,7 @@ export default function App() {
           </section>
 
           <section className="panel-section">
-            <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{dayFilteredPoints.length ? `${dayFilteredPoints.length} points · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
+            <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{dayFilteredPoints.length ? `${dayFilteredPoints.length}ポイント · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="control-label-with-help control-with-help">
               <div className="mode-switch">
                 <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
@@ -906,8 +906,8 @@ export default function App() {
               <strong>合計　約 {formatDistance(planDistances.totalMeters)}</strong>
               <span>※ ポイント間の地表上の直線距離の合計です。道路に沿った走行距離ではありません。</span>
             </div>}
-            {workspaceMode === 'timeline' && <div className="control-label-with-help control-label-with-help--toggle"><label className="toggle-row"><span><strong>測位データを表示</strong><small>rawSignals（参考情報）</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label><HelpTip helpKey="rawSignals" /></div>}
-            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>全{points.length}点中 {selectedPointIndex + 1}番目</span><span>{selectedPoint.source === 'manual' ? '手動追加' : 'timelinePath'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
+            {workspaceMode === 'timeline' && <div className="control-label-with-help control-label-with-help--toggle"><label className="toggle-row"><span><strong>測位データを表示</strong><small>ルート補正用の参考データ</small></span><input type="checkbox" checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} /><i /></label><HelpTip helpKey="rawSignals" /></div>}
+            {selectedPoint && <div className="detail-card"><strong>選択中のルートポイント</strong><span>全{points.length}点中 {selectedPointIndex + 1}番目</span><span>{selectedPoint.source === 'manual' ? '手動追加' : 'Googleマップから読み込み'}</span><code>{selectedPoint.latitude.toFixed(6)}, {selectedPoint.longitude.toFixed(6)}</code>{selectedPoint.timestamp && <time>{formatTimestamp(selectedPoint.timestamp)}</time>}
               {showSelectionCandidateSwitcher && <div className="selection-candidate-switcher">
                 <button type="button" aria-label="前の候補" onClick={() => selectAdjacentCandidate(-1)}>‹</button>
                 <span>候補 {selectionCandidateIndex + 1} / {selectionCandidateIds.length}</span>
@@ -1136,7 +1136,7 @@ export default function App() {
 }
 
 function RawDetail({ point, onClose }: { point: RawPosition; onClose: () => void }) {
-  return <div className="detail-card raw-detail"><button onClick={onClose} aria-label="閉じる">×</button><strong>参考測位点</strong><time>{formatTimestamp(point.timestamp)}</time>{point.source && <span>source: {point.source}</span>}{point.accuracyMeters !== undefined && <span>accuracy: {point.accuracyMeters} m</span>}{point.altitudeMeters !== undefined && <span>altitude: {point.altitudeMeters} m</span>}{point.speedMetersPerSecond !== undefined && <span>speed: {point.speedMetersPerSecond} m/s</span>}</div>;
+  return <div className="detail-card raw-detail"><button onClick={onClose} aria-label="閉じる">×</button><strong>参考測位点</strong><time>{formatTimestamp(point.timestamp)}</time>{point.source && <span>測位方法: {point.source}</span>}{point.accuracyMeters !== undefined && <span>測位精度: {point.accuracyMeters} m</span>}{point.altitudeMeters !== undefined && <span>高度: {point.altitudeMeters} m</span>}{point.speedMetersPerSecond !== undefined && <span>速度: {point.speedMetersPerSecond} m/s</span>}</div>;
 }
 
 function formatTimestamp(timestamp: string) { return timestamp.replace('T', ' ').replace(/\.\d{3}/, ''); }

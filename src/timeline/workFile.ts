@@ -5,7 +5,7 @@ import type { RoutePoint } from './types';
 
 export const WORK_FILE_FORMAT = 'timeline-route-animator-work';
 export const WORK_FILE_VERSION = 1;
-export const WORK_FILE_ERROR = 'Timeline作業データを読み込めませんでした。専用の作業JSONと対応するバージョンか確認してください。';
+export const WORK_FILE_ERROR = '作業データを読み込めませんでした。作業JSONの形式と対応するバージョンか確認してください。';
 
 export interface TimelineWorkState {
   points: RoutePoint[];
