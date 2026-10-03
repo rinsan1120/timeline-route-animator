@@ -1,5 +1,15 @@
 # HANDOFF
 
+## OpenPOI place search (2026-10-03)
+
+- 計画モード／スポット画像モード共通のCoordinateJumpControlに施設名・地名・カテゴリ・ブランド検索を追加。Timelineモードは変更なし。
+- 入力補完は3文字以上・300ms debounceで `/v1/suggest`（limit=5、fields=minimal）、候補は最大5件。検索ボタン／IME変換中でないEnterは短い語でも `/v1/search`（limit=15）を実行し、有効な結果は最大15件すべて表示。本検索の見出しは「検索結果」、一覧部分のみ縦スクロール。
+- 全国検索。APIへ送るのは検索語と固定の取得設定だけ。Timeline・計画・スポット・地図の位置情報、bbox／center／radiusは送らない。緯度経度直接入力と範囲外エラーは従来のローカル処理を維持。
+- AbortControllerと世代番号で古い応答を無効化、約10秒で通信中断。入力変更・検索・選択・クリア・unmount等でキャンセルし、日本語IME確定用Enterを検索に使わない。エラーは検索UI内に表示。
+- 施設選択は既存の紫の参考マーカーを再利用。placeのbboxはMapLibre用 `[[minLng, minLat], [maxLng, maxLat]]` でfitBounds、centerは `[lng, lat]`。bbox選択では参考マーカーを消す。category／brandはqueryを入力欄へセットして本検索。
+- 地点・スポット・ラベルは自動追加しない。検索語・結果・vocabulary・参考座標は永続保存しない。Undo／Redo・計画／作業JSON・プレビュー・MP4・PNGへ影響なし。動画／PNG rendererは変更なし。
+- 検索UIに「検索データ：OpenPOI API」と出典リンクを表示。既存HelpTipとREADMEを更新。依存追加なし。
+
 ## Configurable video start and end times (2026-10-02)
 
 - Step 03で開始前の時間と到着後の停止を個別に0〜30秒・0.5秒刻みで設定可能。初期値は各3秒。移動時間と地点停止の意味は維持。

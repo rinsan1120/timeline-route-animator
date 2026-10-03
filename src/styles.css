@@ -270,18 +270,30 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 /* Keep the mobile coordinate form outside the map and all editing overlays. */
 .map-area { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .map-area > .map-stage { flex: 1; }
-.coordinate-jump-control { position: absolute; top: 10px; right: 52px; z-index: 8; max-width: calc(100% - 64px); padding: 6px; border-radius: 8px; background: #fffffff2; box-shadow: 0 2px 8px #27364a30; }
-.coordinate-jump-row { display: flex; align-items: center; gap: 6px; }
-.coordinate-jump-row input { width: 230px; min-width: 0; min-height: 40px; border: 1px solid #ccd5de; border-radius: 5px; padding: 6px; font-size: 16px; }
-.coordinate-jump-row > button, .coordinate-jump-status button { min-height: 40px; min-width: 44px; border: 1px solid #ccd5de; border-radius: 5px; background: white; color: #663399; cursor: pointer; }
+.coordinate-jump-control { position: absolute; top: 10px; right: 52px; z-index: 8; width: 340px; max-width: calc(100% - 64px); padding: 6px; border-radius: 8px; background: #fffffff2; box-shadow: 0 2px 8px #27364a30; }
+.coordinate-jump-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.coordinate-jump-row input { flex: 1; width: 230px; min-width: 0; min-height: 44px; border: 1px solid #ccd5de; border-radius: 5px; padding: 6px; font-size: 16px; }
+.coordinate-jump-row .help-tip-panel { flex-basis: 100%; max-height: min(240px, 30dvh); overflow-y: auto; }
+.coordinate-jump-row > button, .coordinate-jump-status button { flex-shrink: 0; min-height: 44px; min-width: 44px; border: 1px solid #ccd5de; border-radius: 5px; background: white; color: #663399; cursor: pointer; }
 .coordinate-jump-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: #663399; font-size: 12px; }
+.coordinate-search-panel { min-width: 0; margin-top: 6px; border-top: 1px solid #e0e5ea; font-size: 13px; }
+.coordinate-search-heading { display: block; padding: 8px 6px 4px; color: #27364a; }
+.coordinate-search-message { padding: 8px 6px; color: #526177; overflow-wrap: anywhere; }
+.coordinate-search-message:empty { display: none; }
+.coordinate-search-list { max-height: min(320px, 35dvh); overflow-y: auto; overscroll-behavior: contain; padding: 0; margin: 0; list-style: none; }
+.coordinate-search-list button { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 100%; min-height: 44px; padding: 10px 8px; border: 0; border-bottom: 1px solid #e0e5ea; background: transparent; color: #27364a; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.coordinate-search-list button:focus-visible { outline: 2px solid #813cba; outline-offset: -2px; background: #f6f0fc; }
+.coordinate-search-name { font-weight: 700; }
+.coordinate-search-type, .coordinate-search-address { font-size: 12px; color: #526177; }
+.coordinate-search-attribution { margin-top: 5px; font-size: 11px; color: #526177; }
+.coordinate-search-attribution a { color: #663399; }
 .reference-position-marker { width: 32px; height: 32px; border: 2px solid #813cba; border-radius: 50%; background: #fff9; box-shadow: 0 0 0 2px white; cursor: default; touch-action: none; z-index: 3; }
 .reference-position-marker::before, .reference-position-marker::after { content: ''; position: absolute; background: #813cba; pointer-events: none; }
 .reference-position-marker::before { width: 2px; height: 40px; left: 13px; top: -6px; }
 .reference-position-marker::after { height: 2px; width: 40px; top: 13px; left: -6px; }
 @media (max-width: 760px) {
   .map-area { order: 1; flex: 1 1 54%; min-height: 290px; }
-  .coordinate-jump-control { position: relative; inset: auto; max-width: none; border-radius: 0; box-shadow: none; padding: 8px; }
+  .coordinate-jump-control { position: relative; inset: auto; width: auto; max-width: none; border-radius: 0; box-shadow: none; padding: 8px; }
   .coordinate-jump-row input { flex: 1; width: 0; min-height: 44px; }
   .coordinate-jump-row > button, .coordinate-jump-status button { min-height: 44px; }
 }
