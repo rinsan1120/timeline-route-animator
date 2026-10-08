@@ -1,4 +1,5 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
+import { isBalloonFramePosition } from '../popup/placement';
 import type { EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RoutePoint } from './types';
@@ -100,9 +101,11 @@ function parsePoint(value: unknown): RoutePoint {
   }
   if (value.annotation !== undefined) {
     if (!isRecord(value.annotation) || typeof value.annotation.label !== 'string') throw new Error(WORK_FILE_ERROR);
+    if (value.annotation.framePosition !== undefined && !isBalloonFramePosition(value.annotation.framePosition)) throw new Error(WORK_FILE_ERROR);
     point.annotation = {
       label: value.annotation.label,
       ...(value.annotation.placement !== undefined ? { placement: parsePlacement(value.annotation.placement) } : {}),
+      ...(value.annotation.framePosition !== undefined ? { framePosition: { ...value.annotation.framePosition } } : {}),
     };
   }
   return point;

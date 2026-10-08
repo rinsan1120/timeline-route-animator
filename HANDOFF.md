@@ -1,5 +1,19 @@
 # HANDOFF
 
+## Fixed video balloon positions and shared drawing (2026-10-09)
+
+- 地点バルーンだけに `RoutePoint.annotation.framePosition?: { x: number; y: number }` を追加。1920×1080動画フレームに対する中心の正規化座標（0〜1の有限数）。旧 `placement: { offsetX, offsetY }` は地点相対オフセットの意味・名前・値を維持し、両方ある場合はframePositionを優先する。作業／計画JSONのformat・versionは1のまま、parserは任意フィールドとして検証・復元する。
+- 旧JSON／新規ラベルの位置は `resolveBalloonFramePositions()` で一度だけ移行する。Overviewは既存の動画用Overviewカメラ、Followは既存 `buildFollowPlaybackTimeline()` の対象地点到達時刻と `sampleFollowPlayback()` のカメラを使う。現在の編集地図のZoom・パン・端末寸法は基準にしない。MapLibreの投影Transformをcloneして1920×1080へ設定する小さなadapter (`map/balloonProjection.ts`) だけで内部 `_camera.transform` に接する。MapLibre更新時はこのadapterの互換性を確認する。可視地図のカメラ変更や追加タイル取得は行わない。
+- 読み込み後にframePositionを補完して表示し、その値を最初の保存へ含める。保存済み座標は移行対象外。historyの初期・過去・現在・未来に欠けている配置だけを同時補完し、移行自体をUndoの操作にしない。ドラッグの完了は既存commitを1回だけ使い、キャンセル／pointercapture喪失では保存値へ戻す。ラベル変更・地点移動・削除復元でも配置を保持する。Follow設定が無効な場合は構図編集開始時に既存の日本語エラーを表示し、有効な到達カメラを得るまでは旧配置を別カメラで移行しない。
+- `route/annotationCanvas.ts` の既存寸法・文字計測・省略・影・色を共通利用。新しい `FrameAnnotationOverlay` は同じ1920×1080 Canvasを16:9枠へ縮小表示し、同じlayoutの矩形を透明なドラッグ／キーボード操作ボタンへ使う。左右上24px・下70px出典領域を維持し、ドラッグやサイズ変更で矩形全体を制限する。複数バルーンの自動配置・重なり解消は行わない。
+- framePositionがあるバルーン本体はアンカー投影に依存しない。接続線だけを `nearestPointOnRect()` と現在カメラの投影座標から更新する。アンカーが動画枠外なら本体と接続線を隠し、枠内へ戻ると既存の到達条件で再表示する。保存位置、停止・表示開始判定、再生時刻は変えない。通常編集／表示でも地図内の中央16:9基準領域へ同じ正規化位置を表示する。
+- Step 02にHelpTip付き「動画構図で配置」／「配置編集を終了」を追加。ルートの表示・編集・アニメ範囲とは別の一時stateで、JSONには保存しない。地点選択でOverview／到達時Follow構図を確認できる。地図のZoom・パンは一時確認だけで動画設定に反映しない。配置中はルート操作との競合を抑え、下部にUndo／Redo／終了を表示する。終了時は元の編集カメラを復元する。
+- ブラウザの縦長／横長地図でも斜め視点の投影を動画枠と一致させるため、枠サイズに応じてMapLibreの垂直視野角を補正し、終了時は復元する。動画の中心・Zoom・方位・傾斜・パン／旋回計画や時間軸は変更しない。バルーン変更だけではFollowカメラ計画の重い区間サンプリングを作り直さない。
+- rendererのOverview・Follow双方（開始時ズーム、真上／斜めを含む）がframePositionを渡して同じCanvasを描画する。rendererへ直接渡された旧配置も描画前に同じ基準で解決し、元のRoutePointを変更しない。
+- スポット画像は従来の `AnnotationOverlay`、相対配置・範囲・Zoom調整・PNG描画／保存を維持する。DAY／START・GOALはframePositionを使わず既存配置と描画方式を維持。距離HUD・ルート編集・日時／DAY選択・アニメ範囲・停止・時計・FPS／解像度／コーデック・地図スタイル／タイル待機／保存処理は変更しない。
+- 回帰テストは既存renderer／route／overviewCamera／workFile／planFileテストへ追加。固定矩形・接続線追従・枠外非表示／再表示・PC／Android縮小表示・余白制限・旧配置移行の冪等性・JSON検証／往復・Undo／Redo・ドラッグキャンセル・Overview／Follow MP4描画・スポットの従来layoutを確認する。ブラウザ操作・Android実機・実MP4／PNG目視確認は依頼どおり実施しない。
+- 自動検証：`npm test` は18ファイル・253テスト成功、任意のprivate実データ用1ファイルはスキップ。`npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` も成功。sandboxの一時ファイルをworkerが読めないテスト環境エラーは、通常環境で同じコマンドを実行して解消した。
+
 ## Hide vegetation and land-use map symbols (2026-10-09)
 
 - 田（6311）、畑（6312）、茶畑（6313）、果樹園（6314）、広葉樹林（6321）、針葉樹林（6322）、竹林（6323）、ヤシ科樹林（6324）、ハイマツ地（6325）、笹地（6326）、荒地（6327）の11種類を標準非表示に統一。公式スタイルのZoom 13〜14／14〜17に分かれた計17レイヤーをすべて除外する。

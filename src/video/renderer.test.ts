@@ -9,6 +9,11 @@ import { buildFollowCameraPlan, type FollowViewMode } from './followCamera';
 import { imageCamera } from '../spot/imageBounds';
 import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
 import type { RoutePoint } from '../timeline/types';
+import { annotationFramePosition, annotationLayout, drawAnnotation, isAnnotationAnchorVisible } from '../route/annotationCanvas';
+import { resolveBalloonFramePositions, balloonReferenceCamera } from '../route/balloonFrame';
+import { nearestPointOnRect } from '../popup/placement';
+import { getVideoPreviewViewport } from './overviewCamera';
+import { buildFollowPlaybackTimeline, sampleFollowPlayback } from './followCamera';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -19,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('maplibre-gl', () => ({
+  LngLat: class { constructor(public lng: number, public lat: number) {} },
   Map: class {
     options: any;
     sources: Record<string, any>;
@@ -275,6 +281,134 @@ function setupImageEnvironment() {
   const bounds = { west: -0.02, east: 0.02, north: 0.02, south: -0.02 };
   return { context, canvas, container, points: points.slice(0, 1) as RoutePoint[], bounds };
 }
+
+describe('video balloon frame layout', () => {
+  const note = { label: '地点', pixel: { x: 800, y: 500 }, placement: { offsetX: -120, offsetY: 80 }, framePosition: { x: 0.8, y: 0.2 } };
+  it('keeps the rectangle fixed across zoom, pan, bearing and pitch projections while the connector follows the anchor', () => {
+    const { context } = setupImageEnvironment();
+    const canvasContext = context as unknown as CanvasRenderingContext2D;
+    const original = annotationLayout(canvasContext, note, DEFAULT_ANNOTATION_STYLE);
+    for (const pixel of [{ x: 300, y: 700 }, { x: 1200, y: 250 }, { x: 100, y: 100 }]) {
+      const moved = { ...note, pixel };
+      const layout = annotationLayout(canvasContext, moved, DEFAULT_ANNOTATION_STYLE);
+      expect(layout).toEqual(original);
+      drawAnnotation(canvasContext, moved, DEFAULT_ANNOTATION_STYLE);
+      const edge = nearestPointOnRect(layout, pixel);
+      expect(context.moveTo).toHaveBeenCalledWith(edge.x, edge.y);
+      expect(context.lineTo).toHaveBeenCalledWith(pixel.x, pixel.y);
+      expect(note.framePosition).toEqual({ x: 0.8, y: 0.2 });
+    }
+    expect(annotationFramePosition(original)).toEqual(note.framePosition);
+  });
+
+  it.each([[960, 720], [360, 640], [1200, 400]])('preserves normalized placement and logical dimensions at %s×%s', (width, height) => {
+    const { context } = setupImageEnvironment();
+    const layout = annotationLayout(context as unknown as CanvasRenderingContext2D, note, DEFAULT_ANNOTATION_STYLE);
+    const frame = getVideoPreviewViewport(width, height);
+    const displayCenter = { x: frame.left + (layout.left + layout.width / 2) * frame.scale, y: frame.top + (layout.top + layout.height / 2) * frame.scale };
+    expect((displayCenter.x - frame.left) / frame.width).toBeCloseTo(note.framePosition.x);
+    expect((displayCenter.y - frame.top) / frame.height).toBeCloseTo(note.framePosition.y);
+    expect(frame.width).toBeLessThanOrEqual(width);
+    expect(frame.height).toBeLessThanOrEqual(height);
+  });
+
+  it.each([0.5, 1, 2])('keeps the whole balloon inside margins and attribution at scale %s', (scale) => {
+    const { context } = setupImageEnvironment();
+    for (const framePosition of [{ x: 0, y: 0 }, { x: 1, y: 1 }]) {
+      const layout = annotationLayout(context as unknown as CanvasRenderingContext2D, { ...note, framePosition }, { balloonScale: scale, fontScale: scale });
+      expect(layout.left).toBeGreaterThanOrEqual(24);
+      expect(layout.top).toBeGreaterThanOrEqual(24);
+      expect(layout.left + layout.width).toBeLessThanOrEqual(1920 - 24);
+      expect(layout.top + layout.height).toBeLessThanOrEqual(1080 - 70);
+    }
+  });
+
+  it('hides off-frame anchors without moving their saved position, and draws again on return', () => {
+    const { context } = setupImageEnvironment();
+    for (const pixel of [{ x: -1, y: 500 }, { x: 1921, y: 500 }, { x: 800, y: -1 }, { x: 800, y: 1081 }, { x: NaN, y: 500 }]) {
+      expect(isAnnotationAnchorVisible(pixel)).toBe(false);
+      drawAnnotation(context as unknown as CanvasRenderingContext2D, { ...note, pixel }, DEFAULT_ANNOTATION_STYLE);
+    }
+    expect(context.fillText).not.toHaveBeenCalled();
+    drawAnnotation(context as unknown as CanvasRenderingContext2D, note, DEFAULT_ANNOTATION_STYLE);
+    expect(context.fillText).toHaveBeenCalledOnce();
+    expect(note.framePosition).toEqual({ x: 0.8, y: 0.2 });
+  });
+
+  it('migrates old relative offsets once, retains them, and never projects already fixed data again', () => {
+    const { context, points } = setupImageEnvironment();
+    points[0].annotation = { label: '地点', placement: note.placement };
+    const project = vi.fn(() => note.pixel);
+    const style = DEFAULT_ANNOTATION_STYLE;
+    const oldLayout = annotationLayout(context as unknown as CanvasRenderingContext2D, { ...points[0].annotation, pixel: note.pixel }, style);
+    const resolved = resolveBalloonFramePositions(context as unknown as CanvasRenderingContext2D, points, style, project);
+    expect(resolved[0].annotation?.framePosition).toEqual(annotationFramePosition(oldLayout));
+    expect(resolved[0].annotation?.placement).toEqual(note.placement);
+    expect(points[0].annotation).not.toHaveProperty('framePosition');
+    project.mockImplementation(() => ({ x: 1500, y: 100 }));
+    expect(resolveBalloonFramePositions(context as unknown as CanvasRenderingContext2D, resolved, style, project)).toBe(resolved);
+    expect(project).toHaveBeenCalledOnce();
+  });
+  it('keeps migration finite for a valid geographic point beyond the Mercator projection', () => {
+    const { context, points } = setupImageEnvironment();
+    points[0] = { ...points[0], latitude: 90, annotation: { label: '地点' } };
+    const resolved = resolveBalloonFramePositions(context as unknown as CanvasRenderingContext2D, points, DEFAULT_ANNOTATION_STYLE, () => ({ x: NaN, y: Infinity }));
+    expect(Number.isFinite(resolved[0].annotation?.framePosition?.x)).toBe(true);
+    expect(Number.isFinite(resolved[0].annotation?.framePosition?.y)).toBe(true);
+  });
+
+  it.each(['top', 'oblique'] as const)('uses existing arrival-time Follow camera for migration and composition editing (%s)', (viewMode) => {
+    const { points } = setupVideoEnvironment();
+    const overview = createOverviewCamera(points)!;
+    const plan = buildFollowCameraPlan(points, 'standard', 10, 10, viewMode);
+    const arrival = buildFollowPlaybackTimeline(plan, [0, 1, 0]).pauses[0].baseElapsedSeconds;
+    const playback = sampleFollowPlayback(plan, arrival);
+    expect(balloonReferenceCamera(points[1].id, overview, plan)).toEqual({ ...playback.cameraCenter, zoom: playback.zoom, bearing: playback.bearing, pitch: playback.pitch });
+    expect(balloonReferenceCamera(points[1].id, overview, null)).toBe(overview);
+  });
+
+  it('preserves the legacy spot layout, including unclamped offsets and pointer drawing', () => {
+    const { context } = setupImageEnvironment();
+    const legacy = { label: note.label, pixel: note.pixel, placement: note.placement };
+    const layout = annotationLayout(context as unknown as CanvasRenderingContext2D, legacy, DEFAULT_ANNOTATION_STYLE, false);
+    expect(layout.left + layout.width / 2).toBe(note.pixel.x + note.placement.offsetX);
+    expect(layout.top + layout.height / 2).toBe(note.pixel.y + note.placement.offsetY);
+    drawAnnotation(context as unknown as CanvasRenderingContext2D, { label: note.label, pixel: note.pixel }, DEFAULT_ANNOTATION_STYLE);
+    expect(context.fillText).toHaveBeenCalledOnce();
+  });
+
+  it.each(['overview', 'follow'] as const)('uses the shared fixed Canvas rectangle through the %s MP4 path', async (cameraMode) => {
+    const { context } = setupImageEnvironment();
+    const points: RoutePoint[] = [
+      { id: 'a', longitude: 0, latitude: 0, source: 'manual', original: false, annotation: { label: '地点', framePosition: note.framePosition } },
+      { id: 'b', longitude: 0.01, latitude: 0.01, source: 'manual', original: false },
+    ];
+    const expected = annotationLayout(context as unknown as CanvasRenderingContext2D, note, DEFAULT_ANNOTATION_STYLE);
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, duration: 5, preRollSeconds: 0, postRollSeconds: 0, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(context.fillText).toHaveBeenCalledWith(note.label, expected.left + expected.paddingX, expected.top + expected.height / 2);
+    expect(points[0].annotation?.framePosition).toEqual(note.framePosition);
+  });
+  it.each(['overview', 'follow'] as const)('resolves direct legacy %s MP4 input once before intro and moving frames without modifying it', async (cameraMode) => {
+    const { context } = setupImageEnvironment();
+    const points: RoutePoint[] = [
+      { id: 'a', longitude: 0, latitude: 0, source: 'manual', original: false, annotation: { label: '地点', placement: note.placement } },
+      { id: 'b', longitude: 0.01, latitude: 0.01, source: 'manual', original: false },
+    ];
+    const transform = Object.fromEntries(['setConstrainOverride', 'setFov', 'setPadding', 'resize', 'setZoom', 'setCenter', 'setBearing', 'setPitch'].map((key) => [key, vi.fn()]));
+    transform.locationToScreenPoint = vi.fn(() => ({ x: 100, y: 100 }));
+    const clone = vi.fn(() => transform);
+    mocks.configureMap = (map) => { map._camera = { transform: { clone } }; };
+    const oldLayout = annotationLayout(context as unknown as CanvasRenderingContext2D, { ...points[0].annotation!, pixel: { x: 100, y: 100 } }, DEFAULT_ANNOTATION_STYLE);
+    const { renderRouteVideo } = await import('./renderer');
+    await renderRouteVideo({ points, cameraMode, followViewMode: 'oblique', duration: 5, preRollSeconds: 0.5, postRollSeconds: 0,
+      introZoomEnabled: true, routeMarkerMode: 'none', revealRoute: true, onProgress: vi.fn() });
+    expect(clone).toHaveBeenCalledOnce();
+    expect(transform.locationToScreenPoint).toHaveBeenCalledOnce();
+    expect(context.fillText).toHaveBeenCalledWith('地点', oldLayout.left + oldLayout.paddingX, oldLayout.top + oldLayout.height / 2);
+    expect(points[0].annotation).toEqual({ label: '地点', placement: note.placement });
+  });
+});
 
 describe('Spot PNG map readiness and retry', () => {
   it('keeps the image camera, spot size, attribution and PNG dimensions after every required source is ready', async () => {

@@ -1,4 +1,4 @@
-import type { PopupPlacement } from '../popup/placement';
+import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
 export interface RoutePoint {
   id: string;
   latitude: number;
@@ -8,7 +8,7 @@ export interface RoutePoint {
   original: boolean;
   /** Legacy file compatibility only; playback uses the common balloon pause setting. */
   pauseSeconds?: number;
-  annotation?: { label: string; placement?: PopupPlacement };
+  annotation?: { label: string; placement?: PopupPlacement; framePosition?: BalloonFramePosition };
 }
 
 export interface RawPosition {

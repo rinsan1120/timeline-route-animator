@@ -1,8 +1,16 @@
-import { nearestPointOnRect, placedPopupRect, type PopupPlacement } from '../popup/placement';
+import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
 import type { AnnotationStyle } from './annotationStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
-export interface CanvasAnnotation { label: string; pixel: { x: number; y: number }; placement?: PopupPlacement }
+export interface CanvasAnnotation { label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
+
+export function isAnnotationAnchorVisible(pixel: { x: number; y: number }) {
+  return Number.isFinite(pixel.x) && Number.isFinite(pixel.y) && pixel.x >= 0 && pixel.x <= WIDTH && pixel.y >= 0 && pixel.y <= HEIGHT;
+}
+
+export function annotationFramePosition(rect: { left: number; top: number; width: number; height: number }): BalloonFramePosition {
+  return { x: (rect.left + rect.width / 2) / WIDTH, y: (rect.top + rect.height / 2) / HEIGHT };
+}
 
 export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true) {
   const scale = style.balloonScale;
@@ -39,15 +47,20 @@ export function annotationLayout(context: CanvasRenderingContext2D, annotation: 
       top = annotation.pixel.y + annotation.placement.offsetY - height / 2;
     }
   }
-  return { scale, fontSize, paddingX, label, width, height, radius, pointerSize, left, top, below: clamp ? below : false };
+  if (annotation.framePosition) {
+    ({ left, top } = placedPopupRect({ x: annotation.framePosition.x * WIDTH, y: annotation.framePosition.y * HEIGHT },
+      { offsetX: 0, offsetY: 0 }, width, height, WIDTH, bottom, margin));
+  }
+  return { scale, fontSize, paddingX, label, width, height, radius, pointerSize, left, top, below: clamp && !annotation.framePosition ? below : false };
 }
 
 export function drawAnnotation(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, layout?: ReturnType<typeof annotationLayout>) {
+  if (annotation.framePosition && !isAnnotationAnchorVisible(annotation.pixel)) return;
   context.save();
   const { scale, fontSize, paddingX, label, width, height, radius, pointerSize, left, top, below } = layout ?? annotationLayout(context, annotation, style);
   context.font = `${fontSize}px system-ui, sans-serif`;
   const pointerX = Math.max(left + radius + pointerSize, Math.min(left + width - radius - pointerSize, annotation.pixel.x));
-  if (annotation.placement) {
+  if (annotation.placement || annotation.framePosition) {
     const edge = nearestPointOnRect({ left, top, width, height }, annotation.pixel);
     context.strokeStyle = '#ff8b68';
     context.lineWidth = 2 * scale;
@@ -65,7 +78,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   context.shadowOffsetY = 8 * scale;
   context.beginPath();
   context.moveTo(left + radius, top);
-  if (!annotation.placement && below) {
+  if (!annotation.placement && !annotation.framePosition && below) {
     context.lineTo(pointerX - pointerSize, top);
     context.lineTo(pointerX, top - pointerSize);
     context.lineTo(pointerX + pointerSize, top);
@@ -74,7 +87,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   context.quadraticCurveTo(left + width, top, left + width, top + radius);
   context.lineTo(left + width, top + height - radius);
   context.quadraticCurveTo(left + width, top + height, left + width - radius, top + height);
-  if (!annotation.placement && !below) {
+  if (!annotation.placement && !annotation.framePosition && !below) {
     context.lineTo(pointerX + pointerSize, top + height);
     context.lineTo(pointerX, top + height + pointerSize);
     context.lineTo(pointerX - pointerSize, top + height);

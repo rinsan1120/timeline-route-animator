@@ -14,6 +14,13 @@ export interface OverviewPadding {
 
 export const VIDEO_VIEWPORT = { width: 1920, height: 1080 } as const;
 export const VIDEO_FPS = 30;
+export const VIDEO_CAMERA_FOV = 2 * Math.atan(1 / 3) * 180 / Math.PI;
+
+export function videoPreviewFieldOfView(containerWidth: number, containerHeight: number): number {
+  if (!isValidViewport({ width: containerWidth, height: containerHeight })) return VIDEO_CAMERA_FOV;
+  const frame = getVideoPreviewViewport(containerWidth, containerHeight);
+  return 2 * Math.atan(containerHeight / (3 * frame.height)) * 180 / Math.PI;
+}
 
 export interface VideoCamera {
   longitude: number;

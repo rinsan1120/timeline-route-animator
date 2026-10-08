@@ -1,5 +1,8 @@
 import { sampleRecordedRouteTime, drawRouteClock, followClockPointIndex } from './routeClock';
 import { drawAnnotation } from '../route/annotationCanvas';
+import { balloonReferenceCamera, resolveBalloonFramePositions } from '../route/balloonFrame';
+import { createBalloonReferenceProjector } from '../map/balloonProjection';
+import type { BalloonFramePosition } from '../popup/placement';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement, type EndpointMarkerPlacements } from '../popup/placement';
 import * as maplibregl from 'maplibre-gl';
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
@@ -111,6 +114,14 @@ export async function checkVideoSupport(): Promise<string | null> {
   return codec === 'avc' ? null : 'この端末では1920×1080のH.264エンコードを利用できません。端末またはChromeを更新してください。';
 }
 
+function resolveVideoBalloons(options: RenderVideoOptions, map: maplibregl.Map, context: CanvasRenderingContext2D, overview: VideoCamera, follow: FollowCameraPlan | null): RenderVideoOptions {
+  if (!options.points.some((point) => point.annotation?.label && !point.annotation.framePosition)) return options;
+  const project = createBalloonReferenceProjector(map);
+  const points = resolveBalloonFramePositions(context, options.points, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
+    (point) => project(point, balloonReferenceCamera(point.id, overview, follow)));
+  return { ...options, points };
+}
+
 export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blob> {
   if (options.cameraMode === 'follow') return renderFollowRouteVideo(options);
   if (!Number.isInteger(options.duration) || options.duration < 5 || options.duration > 120) throw new Error('移動時間は5〜120秒の整数で指定してください。');
@@ -136,6 +147,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     canvas.height = HEIGHT;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('動画用Canvasを作成できませんでした。');
+    options = resolveVideoBalloons(options, map, context, camera, null);
     const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
     const dynamicDayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
@@ -185,7 +197,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
     const arrivals = tripRoutePointProgresses(options.points);
     const annotations = options.points.flatMap((point, index) => point.annotation?.label
-      ? [{ label: point.annotation.label, placement: point.annotation.placement, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
+      ? [{ ...point.annotation, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
     const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
       return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], pointIndex, arrivalProgress: arrivals[pointIndex] }];
@@ -311,6 +323,7 @@ function drawFrame(
 }
 
 interface VideoAnnotation {
+  framePosition?: BalloonFramePosition;
   placement?: PopupPlacement;
   label: string;
   pixel: { x: number; y: number };
@@ -474,6 +487,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
     canvas.height = HEIGHT;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('動画用Canvasを作成できませんでした。');
+    options = resolveVideoBalloons(options, map, context, createOverviewCamera(options.points)!, plan);
     const pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
     const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
       const pointIndex = pointIndexById.get(marker.pointId);
@@ -594,7 +608,7 @@ function drawFollowFrame(
     if (!point.annotation?.label) continue;
     const pixel = map.project([point.longitude, point.latitude]);
     if (!isInVideoViewport(pixel)) continue;
-    drawAnnotation(context, { label: point.annotation.label, placement: point.annotation.placement, pixel }, annotationStyle);
+    drawAnnotation(context, { ...point.annotation, pixel }, annotationStyle);
   }
 
   if (routeMarkerMode === 'day') {

@@ -1,7 +1,7 @@
 import { WORKSPACE_MODE_COPY } from './workspaceModeCopy';
 import { hasRecordedRouteTime } from './video/routeClock';
 import SpotWorkspace from './spot/SpotWorkspace';
-import type { PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
+import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
 import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT } from './plan/planFile';
@@ -74,6 +74,7 @@ export default function App() {
   const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
+  const [balloonFrameEditing, setBalloonFrameEditing] = useState(false);
   const [openToolbarHelpKey, setOpenToolbarHelpKey] = useState<HelpKey | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [insertMode, setInsertMode] = useState(false);
@@ -96,6 +97,7 @@ export default function App() {
   const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(false);
   const [distanceHudSettings, setDistanceHudSettings] = useState<DistanceHudSettings>(DEFAULT_DISTANCE_HUD);
   const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
+  const balloonFollowPlanCache = useRef<{ key: string; plan: FollowCameraPlan } | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -186,11 +188,19 @@ export default function App() {
   const setAnnotationPlacement = (id: string, placement?: PopupPlacement) => {
     dispatch({ type: 'commit', points: points.map((point) => {
       if (point.id !== id || !point.annotation) return point;
-      const { placement: previous, ...annotation } = point.annotation;
+      const { placement: previous, framePosition: previousFrame, ...annotation } = point.annotation;
       return { ...point, annotation: { ...annotation, ...(placement ? { placement } : {}) } };
     }) });
     setSelectedPointId(id);
   };
+  const setBalloonFramePosition = useCallback((id: string, framePosition: BalloonFramePosition) => {
+    dispatch({ type: 'commit', points: points.map((point) => point.id === id && point.annotation
+      ? { ...point, annotation: { ...point.annotation, framePosition } } : point) });
+    if (!balloonFrameEditing) setSelectedPointId(id);
+  }, [points, balloonFrameEditing]);
+  const resolveBalloonPositions = useCallback((positions: ReadonlyMap<string, BalloonFramePosition>) => {
+    dispatch({ type: 'resolve-balloon-positions', positions });
+  }, []);
   const setDayPlacement = (id: string, placement?: PopupPlacement) => {
     const marker = dayMarkers.find((item) => item.pointId === id);
     const key = workspaceMode === 'plan' ? id : marker?.date;
@@ -288,6 +298,38 @@ export default function App() {
   const overviewCamera = useMemo(() => createOverviewCamera(animationPoints,
     overviewZoomMode === 'custom' ? overviewCustomZoom : undefined),
   [animationPoints, overviewZoomMode, overviewCustomZoom]);
+
+  const balloonFollowCamera = useMemo(() => {
+    if (cameraMode !== 'follow' || animationPoints.length < 2 || !points.some((point) => point.annotation?.label)) return null;
+    const key = `${followZoomPreset}:${duration}:${followCustomZoom}:${followViewMode}`;
+    const cached = balloonFollowPlanCache.current;
+    // Label/placement/history updates do not change the camera path. Avoid
+    // rebuilding its segment sampling every time a balloon is dragged.
+    if (cached?.key === key && cached.plan.points.length === animationPoints.length && cached.plan.points.every((point, index) => {
+      const current = animationPoints[index];
+      return point.id === current.id && point.latitude === current.latitude && point.longitude === current.longitude && point.timestamp === current.timestamp;
+    })) return cached.plan;
+    try {
+      const plan = buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode);
+      balloonFollowPlanCache.current = { key, plan };
+      return plan;
+    }
+    catch { return null; }
+  }, [cameraMode, points, animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode]);
+  useEffect(() => {
+    if (workspaceMode === 'spot' || busy || videoProgress || previewProgress !== null || !dayFilteredPoints.some((point) => point.annotation?.label)) setBalloonFrameEditing(false);
+  }, [workspaceMode, busy, videoProgress, previewProgress, dayFilteredPoints]);
+  const toggleBalloonFrameEditing = () => {
+    if (balloonFrameEditing) { setBalloonFrameEditing(false); return; }
+    if (cameraMode === 'follow' && !balloonFollowCamera) {
+      try { buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode); }
+      catch (reason) { setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。'); }
+      return;
+    }
+    setError('');
+    setSelectedPointId(selectedPoint?.annotation?.label ? selectedPoint.id : dayFilteredPoints.find((point) => point.annotation?.label)?.id ?? null);
+    setBalloonFrameEditing(true);
+  };
 
   const distanceHudModel = useMemo(() => distanceHudSettings.enabled && dayFilteredPoints.length > 0
     ? buildRouteDistanceModel(dayFilteredPoints, visibleDayMarkers, animationPoints) : null,
@@ -770,6 +812,7 @@ export default function App() {
     } else {
       setFollowCameraPlan(null);
     }
+    setBalloonFrameEditing(false);
     setPreviewProgress(0);
   };
 
@@ -899,12 +942,24 @@ export default function App() {
             <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{dayFilteredPoints.length ? `${dayFilteredPoints.length}ポイント · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="control-label-with-help control-with-help">
               <div className="mode-switch">
-                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
-                <button className={editMode ? 'active' : ''} onClick={() => setMapMode('edit')}>編集</button>
-                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
+                <button className={editMode ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('edit'); }}>編集</button>
+                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
               </div>
               <HelpTip helpKey="mapMode" />
             </div>
+            <div className="control-label-with-help balloon-frame-control">
+              <button className="secondary-button" aria-pressed={balloonFrameEditing}
+                disabled={busy || !!videoProgress || previewProgress !== null || !dayFilteredPoints.some((point) => point.annotation?.label)}
+                onClick={toggleBalloonFrameEditing}>{balloonFrameEditing ? '配置編集を終了' : '動画構図で配置'}</button>
+              <HelpTip helpKey="balloonFramePlacement" />
+            </div>
+            {balloonFrameEditing && <div className="balloon-frame-selection">
+              <label htmlFor="balloon-frame-point">構図を確認する地点</label>
+              <select id="balloon-frame-point" value={selectedPointId ?? ''} onChange={(event) => setSelectedPointId(event.currentTarget.value)}>
+                {dayFilteredPoints.filter((point) => point.annotation?.label).map((point) => <option key={point.id} value={point.id}>{point.annotation!.label}</option>)}
+              </select>
+            </div>}
             {planDistances && <div className="detail-card">
               <strong>概算距離</strong>
               {planDistances.days.map((day) => <span key={day.pointId}>DAY {day.dayNumber}　約 {formatDistance(day.distanceMeters)}</span>)}
@@ -919,7 +974,7 @@ export default function App() {
                 <button type="button" aria-label="次の候補" onClick={() => selectAdjacentCandidate(1)}>›</button>
               </div>}
               {editMode && <>
-                {selectedPoint.annotation?.placement && <button className="secondary-button" onClick={() => setAnnotationPlacement(selectedPoint.id)}>バルーン位置をリセット</button>}
+                {(selectedPoint.annotation?.placement || selectedPoint.annotation?.framePosition) && <button className="secondary-button" onClick={() => setAnnotationPlacement(selectedPoint.id)}>バルーン位置をリセット</button>}
                 {selectedDayMarker?.placement && <button className="secondary-button" onClick={() => setDayPlacement(selectedPoint.id)}>DAY位置をリセット</button>}
                 {selectedPoint.id === animationPoints[0]?.id && endpointMarkerPlacements.START && <button className="secondary-button" onClick={() => setEndpointPlacement('START')}>START位置をリセット</button>}
                 {selectedPoint.id === animationPoints.at(-1)?.id && endpointMarkerPlacements.GOAL && <button className="secondary-button" onClick={() => setEndpointPlacement('GOAL')}>GOAL位置をリセット</button>}
@@ -1140,14 +1195,19 @@ export default function App() {
         <div className="map-area">
         <div id="plan-coordinate-jump" />
         <section className="map-stage">
-          <RouteMap recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} preRollSeconds={preRollSeconds} postRollSeconds={postRollSeconds} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap balloonFrameEditing={balloonFrameEditing} balloonMigrationPoints={points} balloonFollowCameraPlan={balloonFollowCamera} onBalloonFramePosition={setBalloonFramePosition} onResolveBalloonPositions={resolveBalloonPositions} recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} preRollSeconds={preRollSeconds} postRollSeconds={postRollSeconds} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>旅の道筋を、アニメーションに</h2><p>GoogleマップからエクスポートしたJSONファイルを読み込み、<br />移動履歴をアニメーションに。新しいルートの作成やスポット情報の画像作成も。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
   <small>{WORKSPACE_MODE_COPY.timeline.description}</small>
 </button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small></button><button className="plan-button" onClick={startSpotMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small></button></div></div>}
           {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
           {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
-          {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
+          {balloonFrameEditing && <nav className="edit-toolbar" aria-label="バルーン配置編集">
+            <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo' })}>元に戻す</button>
+            <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo' })}>やり直す</button>
+            <button onClick={() => setBalloonFrameEditing(false)}>配置編集を終了</button>
+          </nav>}
+          {editMode && !balloonFrameEditing && <nav className="edit-toolbar" aria-label="ルート編集">
             <span className="edit-toolbar-item"><button className={!addMode && !insertMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>{workspaceMode === 'plan' && <HelpTip helpKey="planSelect" variant="toolbar" open={openToolbarHelpKey === 'planSelect'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planSelect' : null)} />}</span>
             <span className="edit-toolbar-item"><button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>{workspaceMode === 'plan' && <HelpTip helpKey="planAppend" variant="toolbar" open={openToolbarHelpKey === 'planAppend'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planAppend' : null)} />}</span>
             {workspaceMode === 'plan' && <span className="edit-toolbar-item"><button className={insertMode ? 'active' : ''} disabled={points.length < 2} onClick={toggleInsertMode}><span>⊕</span>途中追加</button><HelpTip helpKey="planInsert" variant="toolbar" open={openToolbarHelpKey === 'planInsert'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planInsert' : null)} /></span>}

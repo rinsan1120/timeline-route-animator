@@ -1,4 +1,10 @@
 export interface PopupPlacement { offsetX: number; offsetY: number }
+export interface BalloonFramePosition { x: number; y: number }
+export function isBalloonFramePosition(value: unknown): value is BalloonFramePosition {
+  if (!value || typeof value !== 'object') return false;
+  const { x, y } = value as BalloonFramePosition;
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1;
+}
 export type EndpointMarkerLabel = 'START' | 'GOAL';
 export type EndpointMarkerPlacements = Partial<Record<EndpointMarkerLabel, PopupPlacement>>;
 export const POPUP_PLACEMENT_VIEWPORT = { width: 1920, height: 1080 };

@@ -1,4 +1,6 @@
 import type { RoutePoint } from '../timeline/types';
+import type { BalloonFramePosition } from '../popup/placement';
+import { applyBalloonFramePositions } from './balloonFrame';
 
 export interface RouteHistory {
   past: RoutePoint[][];
@@ -8,6 +10,7 @@ export interface RouteHistory {
 }
 
 export type HistoryAction =
+  | { type: 'resolve-balloon-positions'; positions: ReadonlyMap<string, BalloonFramePosition> }
   | { type: 'load'; points: RoutePoint[] }
   | { type: 'commit'; points: RoutePoint[] }
   | { type: 'undo' }
@@ -18,6 +21,12 @@ export const emptyHistory: RouteHistory = { past: [], present: [], future: [], i
 
 export function historyReducer(state: RouteHistory, action: HistoryAction): RouteHistory {
   switch (action.type) {
+    case 'resolve-balloon-positions': return {
+      past: state.past.map((points) => applyBalloonFramePositions(points, action.positions)),
+      present: applyBalloonFramePositions(state.present, action.positions),
+      future: state.future.map((points) => applyBalloonFramePositions(points, action.positions)),
+      initial: applyBalloonFramePositions(state.initial, action.positions),
+    };
     case 'load': return { past: [], present: action.points, future: [], initial: action.points };
     case 'commit': return action.points === state.present ? state : { ...state, past: [...state.past, state.present], present: action.points, future: [] };
     case 'undo': {
