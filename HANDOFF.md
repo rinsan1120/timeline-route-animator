@@ -1,5 +1,13 @@
 # HANDOFF
 
+## Hide vegetation and land-use map symbols (2026-10-09)
+
+- 田（6311）、畑（6312）、茶畑（6313）、果樹園（6314）、広葉樹林（6321）、針葉樹林（6322）、竹林（6323）、ヤシ科樹林（6324）、ハイマツ地（6325）、笹地（6326）、荒地（6327）の11種類を標準非表示に統一。公式スタイルのZoom 13〜14／14〜17に分かれた計17レイヤーをすべて除外する。
+- gsiStyle.tsのshouldKeepLayer()で一元管理。source-layerがsymbol、metadata.pathが対象記号名、既存filterのftCodeが対象コードに一致するレイヤーだけを、既存filterContainsValue()で選別する。公式スタイルJSON、sprite／glyph取得、既存の表示設定は変更しない。
+- 共有GSI_STYLEを使う移動実績参照／計画／スポット画像の編集地図、アニメーションプレビュー、全体表示MP4、追従表示MP4（真上・斜め）、スポット画像PNGへ共通反映。各描画処理への個別ロジック追加なし。
+- 道路番号、地名、道路・水域、墓地・神社・寺院・公共／観光施設等の対象外記号、地形・海陸描画の構成とレイヤー順序を維持する。直近のPMTiles補完・PNG待機／保存、出典、ユーザーの地点・バルーン・DAY／START／GOAL・HUD、UI／レイアウト、JSON形式、Undo／Redoは変更なし。新設定・依存追加なし。READMEの利用説明にも変更なし。
+- 自動検証：既存renderer.test.tsへ11種類の全Zoom帯除外と対象外レイヤーの維持・順序確認を追加。npm testは18ファイル・212テスト成功、任意のprivate実データ用1ファイルはスキップ。npm run build（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。変更前後の共有スタイルを比較し、対象17レイヤー以外の全レイヤー・順序・sources・sprite・glyph等が完全一致することも確認。ブラウザ操作・Android実機・MP4／PNG目視確認は指示どおり未実施。
+
 ## Spot PNG land/sea underlay and readiness fix (2026-10-08)
 
 - 問題：同じ指定範囲でも編集画面（約Zoom 7.5）と1920×1080 PNG（約8.2）では取得するタイルが変わり、海域の一部が陸地色の矩形になる。既存背景はZoom 8で海色→陸地色へ切り替わり、PNGはloaded/areTilesLoadedだけで待機し、再試行がなかった。

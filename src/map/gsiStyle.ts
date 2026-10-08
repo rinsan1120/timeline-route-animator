@@ -26,6 +26,8 @@ export const GSI_TERRAIN_TINT_LAYER_ID = 'gsi-terrain-tint';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
+const VEGETATION_AND_LAND_USE_CODES = new Set([6311, 6312, 6313, 6314, 6321, 6322, 6323, 6324, 6325, 6326, 6327]);
+const VEGETATION_AND_LAND_USE_PATH = /^記号-(?:田|畑|茶畑|果樹園|広葉樹林|針葉樹林|竹林|ヤシ科樹林|ハイマツ地|笹地|荒地)$/;
 const NATURAL_LABEL_PATH = /山|岳|峰|山脈|山地|平原|平野|盆地|高原|湿原|河川|湖|沼|池|海|湾|灘|島|岬|崎|半島|峠|滝|岩|洞窟/;
 
 function sourceLayerOf(layer: StyleLayer): string | undefined {
@@ -81,6 +83,9 @@ function isRoadFacilityIconLayer(layer: StyleLayer): boolean {
 function shouldKeepLayer(layer: StyleLayer): boolean {
   const sourceLayer = sourceLayerOf(layer);
   const path = metadataPathOf(layer);
+
+  if (sourceLayer === 'symbol' && VEGETATION_AND_LAND_USE_PATH.test(path)
+    && filterContainsValue((layer as MutableLayer).filter, 'ftCode', VEGETATION_AND_LAND_USE_CODES)) return false;
 
   if (!visibility.roadFacilityIcons && isRoadFacilityIconLayer(layer)) return false;
   if (sourceLayer === 'contour' && !visibility.contours) return false;

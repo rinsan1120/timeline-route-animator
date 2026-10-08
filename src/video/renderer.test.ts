@@ -459,6 +459,54 @@ describe('Spot PNG map readiness and retry', () => {
 });
 
 describe('GSI Vector video background', () => {
+  it.each([
+    ['田', 6311, 2], ['畑', 6312, 2], ['茶畑', 6313, 2], ['果樹園', 6314, 2],
+    ['広葉樹林', 6321, 2], ['針葉樹林', 6322, 2], ['竹林', 6323, 1], ['ヤシ科樹林', 6324, 1],
+    ['ハイマツ地', 6325, 1], ['笹地', 6326, 1], ['荒地', 6327, 1],
+  ])('omits every official %s symbol layer across zoom bands', (name, code, count) => {
+    const officialLayers = GSI_OFFICIAL_STYLE.layers.filter((layer) =>
+      (layer.metadata as { path?: string } | undefined)?.path === `記号-${name}`);
+    expect(officialLayers).toHaveLength(count);
+    for (const layer of officialLayers) {
+      expect(layer).toMatchObject({ 'source-layer': 'symbol', filter: ['all', ['in', 'ftCode', code]] });
+      expect(GSI_STYLE.layers.some((actual) => actual.id === layer.id)).toBe(false);
+    }
+    expect(officialLayers.map((layer) => [layer.minzoom, layer.maxzoom])).toEqual(
+      count === 2 ? [[13, 14], [14, 17]] : [[14, 17]],
+    );
+    expect(GSI_STYLE.layers.filter((layer) => 'source-layer' in layer && layer['source-layer'] === 'symbol'
+      && Array.isArray(layer.filter) && (layer.filter as unknown[]).flat(Infinity).includes(code))).toEqual([]);
+  });
+
+  it('retains unrelated symbols, place names, route numbers and the order of roads and water', () => {
+    const protectedPaths = new Set([
+      '記号-墓地', '記号-神社', '記号-寺院', '記号-官公署', '記号-史跡・名勝・天然記念物',
+      '注記-都道府県', '注記-市区町村', '注記-山', '注記-河川名', '注記-湖沼名', '注記-道路名',
+      '交通構造物-国道番号', '交通構造物-都市高速道路番号', '交通構造物-高速道路番号',
+      '交通構造物-インターチェンジ', '交通構造物-ジャンクション',
+      '交通構造物-サービスエリア', '交通構造物-パーキングエリア',
+    ]);
+    for (const path of protectedPaths) {
+      const actualLayers = GSI_STYLE.layers.filter((layer) =>
+        (layer.metadata as { path?: string } | undefined)?.path === path);
+      expect(actualLayers.length, path).toBeGreaterThan(0);
+      const officialLayers = GSI_OFFICIAL_STYLE.layers.filter((layer) =>
+        (layer.metadata as { path?: string } | undefined)?.path === path
+        && !(path.startsWith('交通構造物-') && layer.type === 'symbol'
+          && layer.layout?.['icon-image'] !== undefined && layer.layout?.['text-field'] === undefined));
+      expect(actualLayers.map((layer) => layer.id), path).toEqual(officialLayers.map((layer) => layer.id));
+      for (const actual of actualLayers) {
+        const official = GSI_OFFICIAL_STYLE.layers.find((layer) => layer.id === actual.id)!;
+        expect(actual).toMatchObject({ filter: 'filter' in official ? official.filter : undefined });
+      }
+    }
+    const isRoadOrWater = (layer: (typeof GSI_STYLE.layers)[number]) => 'source-layer' in layer
+      && ['road', 'river', 'lake', 'waterarea', 'coastline'].includes(layer['source-layer'] ?? '');
+    expect(GSI_STYLE.layers.filter(isRoadOrWater).map((layer) => layer.id)).toEqual(
+      GSI_OFFICIAL_STYLE.layers.filter(isRoadOrWater).map((layer) => layer.id),
+    );
+  });
+
   it('keeps ocean and overzoomed land across zoom 8, with precise coastal/land/water faces below terrain and detailed vectors', () => {
     expect(GSI_STYLE.layers[0]).toMatchObject({
       id: 'gsi-background', type: 'background', paint: {
