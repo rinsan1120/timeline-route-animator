@@ -3,6 +3,7 @@ import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from './gsiOfficialStyle';
 import { GSI_COLOR_CONFIG } from './gsiColorConfig';
 import { GSI_ZOOM_CONFIG } from './gsiZoomConfig';
 import { GSI_VECTOR_CONFIG } from './gsiVectorConfig';
+import { GSI_COASTAL_LAND_SOURCE_LAYER } from './gsiCoastalLand';
 
 type StyleLayer = StyleSpecification['layers'][number];
 type MutableLayer = StyleLayer & {
@@ -17,6 +18,9 @@ const { source, lowZoomLand, terrainTint, appearance, zoomTransition, roads, lin
 const colors = GSI_COLOR_CONFIG;
 
 export const GSI_LOW_ZOOM_LAND_SOURCE_ID = 'gsi-optimal-lowzoom-land';
+export const GSI_DETAILED_LAND_SOURCE_ID = 'gsi-optimal-detailed-land';
+export const GSI_REQUIRED_VECTOR_SOURCE_IDS = [GSI_OFFICIAL_SOURCE_ID,
+  ...(lowZoomLand.enabled ? [GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DETAILED_LAND_SOURCE_ID] : [])];
 export const GSI_DEM_SOURCE_ID = 'gsi-dem';
 export const GSI_TERRAIN_TINT_LAYER_ID = 'gsi-terrain-tint';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
@@ -385,6 +389,12 @@ export const GSI_STYLE: StyleSpecification = {
         type: 'vector' as const,
         url: `pmtiles://${lowZoomLand.pmtilesUrl}`,
         minzoom: GSI_ZOOM_CONFIG.source.minZoom,
+        maxzoom: GSI_ZOOM_CONFIG.lowZoomLand.sourceMaxZoom,
+      },
+      [GSI_DETAILED_LAND_SOURCE_ID]: {
+        type: 'vector' as const,
+        url: `pmtiles://${lowZoomLand.pmtilesUrl}`,
+        minzoom: GSI_ZOOM_CONFIG.source.minZoom,
         maxzoom: GSI_ZOOM_CONFIG.source.maxZoom,
       },
     } : {}),
@@ -395,7 +405,7 @@ export const GSI_STYLE: StyleSpecification = {
       type: 'background',
       paint: {
         'background-color': lowZoomLand.enabled
-          ? ['step', ['zoom'], colors.background, GSI_ZOOM_CONFIG.lowZoomLand.minZoom, colors.water, GSI_ZOOM_CONFIG.lowZoomLand.maxZoom, colors.background]
+          ? ['step', ['zoom'], colors.background, GSI_ZOOM_CONFIG.lowZoomLand.minZoom, colors.water]
           : colors.background,
       },
     },
@@ -407,9 +417,24 @@ export const GSI_STYLE: StyleSpecification = {
       minzoom: GSI_ZOOM_CONFIG.lowZoomLand.minZoom,
       paint: { 'fill-color': colors.background },
     }, {
+      id: 'gsi-coastal-land',
+      type: 'fill' as const,
+      source: GSI_DETAILED_LAND_SOURCE_ID,
+      'source-layer': GSI_COASTAL_LAND_SOURCE_LAYER,
+      minzoom: GSI_ZOOM_CONFIG.lowZoomLand.maxZoom,
+      maxzoom: GSI_ZOOM_CONFIG.lowZoomLand.detailedLandMinZoom,
+      paint: { 'fill-color': colors.background },
+    }, {
+      id: 'gsi-detailed-land',
+      type: 'fill' as const,
+      source: GSI_DETAILED_LAND_SOURCE_ID,
+      'source-layer': lowZoomLand.sourceLayer,
+      minzoom: GSI_ZOOM_CONFIG.lowZoomLand.detailedLandMinZoom,
+      paint: { 'fill-color': colors.background },
+    }, {
       id: 'gsi-fallback-water',
       type: 'fill' as const,
-      source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      source: GSI_DETAILED_LAND_SOURCE_ID,
       'source-layer': 'WA',
       minzoom: GSI_ZOOM_CONFIG.lowZoomLand.minZoom,
       paint: { 'fill-color': colors.water },

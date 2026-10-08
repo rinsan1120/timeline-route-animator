@@ -1,5 +1,19 @@
 # HANDOFF
 
+## Spot PNG land/sea underlay and readiness fix (2026-10-08)
+
+- 問題：同じ指定範囲でも編集画面（約Zoom 7.5）と1920×1080 PNG（約8.2）では取得するタイルが変わり、海域の一部が陸地色の矩形になる。既存背景はZoom 8で海色→陸地色へ切り替わり、PNGはloaded/areTilesLoadedだけで待機し、再試行がなかった。
+- 根拠：公開PMTilesを直接解析。北海道北部の7/114/45にはAdmArea（本島・利尻・礼文）が存在するが、8/228/91、9/456/183、10/913/367、13/7309/2938にはAdmAreaがなく、海・島の穴を表すWA（vt_code=5101）がある。8/228/90の外洋はPMTilesにタイル自体がなく、Protocolは正常な空タイルを返す。Zoom 14ではAdmAreaが再登場するが、外洋の14/14627/5851も未収録。したがって、正常終了した空タイルや水域収録範囲外に陸地色背景が露出する問題と、通信エラーは別。Zoom境界の背景変更だけでは、AdmAreaのない8〜13で陸地を青くする。
+- 修正：既存PMTilesを継続使用。海色背景をZoom 4以上で維持し、広域AdmAreaソースのmaxzoomを7へ制限して高Zoomでもオーバーズーム。別ソースで同じPMTilesの本来のZoomを取得し、Zoom 8〜13はWAの海ポリゴンの外周内の補集合と島の穴から精密な陸地面を補完する（gsiCoastalLand.ts）。海ポリゴンの包絡矩形内だけを補完し、タイル全体の反転はしない。例えば46°Nで海データが終わる範囲の北側へ偽の陸地を生成しない。湖・川は補集合の対象外。元のタイルのレイヤー・byte列は維持し、補完レイヤーだけを追記する。
+- Zoom 14以上は本来のAdmAreaを上に重ねる。順序は海背景→広域陸地→8〜13の精密海岸陸地／14以上の詳細陸地→本来のWA→既存DEM→既存詳細Vector。広域陸地だけを拡大して海岸の精度を落とさず、WAの海岸と島の形状、詳細Vectorの道路・地名・水域・既存配色を維持する。低Zoomの背景仕様（4未満）も維持。
+- main.tsxの既存PMTiles Protocolに局所的な補完ラッパーを追加。対象アーカイブの8〜13だけを処理し、空の海タイルは空のまま返す。他のPMTiles、TileJSON、AbortController、通信エラー、cacheControlはそのまま伝播。MapLibreのインストール済みload_tilejson.tsで、明示的source.maxzoomがPMTilesのTileJSONより優先することも確認。既存のMVT解析ライブラリ（@mapbox/vector-tile 3.0.0／pbf 5.1.2）を直接依存に明示したのみで、既存バージョンの更新なし。
+- PNG：MP4のviewport待機をexportViewportReady.tsへ小さく抽出。style、必須の詳細Vector・広域補助・詳細補助ソースの存在とloaded、map.loaded/areTilesLoaded、最後のカメラ操作後のidle、非DEMエラーなしを確認する。DEMだけのエラー／10秒待機では既存fallbackでDEMを外す。
+- PNGの必須データ失敗／30秒timeoutではMapとlistener/timerを破棄し、同じGSI_STYLEと最終カメラで1回だけ作り直す。初期読込とバルーン調整後を合わせて最大2 Mapインスタンス。再失敗時は日本語エラーを返し、Canvas取り込み／PNG Blob生成へ進まない。既存保存処理もBlob生成失敗時にファイルへ書かない。imageCamera、バルーンの探索・寸法・配置、スポット位置、出典、保存先・上書き・ファイル名・1920×1080は変更なし。
+- 共有GSI_STYLEを使うTimeline／計画／スポット編集、動画プレビュー、Overview／Follow（真上・斜め）MP4、PNGへ下地修正が共通反映される。MP4の待機処理は同等の共有関数を呼ぶだけで、20秒timeout、再試行、既存カメラ・Zoom・フレーム数・時間軸・背景キャッシュは維持。UI、DOM属性、レスポンシブCSS、ポイント編集・Undo/Redo、DAY/START/GOAL、HUD、JSON形式、日時選択・rawSignalsは変更なし。READMEの利用仕様変更はないため未変更。
+- 自動検証：npm testは18ファイル・200テスト成功、任意のprivate実データ用1ファイルはスキップ。Zoom 7.5/7.99/8.0/8.01/8.2/9/10と4〜16の下地条件・順序、公開タイルの元データ維持、MapLibreと同じearcutによる海岸・島の三角形化、低Zoomでは欠ける精密な陸地の復元、46°N以北への陸地生成防止、PNGの各必須ソース待機・初期失敗／timeout・最終画角での再試行・通算2試行後の出力中止・DEM error/timeout fallback・寸法／出典／バルーン／スポット維持、既存MP4とルート／日時等を検証。npm run build（TypeScript/Vite）は成功。既存チャンクサイズ警告のみ。git diff --check問題なし。
+- 制約／未確認：公開タイルの収録形状を補完しており、測量データを新規推定するものではない。全国の全海岸や将来の配信データ変更を網羅した保証はしない。公開fixtureとモック・三角形化による自動検証であり、実ブラウザ・Android実機・編集画面／生成PNG／MP4の目視確認は指示どおり未実施。実際のZoom 7.5〜10の描画・PC/Android表示・PNG保存／MP4再生はユーザー側確認。
+- 参照：国土地理院PMTiles仕様 https://github.com/gsi-cyberjapan/optimal_bvmap 、MapLibre source.maxzoom https://maplibre.org/maplibre-style-spec/sources/ 。公開地図fixtureの出典はtests/fixtures/gsi-coast/README.mdに記録。個人のTimelineや位置記録は使用・収録していない。
+
 ## OpenPOI place search (2026-10-03)
 
 - 計画モード／スポット画像モード共通のCoordinateJumpControlに施設名・地名・カテゴリ・ブランド検索を追加。Timelineモードは変更なし。

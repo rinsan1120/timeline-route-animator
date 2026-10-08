@@ -12,8 +12,12 @@ export const GSI_ZOOM_CONFIG = {
   lowZoomLand: {
     // 補助レイヤを使用する最小Zoom。
     minZoom: 4,
-    // このZoom未満で表示する。Zoom 8からはexperimental_bvmapだけへ戻す。
+    // このZoomから詳細な水域形状で海岸の陸地面を補正する。
     maxZoom: 8,
+    // AdmAreaのある最後の広域Zoom。以後もこのタイルをオーバーズームして下地に使う。
+    sourceMaxZoom: 7,
+    // AdmAreaが再び収録されるZoom。これ以降は本来の詳細陸地面を使用する。
+    detailedLandMinZoom: 14,
   },
   terrain: {
     // DEMタイルの最小Zoom。下げても未提供の標高データは増えない。

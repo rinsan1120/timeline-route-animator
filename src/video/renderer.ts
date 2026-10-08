@@ -8,10 +8,9 @@ import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotat
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, tripRoutePointProgresses, type DayMarker } from '../route/tripRoute';
-import { GSI_ATTRIBUTION, GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE } from '../map/gsiStyle';
 import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrainTint';
-import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
-import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
+import { waitForExportViewportReady } from '../map/exportViewportReady';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './followCamera';
 import { getIntroStartZoom, interpolateIntroZoom } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
@@ -63,7 +62,7 @@ function createVideoMapSession(container: HTMLElement, signal?: AbortSignal) {
         }
         await waitForStyle(map, VIDEO_MAP_TIMEOUT, () => loadError, signal);
         if (created || move) map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
-        await waitForVideoViewportReady(map, VIDEO_MAP_TIMEOUT, () => loadError, signal);
+        await waitForExportViewportReady(map, VIDEO_MAP_TIMEOUT, () => loadError, VIDEO_MAP_ERROR, signal);
         return map;
       } catch (error) {
         dispose();
@@ -630,64 +629,6 @@ interface FollowVideoDayMarker extends DayMarker {
 
 function isInVideoViewport(point: { x: number; y: number }): boolean {
   return point.x >= 0 && point.x <= WIDTH && point.y >= 0 && point.y <= HEIGHT;
-}
-
-function waitForVideoViewportReady(
-  map: maplibregl.Map,
-  timeout: number,
-  getLoadError: () => Error | null,
-  signal?: AbortSignal,
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const requiredSources: string[] = [GSI_OFFICIAL_SOURCE_ID];
-    if (GSI_VECTOR_CONFIG.lowZoomLand.enabled) requiredSources.push(GSI_LOW_ZOOM_LAND_SOURCE_ID);
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      map.off('idle', onIdle);
-      map.off('error', onError);
-      signal?.removeEventListener('abort', onAbort);
-    };
-    const fail = (error: unknown) => {
-      cleanup();
-      reject(error);
-    };
-    const onError = (event: maplibregl.ErrorEvent) => {
-      if (!isTerrainTintError(event)) fail(getLoadError() ?? new Error(VIDEO_MAP_ERROR));
-    };
-    const onAbort = () => fail(new DOMException('動画生成をキャンセルしました。', 'AbortError'));
-    const onIdle = () => {
-      try {
-        const error = getLoadError();
-        if (error) return fail(error);
-        for (const sourceId of requiredSources) {
-          if (!map.getSource(sourceId)) return fail(new Error(`動画用の地図データが見つかりません（${sourceId}）。`));
-        }
-        // loaded/areTilesLoadedはDEMも含む全sourceを待つ。DEM失敗時だけ共有処理がsourceを外す。
-        if (!map.isStyleLoaded() || !map.loaded() || !map.areTilesLoaded() || !requiredSources.every((sourceId) => map.isSourceLoaded(sourceId))) return;
-        cleanup();
-        resolve();
-      } catch (error) {
-        fail(error);
-      }
-    };
-    const timer = window.setTimeout(() => {
-      fail(new Error(VIDEO_MAP_ERROR));
-    }, timeout);
-    map.on('idle', onIdle);
-    map.on('error', onError);
-    signal?.addEventListener('abort', onAbort, { once: true });
-    if (signal?.aborted) return onAbort();
-    const error = getLoadError();
-    if (error) return fail(error);
-    try {
-      // jumpTo's tile selection is applied during render. Only accept a subsequent
-      // idle frame: current-viewport tiles and final symbol placement have rendered.
-      // Cached viewports proceed on that frame, without a fixed delay.
-      map.triggerRepaint();
-    } catch (error) {
-      fail(error);
-    }
-  });
 }
 
 function waitForStyle(map: maplibregl.Map, timeout: number, getLoadError: () => Error | null, signal?: AbortSignal): Promise<void> {

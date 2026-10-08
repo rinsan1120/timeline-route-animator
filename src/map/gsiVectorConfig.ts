@@ -44,9 +44,9 @@ export const GSI_VECTOR_CONFIG = {
   },
 
   lowZoomLand: {
-    // trueで低Zoomの海背景と陸地面の補完を有効にする。
+    // trueで海背景と陸地面の補完を全Zoomで有効にする。
     enabled: true,
-    // Zoom 8未満の陸地面だけを補完する国土地理院optimal_bvmap PMTiles。
+    // 広域AdmAreaをオーバーズームし、詳細WA/AdmAreaで海岸線を補正する共通PMTiles。
     pmtilesUrl: 'https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles',
     // optimal_bvmapで行政区画面を格納しているsource-layer。
     sourceLayer: 'AdmArea',

@@ -10,9 +10,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "3.0.0",
     "@vitejs/plugin-react": "latest",
     "maplibre-gl": "latest",
     "mediabunny": "latest",
+    "pbf": "5.1.2",
     "pmtiles": "^4.5.0",
     "react": "latest",
     "react-dom": "latest",

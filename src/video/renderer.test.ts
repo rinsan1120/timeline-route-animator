@@ -1,11 +1,14 @@
 import { GSI_ZOOM_CONFIG } from '../map/gsiZoomConfig';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../map/gsiStyle';
+import { GSI_ATTRIBUTION, GSI_STYLE, GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID, GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DETAILED_LAND_SOURCE_ID, GSI_REQUIRED_VECTOR_SOURCE_IDS } from '../map/gsiStyle';
 import { GSI_COLOR_CONFIG } from '../map/gsiColorConfig';
 import { expression } from '@maplibre/maplibre-gl-style-spec';
 import { GSI_OFFICIAL_SOURCE_ID, GSI_OFFICIAL_STYLE } from '../map/gsiOfficialStyle';
 import { createOverviewCamera } from './overviewCamera';
 import { buildFollowCameraPlan, type FollowViewMode } from './followCamera';
+import { imageCamera } from '../spot/imageBounds';
+import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
+import type { RoutePoint } from '../timeline/types';
 
 const mocks = vi.hoisted(() => ({
   maps: [] as any[],
@@ -260,38 +263,241 @@ describe('MP4 map readiness and retry', () => {
   });
 });
 
+function setupImageEnvironment() {
+  const { context, points } = setupVideoEnvironment();
+  Object.assign(context, { measureText: vi.fn(() => ({ width: 80 })) });
+  for (const name of ['save', 'restore', 'closePath', 'quadraticCurveTo']) context[name] = vi.fn();
+  const canvas = { width: 0, height: 0, getContext: vi.fn(() => context),
+    toBlob: vi.fn((callback: (blob: Blob) => void) => callback(new Blob(['synthetic png'], { type: 'image/png' }))) };
+  const container = { style: {}, remove: vi.fn() };
+  vi.stubGlobal('document', { fonts: { ready: Promise.resolve() }, body: { appendChild: vi.fn() },
+    createElement: vi.fn((name) => name === 'canvas' ? canvas : container) });
+  const bounds = { west: -0.02, east: 0.02, north: 0.02, south: -0.02 };
+  return { context, canvas, container, points: points.slice(0, 1) as RoutePoint[], bounds };
+}
+
+describe('Spot PNG map readiness and retry', () => {
+  it('keeps the image camera, spot size, attribution and PNG dimensions after every required source is ready', async () => {
+    const { context, canvas, container, points, bounds } = setupImageEnvironment();
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    expect((await renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE)).type).toBe('image/png');
+    expect(mocks.maps).toHaveLength(1);
+    const map = mocks.maps[0];
+    expect(map.options).toMatchObject({ style: GSI_STYLE, ...imageCamera(bounds), pixelRatio: 1 });
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    for (const id of GSI_REQUIRED_VECTOR_SOURCE_IDS) {
+      const index = map.isSourceLoaded.mock.calls.findIndex(([sourceId]: string[]) => sourceId === id);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(map.isSourceLoaded.mock.invocationCallOrder[index]).toBeLessThan(map.getCanvas.mock.invocationCallOrder[0]);
+    }
+    expect(canvas).toMatchObject({ width: 1920, height: 1080 });
+    expect(context.drawImage).toHaveBeenCalledWith('map-canvas', 0, 0, 1920, 1080);
+    expect(context.arc).toHaveBeenCalledWith(100, 100, 23, 0, Math.PI * 2);
+    expect(context.fillText).toHaveBeenCalledWith(GSI_ATTRIBUTION, 34, 1055);
+    expect(canvas.toBlob).toHaveBeenCalledOnce();
+    expect(map.removed).toBe(true);
+    expect(map.listeners.size).toBe(0);
+    expect(container.remove).toHaveBeenCalledOnce();
+  });
+
+  it.each(['style', 'loaded', 'tiles', ...GSI_REQUIRED_VECTOR_SOURCE_IDS])('rejects premature idle with incomplete %s, retries once, and never creates a PNG', async (incomplete) => {
+    vi.useFakeTimers();
+    const { context, canvas, container, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map) => {
+      if (incomplete === 'style') map.isStyleLoaded = () => false;
+      else if (incomplete === 'loaded') map.loaded = () => false;
+      else if (incomplete === 'tiles') map.areTilesLoaded = () => false;
+      else {
+        const original = map.isSourceLoaded.getMockImplementation();
+        map.isSourceLoaded.mockImplementation((id: string) => id !== incomplete && original(id));
+      }
+      map.triggerRepaint.mockImplementation(() => {
+        queueMicrotask(() => { if (!map.removed) map.emit('idle'); });
+        return map;
+      });
+    };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    const rejection = expect(renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE)).rejects.toThrow('もう一度PNG');
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(mocks.maps).toHaveLength(1);
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].removed).toBe(true);
+    expect(mocks.maps[1].options).toEqual(mocks.maps[0].options);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+    expect(mocks.maps.every((map) => map.removed && map.listeners.size === 0)).toBe(true);
+    expect(container.remove).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(GSI_REQUIRED_VECTOR_SOURCE_IDS)('recreates once after a %s error, without changing the camera or source style', async (sourceId) => {
+    const { canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map, index) => {
+      if (!index) queueMicrotask(() => map.emit('error', { sourceId }));
+    };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    await renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE);
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].getCanvas).not.toHaveBeenCalled();
+    expect(mocks.maps[1].options).toEqual(mocks.maps[0].options);
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+    expect(canvas.toBlob).toHaveBeenCalledOnce();
+  });
+
+  it.each(GSI_REQUIRED_VECTOR_SOURCE_IDS)('aborts PNG creation after two missing-source failures (%s)', async (sourceId) => {
+    const { context, canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map) => { delete map.sources[sourceId]; };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    await expect(renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE)).rejects.toThrow('画像用の地図データ');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+  });
+
+  it('stops after two tile errors without returning a Blob for the save operation', async () => {
+    const { canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map) => queueMicrotask(() => map.emit('error', { sourceId: GSI_OFFICIAL_SOURCE_ID }));
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    await expect(renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE)).rejects.toThrow('もう一度PNG');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps.every((map) => map.removed && map.getCanvas.mock.calls.length === 0)).toBe(true);
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+  });
+
+  it('recovers from one timeout at the same image camera', async () => {
+    vi.useFakeTimers();
+    const { canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map, index) => { if (!index) map.areTilesLoaded = () => false; };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    const result = renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect((await result).type).toBe('image/png');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[1].options).toEqual(mocks.maps[0].options);
+    expect(canvas.toBlob).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('allows only two instances across initial loading and final camera adjustment combined', async () => {
+    const { canvas, points, bounds } = setupImageEnvironment();
+    const initial = imageCamera(bounds);
+    mocks.configureMap = (map, index) => {
+      map.project.mockImplementation(() => ({ x: map.zoom > initial.zoom - 0.4 ? 5 : 400, y: 300 }));
+      if (!index) queueMicrotask(() => map.emit('error', { sourceId: GSI_OFFICIAL_SOURCE_ID }));
+      else failMapJump(map, 1, GSI_DETAILED_LAND_SOURCE_ID);
+    };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    await expect(renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE)).rejects.toThrow('もう一度PNG');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('retries the final fitted camera with identical balloons (second failure=%s)', async (failAgain) => {
+    const { context, canvas, points, bounds } = setupImageEnvironment();
+    points[0] = { ...points[0], annotation: { label: 'スポット', placement: { offsetX: 10, offsetY: -80 } } };
+    const initial = imageCamera(bounds);
+    mocks.configureMap = (map, index) => {
+      map.project.mockImplementation(() => ({ x: map.zoom > initial.zoom - 0.4 ? 5 : 400, y: 300 }));
+      if (!index) failMapJump(map, 1, GSI_DETAILED_LAND_SOURCE_ID);
+      if (index && failAgain) queueMicrotask(() => map.emit('error', { sourceId: GSI_OFFICIAL_SOURCE_ID }));
+    };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    const result = renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE);
+    if (failAgain) await expect(result).rejects.toThrow('もう一度PNG');
+    else await result;
+    expect(mocks.maps).toHaveLength(2);
+    const first = mocks.maps[0], second = mocks.maps[1];
+    const finalCamera = first.jumpTo.mock.calls.at(-1)[0];
+    expect(finalCamera.zoom).toBeCloseTo(initial.zoom - 0.4, 3);
+    expect(second.options).toMatchObject({ ...finalCamera, style: GSI_STYLE });
+    expect(second.jumpTo).not.toHaveBeenCalled();
+    expect(first.getCanvas).not.toHaveBeenCalled();
+    expect(mocks.maps.every((map) => map.removed)).toBe(true);
+    if (failAgain) expect(canvas.toBlob).not.toHaveBeenCalled();
+    else {
+      expect(context.arc).toHaveBeenCalledWith(400, 300, 23, 0, Math.PI * 2);
+      expect(context.fillText).toHaveBeenCalledWith('スポット', expect.any(Number), expect.any(Number));
+      expect(canvas.toBlob).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('accepts DEM failure through the existing fallback without recreating a map', async () => {
+    const { canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map) => queueMicrotask(() => map.emit('error', { sourceId: GSI_DEM_SOURCE_ID }));
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    await renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE);
+    expect(mocks.maps).toHaveLength(1);
+    expect(mocks.maps[0].removeSource).toHaveBeenCalledWith(GSI_DEM_SOURCE_ID);
+    expect(canvas.toBlob).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a DEM-only timeout optional and waits for its fallback before capturing', async () => {
+    vi.useFakeTimers();
+    const { canvas, points, bounds } = setupImageEnvironment();
+    mocks.configureMap = (map) => {
+      const loaded = map.isSourceLoaded.getMockImplementation();
+      map.isSourceLoaded.mockImplementation((id: string) => id !== GSI_DEM_SOURCE_ID && loaded(id));
+      map.areTilesLoaded = () => Object.keys(map.sources).every((id) => map.isSourceLoaded(id));
+      queueMicrotask(() => map.emit('sourcedataloading', { sourceId: GSI_DEM_SOURCE_ID }));
+    };
+    const { renderSpotImage } = await import('../spot/renderSpotImage');
+    const result = renderSpotImage(points, bounds, DEFAULT_ANNOTATION_STYLE);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(canvas.toBlob).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await result).type).toBe('image/png');
+    expect(mocks.maps).toHaveLength(1);
+    expect(mocks.maps[0].removeSource).toHaveBeenCalledWith(GSI_DEM_SOURCE_ID);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('GSI Vector video background', () => {
-  it('uses an ocean background only at low zoom and keeps land/water fallbacks below terrain and detailed vectors at every supported zoom', () => {
+  it('keeps ocean and overzoomed land across zoom 8, with precise coastal/land/water faces below terrain and detailed vectors', () => {
     expect(GSI_STYLE.layers[0]).toMatchObject({
       id: 'gsi-background', type: 'background', paint: {
-        'background-color': ['step', ['zoom'], GSI_COLOR_CONFIG.background, 4, GSI_COLOR_CONFIG.water, 8, GSI_COLOR_CONFIG.background],
+        'background-color': ['step', ['zoom'], GSI_COLOR_CONFIG.background, 4, GSI_COLOR_CONFIG.water],
       },
     });
     const background = GSI_STYLE.layers[0];
     if (background.type !== 'background') throw new Error('Expected background layer');
     const parsed = expression.createExpression(background.paint?.['background-color'], 'layers[0].paint.background-color');
     if (parsed.result !== 'success') throw new Error('Invalid background expression');
-    for (const [zoom, color] of [[0, GSI_COLOR_CONFIG.background], [3.99, GSI_COLOR_CONFIG.background], [4, GSI_COLOR_CONFIG.water], [7.99, GSI_COLOR_CONFIG.water], [8, GSI_COLOR_CONFIG.background], [16, GSI_COLOR_CONFIG.background]] as const) {
+    for (const [zoom, color] of [[0, GSI_COLOR_CONFIG.background], [3.99, GSI_COLOR_CONFIG.background], ...[4, 7.5, 7.99, 8, 8.01, 8.2, 9, 10, 11, 13.99, 14, 16].map((zoom) => [zoom, GSI_COLOR_CONFIG.water] as const)] as const) {
       expect(parsed.value.evaluate({ zoom })).toBe(color);
     }
     const land = GSI_STYLE.layers[1];
-    const water = GSI_STYLE.layers[2];
+    const coastal = GSI_STYLE.layers[2];
+    const detailedLand = GSI_STYLE.layers[3];
+    const water = GSI_STYLE.layers[4];
     expect(land).toMatchObject({
       id: 'gsi-lowzoom-land', type: 'fill', source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
       'source-layer': 'AdmArea', minzoom: 4, paint: { 'fill-color': GSI_COLOR_CONFIG.background },
     });
     expect(water).toMatchObject({
-      id: 'gsi-fallback-water', type: 'fill', source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+      id: 'gsi-fallback-water', type: 'fill', source: GSI_DETAILED_LAND_SOURCE_ID,
       'source-layer': 'WA', minzoom: 4, paint: { 'fill-color': GSI_COLOR_CONFIG.water },
     });
     expect(land.maxzoom).toBeUndefined();
     expect(water.maxzoom).toBeUndefined();
     expect(GSI_STYLE.sources[GSI_LOW_ZOOM_LAND_SOURCE_ID]).toMatchObject({
-      type: 'vector', minzoom: 4, maxzoom: 16,
+      type: 'vector', minzoom: 4, maxzoom: 7,
       url: 'pmtiles://https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles',
     });
-    expect(GSI_STYLE.layers[3].id).toBe(GSI_TERRAIN_TINT_LAYER_ID);
-    expect(GSI_STYLE.layers.slice(4).every((layer) => 'source' in layer && layer.source === GSI_OFFICIAL_SOURCE_ID)).toBe(true);
+    expect(coastal).toMatchObject({ id: 'gsi-coastal-land', source: GSI_DETAILED_LAND_SOURCE_ID,
+      'source-layer': 'GsiCoastalLand', minzoom: 8, maxzoom: 14, paint: { 'fill-color': GSI_COLOR_CONFIG.background } });
+    expect(detailedLand).toMatchObject({ id: 'gsi-detailed-land', source: GSI_DETAILED_LAND_SOURCE_ID,
+      'source-layer': 'AdmArea', minzoom: 14, paint: { 'fill-color': GSI_COLOR_CONFIG.background } });
+    expect(detailedLand.maxzoom).toBeUndefined();
+    expect(GSI_STYLE.sources[GSI_DETAILED_LAND_SOURCE_ID]).toMatchObject({ type: 'vector', minzoom: 4, maxzoom: 16 });
+    expect(GSI_STYLE.layers[5].id).toBe(GSI_TERRAIN_TINT_LAYER_ID);
+    expect(GSI_STYLE.layers.slice(6).every((layer) => 'source' in layer && layer.source === GSI_OFFICIAL_SOURCE_ID)).toBe(true);
   });
 
   it.each([
