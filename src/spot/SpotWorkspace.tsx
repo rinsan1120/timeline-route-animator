@@ -1,3 +1,4 @@
+import MobileBottomSheet from '../components/MobileBottomSheet';
 import { useEffect, useReducer, useState } from 'react';
 import { emptyHistory, historyReducer } from '../route/history';
 import { appendPlanPoint, deletePoint, movePoint } from '../route/editor';
@@ -48,7 +49,7 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
     } finally { setBusy(false); onBusy(false); }
   };
   return <div className="workspace spot-workspace">
-    <aside className="control-panel">
+    <MobileBottomSheet steps={['スポットを設定', '画像範囲', '画像設定']}>
       <section className="panel-section">
         <div className="section-heading"><span className="step">01</span><div><h2>スポットを設定</h2><p>{points.length}件のスポット</p></div></div>
         <div className="control-label-with-help"><p className="range-note">「連続追加」で地図をクリック／タップ。「選択」で地点やバルーンをドラッグできます。</p><HelpTip helpKey="spotWorkspace" /></div>
@@ -77,7 +78,7 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
         <button disabled={!bounds || busy} onClick={() => setFitRequest((value) => value + 1)}>指定範囲に合わせる</button>
         <div className="control-label-with-help"><button className="generate-button" disabled={!bounds || !targetCount || busy} onClick={() => void save()}>{busy ? 'PNGを準備しています…' : 'PNGを保存'}</button><HelpTip helpKey="spotExport" /></div>
       </section>
-    </aside>
+    </MobileBottomSheet>
     <div className="map-area">
     <div id="spot-coordinate-jump" />
     <section className="map-stage">

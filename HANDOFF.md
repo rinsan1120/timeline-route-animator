@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Mobile bottom sheet (2026-10-16)
+
+- GitHubから取得したorigin/mainとHEAD（075bc8a）が一致した状態を基準に実装。760px以下のみ設定パネルを地図に重ねる。761px以上は既存asideのスクロールとPCレイアウトを維持する。
+- `MobileBottomSheet` を3モードで共用。既存セクションをそのままchildrenで受け、初期は閉じる（約60px＋safe area）、半開き40%、全開80%を目安とし、低い画面では上部にツールバー分の約100pxを確保するよう展開高を制限。一時stateのみでモード切替時は閉じる。DOMを開閉で再マウントせず、閉じたモバイル設定欄はinertにする。
+- Pointer Eventsはハンドルだけで処理し、入力・設定欄の縦スクロールと分離。タップは開閉、上下スワイプ／矢印は1段階ずつ、Home／Escapeは閉じる、Endは全開。固定ヘッダーのStepボタンはパネル内scrollToだけを実行する。説明は既存HelpTipと共有helpContentを使用。
+- シートのResizeObserverが実測高をworkspaceのCSS変数へ渡し、編集ツールバー・スポットヒント・下部地図コントロール／出典を上へ配置。地図の寸法は開閉で変えず、RouteMap／SpotMapは未変更。端末寸法変更は既存の地図ResizeObserverを利用する。
+- モバイルの固定min-heightを撤去し、100dvhとVisualViewportの高さでブラウザUI・ソフトウェアキーボードの表示領域に追従。ヘッダー・場所検索の構造／意味、編集処理・履歴・保存形式・カメラ・MP4／PNG処理は変更しない。
+- 指示どおりテスト・ビルド・ブラウザ／実機操作・MP4／PNG生成確認は未実施。実機での表示・操作確認はユーザー側で実施する。
+
 ## Fixed video balloon positions and shared drawing (2026-10-09)
 
 - 地点バルーンだけに `RoutePoint.annotation.framePosition?: { x: number; y: number }` を追加。1920×1080動画フレームに対する中心の正規化座標（0〜1の有限数）。旧 `placement: { offsetX, offsetY }` は地点相対オフセットの意味・名前・値を維持し、両方ある場合はframePositionを優先する。作業／計画JSONのformat・versionは1のまま、parserは任意フィールドとして検証・復元する。

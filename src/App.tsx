@@ -1,3 +1,4 @@
+import MobileBottomSheet from './components/MobileBottomSheet';
 import { WORKSPACE_MODE_COPY } from './workspaceModeCopy';
 import { hasRecordedRouteTime } from './video/routeClock';
 import SpotWorkspace from './spot/SpotWorkspace';
@@ -888,7 +889,7 @@ export default function App() {
       <section className="privacy-note"><span>●</span> 位置履歴JSONは端末内でのみ処理され、外部へ送信されません</section>
 
       {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} /> : <div className="workspace">
-        <aside className="control-panel">
+        <MobileBottomSheet resetKey={workspaceMode} steps={[workspaceMode === 'plan' ? 'ルートを計画する' : '範囲を選ぶ', 'ルートを整える', '動画にする']}>
           <section className="panel-section source-section">
             {workspaceMode === 'timeline' ? <>
             <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'GoogleマップからエクスポートしたJSONファイルを読み込んでください'}</p></div></div>
@@ -1190,7 +1191,7 @@ export default function App() {
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <button className="download-button" disabled={busy || !!videoProgress} onClick={() => void saveVideo()}>MP4を保存</button>}
           </section>
-        </aside>
+        </MobileBottomSheet>
 
         <div className="map-area">
         <div id="plan-coordinate-jump" />
