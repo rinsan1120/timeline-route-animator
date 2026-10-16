@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Preview request coordination and background reuse — v1.3 Step 3-C (2026-10-16)
+
+- Step 3-Bコミット `a8215a6` を基準に同じ `feature/video-editor-v13` で実装。`previewFrameRenderer.ts` のrenderFrame引数・framePlan／dispose入口は維持し、要求IDで最新要求を識別。処理中1件＋待機最新1件だけを保持し、中間要求は省略する。MapLibreの準備・カメラ変更・投影・背景取得・合成は同じ処理ループで直列実行。
+- 戻り値は `PreviewFrameResult`。成功は `{ status: 'rendered', requestId, canvas, state }`、古い要求／破棄時は `{ status: 'discarded', requestId, frameIndex, reason: 'superseded' | 'disposed', error? }`。最新要求のエラーは従来どおりrejectし、古い要求の失敗はdiscarded.errorへ保持して次の要求を続行。dispose後の新規要求はAbortErrorでrejectする。
+- 背景取得と共通Canvas合成は内部作業Canvasで実施し、完成・要求の有効性・地図エラーを確認してから出力Canvasへ同期コピーする。古い結果・途中画像・失敗した画像で既存の完成フレームを上書きしない。返却Canvasは引き続き同じ出力先で、スナップショットではない。
+- キャッシュはOverview固定背景＋事前投影と、Follow／Overview開始Zoomの直近背景各1件まで。GSI_STYLE固定のセッション内で1920×1080／pixelRatio=1・中心座標・zoom・bearing・pitchをキーにし、同じカメラはMap準備／背景取得も再利用する。動的背景は投影に使うMapとカメラを合わせる。最後の開始Zoomフレームは既存MP4相当の準備を一度確認。地図エラー・Map再生成・要求処理の失敗時はキャッシュを無効化し、置換Bitmapはcloseする。
+- dispose／外部signalのabortは新規要求を拒否し待機要求を破棄。進行中の地図待機をabortし、非同期処理の終了後にMap・Bitmap・内部Canvas・コンテナを解放する。解放後に古い要求が描画／反映しない。繰り返しdisposeは安全。出力Canvasは呼び出し側所有で、最後の完成フレームを残す。
+- Step 4／5へ：呼び出し側はstatusを判別し、rejectも処理する。ルート／カメラ／表示設定変更時は旧セッションをdisposeして再生成し、利用中の入力やCanvas状態を外から変更しない。画面切替・UI・30fps再生スケジューラ・フレームスキップ・MP4との同時利用管理は未着手。MP4ループ／背景キャッシュ・共有FramePlan／Canvas描画・videoMapSessionは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
 ## Canvas frame preview foundation — v1.3 Step 3-B (2026-10-16)
 
 - Step 3-Aコミット `3bd9d3f` を基準に同じ `feature/video-editor-v13` で実装。`createPreviewFrameRenderer(canvas, options)`（`src/video/previewFrameRenderer.ts`）が `framePlan` / `renderFrame(frameIndex)` / `dispose()` を公開。optionsはルート・動画／描画設定と任意のsignalを受け、WebCodecs・Mediabunny・Reactへ依存しない。
