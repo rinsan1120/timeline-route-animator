@@ -4,6 +4,8 @@ import { dayRouteColor } from './dayRouteColor';
 import { ANNOTATION_BASE_METRICS, DEFAULT_ANNOTATION_STYLE, annotationMinimumWidth, type AnnotationStyle } from './annotationStyle';
 import type { DayMarker } from './tripRoute';
 
+export const VIDEO_BALLOON_STROKE_WIDTH = 6.8;
+
 // Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
 const VIDEO_DAY_STYLE = {
   // Video notes grow on one line, limited only by the video frame bounds.
@@ -11,9 +13,9 @@ const VIDEO_DAY_STYLE = {
   paddingX: ANNOTATION_BASE_METRICS.paddingX, paddingTop: ANNOTATION_BASE_METRICS.paddingY, paddingBottom: ANNOTATION_BASE_METRICS.paddingY,
   dayFont: ANNOTATION_BASE_METRICS.fontSize, dateFont: ANNOTATION_BASE_METRICS.fontSize * 17 / 24,
   noteFont: ANNOTATION_BASE_METRICS.fontSize * 19 / 24, daySpacing: 1.9, dateSpacing: 0.85,
-  border: 3.4, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
-  connectorWidth: 3.4, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
-  manualConnectorWidth: 6.8, manualAnchorRadius: 8.5, anchorBorder: 3.4,
+  border: 3.4, strokeWidth: VIDEO_BALLOON_STROKE_WIDTH, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
+  connectorWidth: VIDEO_BALLOON_STROKE_WIDTH, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
+  manualConnectorWidth: VIDEO_BALLOON_STROKE_WIDTH, manualAnchorRadius: 8.5, anchorBorder: 3.4,
   shadowBlur: 24, shadowOffsetY: 6.8, margin: 8, bottomMargin: 54,
 } as const;
 

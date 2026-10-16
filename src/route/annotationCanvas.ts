@@ -1,5 +1,6 @@
 import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
 import { ANNOTATION_BASE_METRICS, annotationMinimumWidth, type AnnotationStyle } from './annotationStyle';
+import { VIDEO_BALLOON_STROKE_WIDTH } from './dayMarkerStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
 export interface CanvasAnnotation { pointId?: string; label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
@@ -67,7 +68,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   if (annotation.placement || annotation.framePosition) {
     const edge = nearestPointOnRect({ left, top, width, height }, annotation.pixel);
     context.strokeStyle = '#ff8b68';
-    context.lineWidth = 2 * scale;
+    context.lineWidth = VIDEO_BALLOON_STROKE_WIDTH;
     context.beginPath();
     context.moveTo(edge.x, edge.y);
     context.lineTo(annotation.pixel.x, annotation.pixel.y);
@@ -76,7 +77,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   // Match the browser note balloon: lighter navy than DAY / START / GOAL.
   context.fillStyle = '#2d4f73';
   context.strokeStyle = '#ff8b68';
-  context.lineWidth = 2 * scale;
+  context.lineWidth = VIDEO_BALLOON_STROKE_WIDTH;
   context.shadowColor = 'rgba(7,17,31,.28)';
   context.shadowBlur = 28 * scale;
   context.shadowOffsetY = 8 * scale;

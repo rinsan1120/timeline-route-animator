@@ -55,12 +55,12 @@ export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDa
   context.fill();
   context.shadowBlur = 0;
   context.shadowOffsetY = 0;
-  context.lineWidth = style.border;
+  context.lineWidth = style.strokeWidth;
   context.strokeStyle = colors.outline;
   // The browser has a uniform rounded border, not a separate thick top accent.
   context.beginPath();
-  context.roundRect(left + style.border / 2, top + style.border / 2,
-    width - style.border, height - style.border, Math.max(0, style.radius - style.border / 2));
+  context.roundRect(left + style.strokeWidth / 2, top + style.strokeWidth / 2,
+    width - style.strokeWidth, height - style.strokeWidth, Math.max(0, style.radius - style.strokeWidth / 2));
   context.stroke();
 
   context.textAlign = 'left';
