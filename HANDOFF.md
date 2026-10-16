@@ -1,5 +1,10 @@
 # HANDOFF
 
+## Unsaved edit protection (Issue #1)
+
+- TimelineWorkState／PlanStateと同じ保存対象をキー順のJSON比較で未保存判定。初回抽出・正常読込・新規計画・保存成功時に基準を更新し、保存キャンセル／エラーと形式不正では更新しない。保存は開始時の状態を基準にする。
+- 置換前に必要時だけ日本語confirmを表示し、Timeline workerの新規indexと編集状態は抽出成功まで保留する。スポットはpoints・画像範囲・ラベル・スタイルの未保存状態だけ親へ通知し、PNG保存は編集状態を保存済みにしない。映像バルーン編集中の保存／読込／破棄を抑止する。
+
 ## Android text input and mobile sheet (Issue #14)
 
 - MobileBottomSheet内の通常テキスト入力／textareaへフォーカスすると、visualViewportの高さ・offsetTop・resize／scrollとシート寸法を監視し、入力欄と内容領域の実測位置から必要な分だけ内部スクロールする。

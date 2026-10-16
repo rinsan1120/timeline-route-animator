@@ -10,7 +10,7 @@ import { spotsInBounds, type ImageBounds } from './imageBounds';
 import { renderSpotImage } from './renderSpotImage';
 import type { RoutePoint } from '../timeline/types';
 
-export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => void }) {
+export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy: boolean) => void; onDirtyChange: (dirty: boolean) => void }) {
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<SpotTool>('add');
@@ -25,6 +25,10 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
   const selected = points.find((point) => point.id === selectedId);
   const targetCount = bounds ? spotsInBounds(points, bounds).length : 0;
   useEffect(() => { setLabel(selected?.annotation?.label ?? ''); }, [selected?.id, selected?.annotation?.label]);
+  useEffect(() => {
+    onDirtyChange(points.length > 0 || bounds !== null || label.length > 0
+      || style.balloonScale !== DEFAULT_ANNOTATION_STYLE.balloonScale || style.fontScale !== DEFAULT_ANNOTATION_STYLE.fontScale);
+  }, [onDirtyChange, points.length, bounds, label, style.balloonScale, style.fontScale]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (busy || (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable]'))) return;

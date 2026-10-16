@@ -5,8 +5,8 @@ import SpotWorkspace from './spot/SpotWorkspace';
 import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
-import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT } from './plan/planFile';
-import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT } from './timeline/workFile';
+import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT, type PlanState } from './plan/planFile';
+import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT, type TimelineWorkState } from './timeline/workFile';
 import { saveBlobWithPicker, saveErrorMessage } from './files/saveBlob';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
@@ -16,7 +16,7 @@ import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
 import { buildRouteDistanceModel } from './route/routeDistanceProgress';
 import { clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
-import type { RawPosition, WorkerResponse } from './timeline/types';
+import type { RawPosition, RoutePoint, WorkerResponse } from './timeline/types';
 import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
 import { createOverviewCamera } from './video/overviewCamera';
@@ -34,6 +34,25 @@ import type { HelpKey } from './help/helpContent';
 
 type MapMode = 'display' | 'edit' | 'animation-range';
 type WorkspaceMode = 'timeline' | 'plan' | 'spot';
+
+function stableSerialize(value: unknown): string {
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === 'object') return Object.fromEntries(
+      Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => [key, normalize(nested)]),
+    );
+    return item;
+  };
+  return JSON.stringify(normalize(value)) ?? 'null';
+}
+
+function defaultPlanState(): PlanState {
+  return {
+    points: [], planDayStarts: [], planDayNotes: {}, dayMarkerPlacements: {},
+    videoSettings: DEFAULT_VIDEO_SETTINGS, annotationStyle: DEFAULT_ANNOTATION_STYLE,
+    animationStartPointId: null, animationEndPointId: null, endpointMarkerPlacements: {},
+  };
+}
 
 export default function App() {
   const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
@@ -128,6 +147,11 @@ export default function App() {
     overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode,
     introZoomEnabled, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
   };
+  const timelineBaselineRef = useRef<string | null>(null);
+  const planBaselineRef = useRef<string | null>(null);
+  const pendingExtractionSnapshotRef = useRef<((routePoints: RoutePoint[]) => string) | null>(null);
+  const pendingTimelineLoadRef = useRef<{ dates: string[]; fileName: string } | null>(null);
+  const [spotHasUnsavedChanges, setSpotHasUnsavedChanges] = useState(false);
   const applyVideoSettings = useCallback((settings: VideoSettings) => {
     setDuration(settings.duration);
     setDurationInput(String(settings.duration));
@@ -153,6 +177,20 @@ export default function App() {
   }, []);
 
   const points = history.present;
+  const timelineWorkState: TimelineWorkState = {
+    points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
+    endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
+    videoSettings, selectedOutputDay,
+  };
+  const planState: PlanState = {
+    points, planDayStarts, planDayNotes, dayMarkerPlacements, videoSettings, annotationStyle,
+    animationStartPointId, animationEndPointId, endpointMarkerPlacements,
+  };
+  if (timelineBaselineRef.current === null && workspaceMode === 'timeline') {
+    timelineBaselineRef.current = stableSerialize(timelineWorkState);
+  }
+  const timelineStateKey = () => stableSerialize(timelineWorkState);
+  const planStateKey = () => stableSerialize(planState);
   const compactMobileHeader = !(workspaceMode === 'timeline' && points.length === 0);
   const currentWorkspaceModeCopy = WORKSPACE_MODE_COPY[workspaceMode];
 
@@ -415,6 +453,32 @@ export default function App() {
   currentOutputSnapshotRef.current = currentOutputSnapshot;
   const videoNeedsRegeneration = !!videoUrl && generatedOutputSnapshot !== currentOutputSnapshot;
   const videoPlayer = useVideoPlayer(framePreviewOptions, showingVideo, !!videoProgress);
+
+  const canReplaceSession = () => {
+    if (videoPlayer.isEditingBalloon()) {
+      setError('バルーンの配置を確定またはキャンセルしてから、保存・読込・切替を行ってください。');
+      return false;
+    }
+    return true;
+  };
+
+  const confirmDiscardCurrent = () => {
+    if (!canReplaceSession()) return false;
+    const pendingTextEdit = (!!selectedPoint && annotationLabel !== (selectedPoint.annotation?.label ?? ''))
+      || (!!selectedDayMarker && dayMarkerNoteInput !== (workspaceMode === 'plan'
+        ? planDayNotes[selectedDayMarker.pointId] ?? ''
+        : dayMarkerNotes[selectedDayMarker.date ?? ''] ?? ''));
+    const dirty = pendingTextEdit || (workspaceMode === 'spot'
+      ? spotHasUnsavedChanges
+      : workspaceMode === 'plan'
+        ? planBaselineRef.current !== null && planStateKey() !== planBaselineRef.current
+        : timelineBaselineRef.current !== null && timelineStateKey() !== timelineBaselineRef.current);
+    if (!dirty) return true;
+    const message = workspaceMode === 'spot'
+      ? 'スポット画像の編集内容は、この操作で失われます。PNG画像を保存していても編集状態は復元できません。破棄して続けますか？'
+      : '未保存の編集内容があります。破棄して続けますか？';
+    return window.confirm(message);
+  };
   const stopVideoPreview = videoPlayer.stop;
   const openVideoWorkspace = () => {
     videoPlayer.pause();
@@ -444,12 +508,17 @@ export default function App() {
     });
   }, [distanceHudModel, distanceHudSettings.scale]);
 
-  const extract = useCallback(() => {
-    if (!dates.length) return;
+  const extract = () => {
+    if (!dates.length || busy || videoProgress || !confirmDiscardCurrent()) return;
+    const currentState = timelineWorkState;
+    pendingExtractionSnapshotRef.current = (routePoints) => stableSerialize({
+      ...currentState, points: routePoints, selectedOutputDay: 'all',
+      animationStartPointId: null, animationEndPointId: null,
+    });
     setError('');
     setBusy(true);
     workerRef.current?.postMessage({ type: 'extract-range', startDate, endDate, from, to });
-  }, [dates.length, startDate, endDate, from, to]);
+  };
 
   useEffect(() => {
     const worker = new Worker(new URL('./timeline/worker.ts', import.meta.url), { type: 'module' });
@@ -457,33 +526,51 @@ export default function App() {
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
       if (message.type === 'error') {
+        pendingExtractionSnapshotRef.current = null;
+        pendingTimelineLoadRef.current = null;
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
-        videoPlayer.reset();
-        setWorkspaceView('map');
-        initialGuideShownRef.current = false;
-        applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
-        setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
-        clearGeneratedVideo();
-        setDayMarkerPlacements({});
-        setEndpointMarkerPlacements({});
-        setWorkspaceMode('timeline');
-        setSelectedOutputDay('all');
-        setInsertMode(false);
-        setPlanDayStarts([]);
-        setPlanDayNotes({});
-        setDates(message.dates);
-        setStartDate(message.dates[0]);
-        setEndDate(message.dates[0]);
-        setFrom('00:00');
-        setTo('23:59');
-        setDayMarkerNotes({});
-        setFileName(message.fileName);
-        setWorkSaveName('route-work.json');
-        setNotice(`${message.dates.length}日分の日付を検出しました。`);
-        worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
+        const firstDate = message.dates[0];
+        pendingTimelineLoadRef.current = { dates: message.dates, fileName: message.fileName };
+        setNotice(`${message.dates.length}日分の日付を検出しました。ルートを抽出しています…`);
+        pendingExtractionSnapshotRef.current = (routePoints) => stableSerialize({
+          points: routePoints, startDate: firstDate, endDate: firstDate, from: '00:00', to: '23:59',
+          dayMarkerNotes: {}, dayMarkerPlacements: {}, endpointMarkerPlacements: {},
+          annotationStyle: DEFAULT_ANNOTATION_STYLE, animationStartPointId: null, animationEndPointId: null,
+          videoSettings: DEFAULT_VIDEO_SETTINGS, selectedOutputDay: 'all',
+        });
+        worker.postMessage({ type: 'extract', date: firstDate, from: '00:00', to: '23:59' });
       } else {
+        const pendingLoad = pendingTimelineLoadRef.current;
+        const nextBaseline = pendingExtractionSnapshotRef.current?.(message.routePoints);
+        if (nextBaseline !== undefined) timelineBaselineRef.current = nextBaseline;
+        pendingExtractionSnapshotRef.current = null;
+        pendingTimelineLoadRef.current = null;
+        if (pendingLoad) {
+          videoPlayer.reset();
+          setWorkspaceView('map');
+          initialGuideShownRef.current = false;
+          applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
+          setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
+          clearGeneratedVideo();
+          setDayMarkerPlacements({});
+          setEndpointMarkerPlacements({});
+          setDates(pendingLoad.dates);
+          setStartDate(pendingLoad.dates[0]);
+          setEndDate(pendingLoad.dates[0]);
+          setFrom('00:00');
+          setTo('23:59');
+          setDayMarkerNotes({});
+          setFileName(pendingLoad.fileName);
+          setWorkSaveName('route-work.json');
+          setRawPositions([]);
+          setShowRaw(false);
+          setSelectedRaw(null);
+          setPlanDayStarts([]);
+          setPlanDayNotes({});
+          setSpotHasUnsavedChanges(false);
+        }
         setWorkspaceMode('timeline');
         setSelectedOutputDay('all');
         setInsertMode(false);
@@ -511,7 +598,12 @@ export default function App() {
         }
       }
     };
-    worker.onerror = () => { setError('移動履歴の読み込みに失敗しました。'); setBusy(false); };
+    worker.onerror = () => {
+      pendingExtractionSnapshotRef.current = null;
+      pendingTimelineLoadRef.current = null;
+      setError('移動履歴の読み込みに失敗しました。');
+      setBusy(false);
+    };
     return () => {
       worker.terminate();
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
@@ -565,7 +657,7 @@ export default function App() {
   }, [dayFilteredPoints, animationStartPointId, animationEndPointId]);
 
   const loadFile = async (file: File) => {
-    if (busy || videoProgress) return;
+    if (busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
@@ -580,8 +672,15 @@ export default function App() {
         throw new Error('計画JSONは「計画モード」の「作業を再開」から読み込んでください。');
       }
       const buffer = await readTimelineFile(file);
+      if (!confirmDiscardCurrent()) {
+        setNotice('');
+        setBusy(false);
+        return;
+      }
       const worker = workerRef.current;
       if (!worker) throw new Error('移動履歴の読み込みに失敗しました。');
+      pendingExtractionSnapshotRef.current = null;
+      pendingTimelineLoadRef.current = null;
       console.info('[Timeline] sending buffer to Worker', { byteLength: buffer.byteLength });
       worker.postMessage({ type: 'load', buffer, fileName: file.name }, [buffer]);
     } catch (reason) {
@@ -590,14 +689,13 @@ export default function App() {
     }
   };
 
-  const startPlanMode = () => {
-    if (workspaceMode === 'plan' || busy || videoProgress) return;
+  const beginNewMode = (mode: 'plan' | 'spot') => {
     videoPlayer.reset();
     setWorkspaceView('map');
     initialGuideShownRef.current = false;
     applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
     setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
-    setWorkspaceMode('plan');
+    setWorkspaceMode(mode);
     setSelectedOutputDay('all');
     setPlanSaveName('route-plan.json');
     setInsertMode(false);
@@ -627,31 +725,33 @@ export default function App() {
     clearGeneratedVideo();
     setError('');
     setNotice('');
+    setSpotHasUnsavedChanges(false);
+    if (mode === 'plan') planBaselineRef.current = stableSerialize(defaultPlanState());
     if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     routeLoadedNoticeTimerRef.current = null;
   };
 
+  const startPlanMode = () => {
+    if (workspaceMode === 'plan' || busy || videoProgress || !confirmDiscardCurrent()) return;
+    beginNewMode('plan');
+  };
+
   const startSpotMode = () => {
-    if (workspaceMode === 'spot' || busy || videoProgress) return;
-    videoPlayer.reset();
-    setWorkspaceView('map');
-    startPlanMode();
-    dispatch({ type: 'load', points: [] });
-    setSelectedPointId(null);
-    clearGeneratedVideo();
-    setWorkspaceMode('spot');
+    if (workspaceMode === 'spot' || busy || videoProgress || !confirmDiscardCurrent()) return;
+    beginNewMode('spot');
   };
 
   const saveWork = async () => {
-    if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress) return;
+    if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || !canReplaceSession()) return;
+    const stateAtSave: TimelineWorkState = timelineWorkState;
+    const baselineAtSave = stableSerialize(stateAtSave);
     setBusy(true);
     try {
-      const name = await downloadWorkFile({
-        points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
-        endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
-        videoSettings, selectedOutputDay,
-      }, workSaveName);
-      if (name) setWorkSaveName(name);
+      const name = await downloadWorkFile(stateAtSave, workSaveName);
+      if (name) {
+        setWorkSaveName(name);
+        timelineBaselineRef.current = baselineAtSave;
+      }
       setError('');
     } catch (reason) {
       setError(saveErrorMessage(reason, '作業データを保存できませんでした。もう一度お試しください。'));
@@ -661,7 +761,7 @@ export default function App() {
   };
 
   const loadWork = async (file: File) => {
-    if (workspaceMode !== 'timeline' || busy || videoProgress) return;
+    if (workspaceMode !== 'timeline' || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     await restoreWorkFile(file);
   };
@@ -674,6 +774,11 @@ export default function App() {
         setError('動画生成が終了してから、作業を再開してください。');
         return;
       }
+      if (!confirmDiscardCurrent()) { setNotice(''); return; }
+      const resumedState: TimelineWorkState = {
+        ...saved, videoSettings: saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS,
+        selectedOutputDay: saved.selectedOutputDay ?? 'all',
+      };
       dispatch({ type: 'load', points: saved.points });
       videoPlayer.reset();
       setWorkspaceView('map');
@@ -716,6 +821,8 @@ export default function App() {
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
       routeLoadedNoticeTimerRef.current = null;
       setNotice('作業データを復元しました。元のJSONファイルなしで編集を続けられます。測位データは含まれていません。');
+      timelineBaselineRef.current = stableSerialize(resumedState);
+      pendingExtractionSnapshotRef.current = null;
     } catch {
       setNotice('');
       setError(WORK_FILE_ERROR);
@@ -725,12 +832,16 @@ export default function App() {
   };
 
   const savePlan = async () => {
-    if (workspaceMode !== 'plan' || !points.length || busy || videoProgress) return;
+    if (workspaceMode !== 'plan' || !points.length || busy || videoProgress || !canReplaceSession()) return;
+    const stateAtSave: PlanState = planState;
+    const baselineAtSave = stableSerialize(stateAtSave);
     setBusy(true);
     try {
-      const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements,
-        videoSettings, annotationStyle, animationStartPointId, animationEndPointId, endpointMarkerPlacements }, planSaveName);
-      if (name) setPlanSaveName(name);
+      const name = await downloadPlanFile(stateAtSave, planSaveName);
+      if (name) {
+        setPlanSaveName(name);
+        planBaselineRef.current = baselineAtSave;
+      }
       setError('');
     } catch (reason) {
       setError(saveErrorMessage(reason, '計画データを保存できませんでした。もう一度お試しください。'));
@@ -740,7 +851,7 @@ export default function App() {
   };
 
   const loadPlan = async (file: File) => {
-    if (workspaceMode !== 'plan' || busy || videoProgress) return;
+    if (workspaceMode !== 'plan' || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     try {
       const saved = parsePlanFile(await file.text());
@@ -749,6 +860,14 @@ export default function App() {
         setError('動画生成が終了してから、作業を再開してください。');
         return;
       }
+      if (!confirmDiscardCurrent()) return;
+      const resumedState: PlanState = {
+        ...saved, videoSettings: saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS,
+        annotationStyle: saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
+        animationStartPointId: saved.animationStartPointId ?? null,
+        animationEndPointId: saved.animationEndPointId ?? null,
+        endpointMarkerPlacements: saved.endpointMarkerPlacements ?? {},
+      };
       applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
       setAnnotationStyle(saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       videoPlayer.reset();
@@ -786,6 +905,7 @@ export default function App() {
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
       routeLoadedNoticeTimerRef.current = null;
       setNotice('計画データを復元しました。編集を続けられます。');
+      planBaselineRef.current = stableSerialize(resumedState);
     } catch {
       setError(PLAN_FILE_ERROR);
     } finally {
@@ -1001,7 +1121,7 @@ export default function App() {
 
       <section className="privacy-note"><span>●</span> 位置履歴JSONは端末内でのみ処理され、外部へ送信されません</section>
 
-      {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} /> : <div className="workspace">
+      {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} onDirtyChange={setSpotHasUnsavedChanges} /> : <div className="workspace">
         <MobileBottomSheet resetKey={workspaceMode} steps={[workspaceMode === 'plan' ? '旅のルートを準備する' : '旅のデータを準備する', 'ルートや地点を編集する', '動画を確認・出力する']}>
           <section className="panel-section source-section" inert={busy || !!videoProgress}>
             {workspaceMode === 'timeline' ? <>
