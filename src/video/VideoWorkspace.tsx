@@ -5,6 +5,8 @@ import type { BalloonFramePosition } from '../popup/placement';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 import VideoBalloonOverlay from './VideoBalloonOverlay';
+import VideoMarkerOverlay from './VideoMarkerOverlay';
+import { previewMarkerId, type PreviewMarkerPosition, type PreviewMarkerTarget } from './previewFrameRenderer';
 import type { VideoProgress } from './renderer';
 
 interface VideoWorkspaceProps {
@@ -16,6 +18,7 @@ interface VideoWorkspaceProps {
   annotationStyle: AnnotationStyle;
   onSelectBalloon: (pointId: string) => void;
   onCommitBalloon: (pointId: string, position: BalloonFramePosition) => void;
+  onCommitMarker: (target: PreviewMarkerTarget, position: PreviewMarkerPosition) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -28,11 +31,14 @@ function formatVideoTime(seconds: number) {
 }
 
 export default function VideoWorkspace({ player, suspended, generationProgress, editingDisabled, selectedPointId, annotationStyle,
-  onSelectBalloon, onCommitBalloon, canUndo, canRedo, onUndo, onRedo }: VideoWorkspaceProps) {
+  onSelectBalloon, onCommitBalloon, onCommitMarker, canUndo, canRedo, onUndo, onRedo }: VideoWorkspaceProps) {
   const { canvasRef, status, error, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId } = player;
   const holderRef = useRef<HTMLDivElement>(null);
   const [frameWidth, setFrameWidth] = useState(0);
   const [listOpen, setListOpen] = useState(false);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  useEffect(() => { setSelectedMarkerId(null); }, [selectedPointId, selectedEventId]);
+  const selectBalloon = (pointId: string) => { setSelectedMarkerId(null); onSelectBalloon(pointId); };
   const listId = useId();
   const available = events.filter((event) => event.frameIndex !== null);
   const selectedIndex = available.findIndex((event) => event.id === selectedEventId);
@@ -57,7 +63,7 @@ export default function VideoWorkspace({ player, suspended, generationProgress, 
     return () => observer.disconnect();
   }, []);
   return <section className="video-workspace" aria-label="映像画面" aria-busy={!suspended && status === 'preparing'}>
-    <p className="video-workspace-caption">{player.editingBalloonId ? 'バルーンを配置中（未確定）' : playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
+    <p className="video-workspace-caption">{player.editingBalloonId ? '配置を調整中（未確定）' : playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
     <div className="video-frame-holder" ref={holderRef}>
       <div className="video-frame" style={{ width: frameWidth }} onPointerDown={(event) => {
         if (editingDisabled || suspended || !player.guidesVisible || playbackStatus !== 'playing' || !player.hasDisplayed || status !== 'ready') return;
@@ -65,13 +71,20 @@ export default function VideoWorkspace({ player, suspended, generationProgress, 
         const box = event.currentTarget.getBoundingClientRect();
         const x = (event.clientX - box.left) / box.width * VIDEO_VIEWPORT.width;
         const y = (event.clientY - box.top) / box.height * VIDEO_VIEWPORT.height;
-        const target = [...player.pauseForSelection()].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
-        if (target) onSelectBalloon(target.pointId);
+        const balloons = player.pauseForSelection();
+        const marker = [...player.getVisibleMarkers()].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+        if (marker) setSelectedMarkerId(previewMarkerId(marker.target));
+        else {
+          const target = [...balloons].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+          if (target) selectBalloon(target.pointId);
+        }
       }}>
         <canvas ref={canvasRef} width="1920" height="1080" role="img" aria-label={`動画映像 ${formatVideoTime(displayedFrame / fps)}`}
           style={{ visibility: suspended ? player.hasRetainedCanvas ? 'visible' : 'hidden' : player.hasDisplayed ? 'visible' : 'hidden' }} />
-        <VideoBalloonOverlay player={player} selectedPointId={selectedPointId} annotationStyle={annotationStyle}
-          onSelect={onSelectBalloon} onCommit={onCommitBalloon}
+        <VideoBalloonOverlay player={player} selectedPointId={selectedMarkerId ? null : selectedPointId} annotationStyle={annotationStyle}
+          onSelect={selectBalloon} onCommit={onCommitBalloon}
+          enabled={!editingDisabled && !suspended && status === 'ready' && !pendingFrame && player.guidesVisible && playbackStatus === 'paused'} />
+        <VideoMarkerOverlay player={player} selectedId={selectedMarkerId} onSelect={setSelectedMarkerId} onCommit={onCommitMarker}
           enabled={!editingDisabled && !suspended && status === 'ready' && !pendingFrame && player.guidesVisible && playbackStatus === 'paused'} />
         {suspended && <div className="video-frame-status video-frame-status--generating" role="status">
           <p>MP4を生成しています… {generationProgress?.percent ?? 0}%</p>

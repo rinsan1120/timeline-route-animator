@@ -24,7 +24,7 @@ import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSettings';
 import VideoWorkspace from './video/VideoWorkspace';
-import type { PreviewFrameOptions } from './video/previewFrameRenderer';
+import type { PreviewFrameOptions, PreviewMarkerPosition, PreviewMarkerTarget } from './video/previewFrameRenderer';
 import { useVideoPlayer } from './video/useVideoPlayer';
 import { sameFramePlanInputs } from './video/previewUpdates';
 import { captureVideoOutputOptions, createVideoOutputSnapshot, type VideoOutputOptions } from './video/videoOutputSnapshot';
@@ -345,6 +345,16 @@ export default function App() {
       ? { ...point, annotation: { ...point.annotation, framePosition } } : point) });
     setSelectedPointId(id);
   }, [points]);
+  const commitVideoMarker = (target: PreviewMarkerTarget, position: PreviewMarkerPosition) => {
+    if (target.kind === 'day') {
+      const marker = dayMarkers.find((item) => item.pointId === target.pointId);
+      const key = workspaceMode === 'plan' ? marker?.pointId : marker?.date;
+      if (!key) return;
+      dispatch({ type: 'commit', edit: { dayMarkerFramePositions: { ...dayMarkerFramePositions, [key]: position } } });
+    } else if (target.kind === 'endpoint') {
+      dispatch({ type: 'commit', edit: { endpointMarkerFramePositions: { ...endpointMarkerFramePositions, [target.label]: position } } });
+    } else dispatch({ type: 'commit', edit: { distanceHudPlacement: position } });
+  };
   const resolveBalloonPositions = useCallback((positions: ReadonlyMap<string, BalloonFramePosition>) => {
     dispatch({ type: 'resolve-balloon-positions', positions });
   }, []);
@@ -566,7 +576,7 @@ export default function App() {
 
   const canReplaceSession = () => {
     if (videoPlayer.isEditingBalloon()) {
-      setError('バルーンの配置を確定またはキャンセルしてから、保存・読込・切替を行ってください。');
+      setError('配置を確定またはキャンセルしてから、保存・読込・切替を行ってください。');
       return false;
     }
     return true;
@@ -1582,7 +1592,7 @@ export default function App() {
         </section>
         </div>
         {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} generationProgress={videoProgress} editingDisabled={busy || !!videoProgress}
-          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon} onCommitBalloon={setBalloonFramePosition}
+          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon} onCommitBalloon={setBalloonFramePosition} onCommitMarker={commitVideoMarker}
           canUndo={!!history.past.length} canRedo={!!history.future.length}
           onUndo={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }} onRedo={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }} />}
         {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}

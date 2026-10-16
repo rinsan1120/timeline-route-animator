@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Direct frame marker editing — V1.3 第4回
+
+- 映像タブの編集ガイドON・停止中・描画完了時に、通常バルーンに加えDAY、表示中のSTART／GOAL、ONの距離HUDを直接配置できる。VideoMarkerOverlayは公開済みsceneだけから透明ボタンを作り、未到達GOAL等を追加しない。DOM順をCanvasの通常バルーン→DAY→端点→HUDと合わせ、重なった部分は後に描画する対象を優先。重なったDAYは手前を動かして露出させるか、Tabで各対象にフォーカスして方向キーで調整できる。
+- DAY／端点は描画側も使うdayMarkerFrameLayout／endpointMarkerFrameLayoutから実矩形を取得。DAYは日付・補足を含む現行文字実測と共通倍率を維持。DAY／端点はclamp後の矩形中心を0〜1に正規化し、HUDはdistanceHudLayoutの実倍率込み矩形とclampDistanceHudPlacementを使い、既存のピクセル単位左上x/yを保持する。編集ガイドは既存の選択枠を再利用し、Canvas／MP4へ描画しない。
+- frameDragの既存6px閾値、Pointer Events／Capture、方向キー5px・Shift併用20pxを再利用。ドラフトは1対象だけのsceneコピーをdrawVideoFrameで再合成し、公開済み背景・投影・ルート・時計・FrameStateを固定する。ドラッグ中のMapLibre操作・カメラ／時間計算・タイル取得・App保存状態更新はない。二重描画用Canvasや背景Bitmapの追加保持もない。
+- useVideoPlayerの既存isEditingBalloon／editingBalloonIdガードは全対象を含む互換APIとして維持。再生・シーク・イベントジャンプ・保存・読込・作品切替・MP4生成と排他し、開始時に古い要求を無効化する。設定変更・ガイドOFF・画面離脱・破棄・別対象へのフォーカスでドラフトを破棄し、キャンセル世代で透明ターゲットのPointer Captureも解除。新対象のサイズ／画面回転・フレーム領域移動・スクロール・非表示化・フォーカス離脱にも安全にキャンセルする。
+- 正常PointerUpで実移動したときだけ、Appから既存editHistoryReducerへ対象の固定位置またはHUD位置を1件commitする。開始位置へ戻る操作、キャンセル、Capture喪失は履歴を増やさない。DAYキーはTimelineの日付／計画DAY開始ID、端点はラベル。動画上の確定では旧placementを変更・削除せず、第2回の固定位置を優先する。地図編集と共通Undo／Redo、未保存比較、MP4鮮度比較と生成時コピー、既存JSONフィールド／version:1を維持する。確定後の再描画も直前の再生位置を使う。
+- 動画編集ヘルプを更新。第2回の旧JSON寸法・投影・基準フレーム、第3回の履歴と非履歴設定の分離、MP4専用開始時ズーム、出力／エンコード・地図側編集は変更しない。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
 ## Shared edit Undo / Redo — V1.3 第3回
 
 - Appはhistory.tsのEditSnapshot（points、DAY／端点の旧placementと動画固定座標、HUDのx/y、セッション内の旧DAY互換キー）を単一Reducerのpast／present／futureで管理する。地図・映像の既存ボタンとCtrl／Cmd+Z・Shift+Zは同じ履歴を操作する。スポット編集等の従来の配列形式APIは同じReducerコアのラッパーとして維持し、スポットの仕様は変更しない。

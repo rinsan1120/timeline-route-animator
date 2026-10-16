@@ -15,13 +15,21 @@ export interface VideoDayMarker extends DayMarker {
   arrivalProgress: number;
 }
 
+export function dayMarkerFrameLayout(context: CanvasRenderingContext2D, marker: VideoDayMarker, annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
+  const layout = dayMarkerLayout(marker, context, annotationStyle);
+  const { style, width, height } = layout;
+  return { ...layout, ...videoMarkerRect(marker.pixel, width, height, style.margin, style.bottomMargin,
+    style.anchorGap, marker.placement, marker.framePosition) };
+}
+
+export function endpointMarkerFrameLayout(pixel: { x: number; y: number }, placement?: PopupPlacement, framePosition?: BalloonFramePosition) {
+  return videoMarkerRect(pixel, 230, 78, 24, 70, 42, placement, framePosition);
+}
 
 export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, dayRouteColorsEnabled: boolean, annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
   context.save();
-  const { width, height, style, rows } = dayMarkerLayout(marker, context, annotationStyle);
+  const { width, height, style, rows, left, top, below } = dayMarkerFrameLayout(context, marker, annotationStyle);
   const colors = dayMarkerColors(marker.dayNumber, dayRouteColorsEnabled);
-  const { left, top, below } = videoMarkerRect(marker.pixel, width, height, style.margin, style.bottomMargin,
-    style.anchorGap, marker.placement, marker.framePosition);
   const connector = dayMarkerConnector({ left, top, width, height }, marker.pixel, Boolean(marker.placement), below, style, Boolean(marker.framePosition));
   context.strokeStyle = colors.outline;
   context.lineWidth = connector.width;
@@ -68,9 +76,7 @@ export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDa
 
 export function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL', placement?: PopupPlacement, framePosition?: BalloonFramePosition) {
   context.save();
-  const width = 230;
-  const height = 78;
-  const { left, top, below } = videoMarkerRect(pixel, width, height, 24, 70, 42, placement, framePosition);
+  const { left, top, below, width, height } = endpointMarkerFrameLayout(pixel, placement, framePosition);
   const anchorX = Math.max(left + 18, Math.min(left + width - 18, pixel.x));
 
   context.strokeStyle = '#ff8b68';

@@ -48,10 +48,10 @@ export default function VideoBalloonOverlay(props: Props) {
         (center) => annotationFramePosition(annotationLayout(context, { ...balloon.annotation,
           framePosition: { x: center.x / VIDEO_VIEWPORT.width, y: center.y / VIDEO_VIEWPORT.height } }, props.annotationStyle)),
         (position) => {
-          const items = latest.current.player.previewBalloon(position);
+          const items = latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId }) ? latest.current.player.previewBalloon(position) : [];
           updateRects(items.length ? items : latest.current.player.balloons);
         },
-        (position) => latest.current.onCommit(balloon.pointId, position), {
+        (position) => { if (latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) latest.current.onCommit(balloon.pointId, position); }, {
           threshold: 6, skipUnchanged: true, keepCommittedPreview: true,
           start: () => {
             if (!latest.current.enabled || !latest.current.player.beginBalloonEdit(balloon.pointId)) return false;
@@ -60,7 +60,7 @@ export default function VideoBalloonOverlay(props: Props) {
             return true;
           },
           end: (committed) => {
-            latest.current.player.finishBalloonEdit(committed);
+            if (latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) latest.current.player.finishBalloonEdit(committed);
             if (!committed) updateRects(latest.current.player.balloons);
           },
         })];
@@ -72,13 +72,22 @@ export default function VideoBalloonOverlay(props: Props) {
       size = next;
     });
     observer.observe(container);
+    const cancel = () => bindings.forEach((binding) => binding.cancel());
+    const onVisibility = () => { if (document.hidden) cancel(); };
+    window.addEventListener('blur', cancel);
+    document.addEventListener('visibilitychange', onVisibility);
     const focused = restoreFocusRef.current;
     if (focused && focused === latest.current.selectedPointId
       && (document.activeElement === document.body || container.contains(document.activeElement))) {
       targetsRef.current.get(focused)?.focus({ preventScroll: true });
     }
-    return () => { observer.disconnect(); bindings.forEach((cleanup) => cleanup()); };
-  }, [balloons, props.enabled, props.annotationStyle]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('visibilitychange', onVisibility);
+      bindings.forEach((cleanup) => cleanup());
+    };
+  }, [balloons, props.enabled, props.annotationStyle, props.player.editCancellation]);
 
   if (!props.enabled) return null;
   return <div className="video-balloon-overlay" ref={containerRef} aria-label="映像のバルーン編集">
@@ -86,8 +95,14 @@ export default function VideoBalloonOverlay(props: Props) {
       ref={(target) => { if (target) targetsRef.current.set(balloon.pointId, target); else targetsRef.current.delete(balloon.pointId); }}
       style={rectStyle(balloon.rect)} aria-pressed={props.selectedPointId === balloon.pointId}
       aria-label={`${balloon.annotation.label}のバルーンを選択・移動`}
-      onFocus={() => { restoreFocusRef.current = balloon.pointId; props.onSelect(balloon.pointId); }}
+      onFocus={() => {
+        if (props.player.isEditingBalloon() && !props.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) props.player.finishBalloonEdit(false);
+        restoreFocusRef.current = balloon.pointId; props.onSelect(balloon.pointId);
+      }}
       onBlur={(event) => { if (event.relatedTarget instanceof HTMLElement && event.relatedTarget !== document.body
-        && !containerRef.current?.contains(event.relatedTarget)) restoreFocusRef.current = null; }} />)}
+        && !containerRef.current?.contains(event.relatedTarget)) {
+        restoreFocusRef.current = null;
+        if (props.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) props.player.finishBalloonEdit(false);
+      } }} />)}
   </div>;
 }

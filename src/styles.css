@@ -426,6 +426,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 /* The rectangle follows Canvas exactly; the selected handle adds a touch target. */
 .video-balloon-hit[aria-pressed='true']::after { content: ''; position: absolute; right: -22px; bottom: -22px; width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle, #ffd077 0 7px, #112942 8px 10px, transparent 11px); cursor: grab; }
 .video-balloon-hit[data-dragging='true'] { cursor: grabbing; }
+.video-marker-hit[aria-pressed='true']::after { content: none; }
 .video-edit-actions { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr)) 44px; gap: 5px; align-items: center; margin-top: 4px; }
 .video-edit-actions button { min-width: 0; padding-inline: 3px; font-size: 10px; }
 .video-edit-actions .help-tip-button { min-width: 44px; margin: 0; padding: 0; }

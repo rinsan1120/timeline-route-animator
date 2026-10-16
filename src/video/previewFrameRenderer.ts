@@ -1,8 +1,10 @@
 import { LngLat, type Map as MapLibreMap, type Point } from 'maplibre-gl';
 import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
 import { loadDayMarkerFonts } from '../route/dayMarkerStyle';
-import { annotationLayout, isAnnotationAnchorVisible, type CanvasAnnotation } from '../route/annotationCanvas';
-import type { BalloonFramePosition } from '../popup/placement';
+import { annotationFramePosition, annotationLayout, isAnnotationAnchorVisible, type CanvasAnnotation } from '../route/annotationCanvas';
+import { videoMarkerRect, type BalloonFramePosition, type EndpointMarkerLabel } from '../popup/placement';
+import { dayMarkerFrameLayout, endpointMarkerFrameLayout } from './frameDrawing';
+import { clampDistanceHudPlacement, distanceHudLayout, type DistanceHudPlacement } from './distanceHud';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
 import { buildFramePlan, getFrameIndexAtTime, sampleFrame, type FramePlan, type FrameState } from './frameTimeline';
 import { drawVideoFrame, type VideoFrameScene } from './frameRenderer';
@@ -20,6 +22,19 @@ export interface PreviewBalloon {
   pointId: string;
   annotation: CanvasAnnotation;
   rect: { left: number; top: number; width: number; height: number };
+}
+
+export type PreviewMarkerTarget = { kind: 'day'; pointId: string } | { kind: 'endpoint'; label: EndpointMarkerLabel } | { kind: 'hud' };
+export const previewMarkerId = (target: PreviewMarkerTarget) => target.kind === 'day' ? `day:${target.pointId}`
+  : target.kind === 'endpoint' ? `endpoint:${target.label}` : 'hud';
+// DAY/endpoints: normalized center. HUD: existing pixel top-left, never normalized.
+export type PreviewMarkerPosition = BalloonFramePosition | DistanceHudPlacement;
+export interface PreviewMarker {
+  target: PreviewMarkerTarget;
+  label: string;
+  rect: PreviewBalloon['rect'];
+  // Pure logical-frame conversion, including the exact painter's clamp.
+  positionAt: (center: { x: number; y: number }) => PreviewMarkerPosition;
 }
 
 export type PreviewFrameResult =
@@ -434,6 +449,55 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     draftScene = position ? scene : null;
     return getDisplayedBalloons();
   };
+  const getDisplayedMarkers = (): PreviewMarker[] => {
+    const scene = draftScene ?? displayedScene;
+    if (!scene || disposed) return [];
+    const normalized = (center: { x: number; y: number }) => ({ x: center.x / VIDEO_VIEWPORT.width, y: center.y / VIDEO_VIEWPORT.height });
+    context.save();
+    try {
+      // Preserve Canvas order, including the order of overlapping DAY markers.
+      const markers = scene.dayMarkers.map<PreviewMarker>((marker) => {
+        const { left, top, width, height, style } = dayMarkerFrameLayout(context, marker, scene.annotationStyle);
+        return { target: { kind: 'day', pointId: marker.pointId }, label: `DAY ${marker.dayNumber}`, rect: { left, top, width, height },
+          positionAt: (center) => annotationFramePosition(videoMarkerRect(marker.pixel, width, height, style.margin,
+            style.bottomMargin, style.anchorGap, marker.placement, normalized(center))) };
+      });
+      for (const marker of scene.endpointMarkers) {
+        const rect = endpointMarkerFrameLayout(marker.pixel, marker.placement, marker.framePosition);
+        markers.push({ target: { kind: 'endpoint', label: marker.label }, label: marker.label, rect,
+          positionAt: (center) => annotationFramePosition(endpointMarkerFrameLayout(marker.pixel, marker.placement, normalized(center))) });
+      }
+      if (scene.distanceHud?.options.settings.enabled) {
+        const { model, settings } = scene.distanceHud.options;
+        const layout = distanceHudLayout(model, settings.scale);
+        const { x, y } = clampDistanceHudPlacement(settings, layout);
+        const width = layout.width * layout.scale, height = layout.height * layout.scale;
+        markers.push({ target: { kind: 'hud' }, label: '距離HUD', rect: { left: x, top: y, width, height },
+          positionAt: (center) => clampDistanceHudPlacement({ x: center.x - width / 2, y: center.y - height / 2 }, layout) });
+      }
+      return markers;
+    } finally { context.restore(); }
+  };
+  const previewMarkerPosition = (target: PreviewMarkerTarget, position: PreviewMarkerPosition | null) => {
+    ensureActive();
+    if (!displayedScene) return [];
+    let scene = displayedScene;
+    if (position) {
+      if (target.kind === 'day') scene = { ...scene, dayMarkers: scene.dayMarkers.map((marker) =>
+        marker.pointId === target.pointId ? { ...marker, framePosition: position } : marker) };
+      else if (target.kind === 'endpoint') scene = { ...scene, endpointMarkers: scene.endpointMarkers.map((marker) =>
+        marker.label === target.label ? { ...marker, framePosition: position } : marker) };
+      else if (scene.distanceHud) scene = { ...scene, distanceHud: { ...scene.distanceHud, options: {
+        ...scene.distanceHud.options, settings: { ...scene.distanceHud.options.settings, ...position },
+      } } };
+    }
+    // Recompose the published scene only; never project, sample or fetch maps.
+    drawVideoFrame(context, scene);
+    outputContext.drawImage(workCanvas, 0, 0);
+    draftScene = position ? scene : null;
+    return getDisplayedMarkers();
+  };
   return { get framePlan() { return framePlan; }, renderFrame, updateOptions, cancelPendingFrames,
-    getDisplayedState: () => displayedState, getDisplayedPlan: () => displayedPlan, getDisplayedBalloons, previewBalloonPosition, getEvents, dispose };
+    getDisplayedState: () => displayedState, getDisplayedPlan: () => displayedPlan, getDisplayedBalloons, previewBalloonPosition,
+    getDisplayedMarkers, previewMarkerPosition, getEvents, dispose };
 }

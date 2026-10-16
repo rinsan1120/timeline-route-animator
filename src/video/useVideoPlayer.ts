@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getFrameIndexAtTime, type FramePlan, type FrameState } from './frameTimeline';
-import { createPreviewFrameRenderer, type PreviewBalloon, type PreviewFrameOptions } from './previewFrameRenderer';
+import { createPreviewFrameRenderer, previewMarkerId, type PreviewBalloon, type PreviewFrameOptions, type PreviewMarker, type PreviewMarkerPosition, type PreviewMarkerTarget } from './previewFrameRenderer';
 import type { BalloonFramePosition } from '../popup/placement';
 import type { VideoEvent } from './videoEvents';
 
@@ -24,7 +24,8 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const retainedTimeRef = useRef(0);
   const eventAnchorRef = useRef<string | null>(null);
   const updatingRef = useRef(false);
-  const balloonEditRef = useRef<{ pointId: string; state: FrameState } | null>(null);
+  // Keep the existing guard/API names compatible: they cover every frame edit.
+  const balloonEditRef = useRef<{ target: { kind: 'balloon'; pointId: string } | PreviewMarkerTarget; state: FrameState } | null>(null);
   const pendingEventRef = useRef<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [framePlan, setFramePlan] = useState<FramePlan | null>(null);
@@ -36,8 +37,12 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [events, setEvents] = useState<VideoEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [balloons, setBalloons] = useState<PreviewBalloon[]>([]);
+  const [markers, setMarkers] = useState<PreviewMarker[]>([]);
   const [editingBalloonId, setEditingBalloonId] = useState<string | null>(null);
+  const [editCancellation, setEditCancellation] = useState(0);
   const [guidesVisible, setGuidesVisible] = useState(true);
+  const editingAvailableRef = useRef(false);
+  editingAvailableRef.current = enabled && !suspended && guidesVisible;
   const [eventJumpNotice, setEventJumpNotice] = useState('');
   const [frame, setFrame] = useState<{ options: PreviewFrameOptions; status: 'preparing' | 'ready' | 'error'; error: string; hasDisplayed: boolean }>({ options, status: 'preparing', error: '', hasDisplayed: false });
 
@@ -50,9 +55,11 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     const edit = balloonEditRef.current;
     balloonEditRef.current = null;
     setEditingBalloonId(null);
+    if (edit && !committed) setEditCancellation((value) => value + 1);
     const renderer = rendererRef.current;
     if (!committed && edit && renderer?.getDisplayedState() === edit.state) {
-      renderer.previewBalloonPosition(edit.pointId, null);
+      if (edit.target.kind === 'balloon') renderer.previewBalloonPosition(edit.target.pointId, null);
+      else renderer.previewMarkerPosition(edit.target, null);
     }
   }, []);
 
@@ -74,6 +81,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       setPlayheadFrame(state.frameIndex);
       setPendingFrame(false);
       setBalloons(renderer.getDisplayedBalloons());
+      setMarkers(renderer.getDisplayedMarkers());
     }
   }, [selectEvent]);
   const pause = useCallback(() => { if (!updatingRef.current && !balloonEditRef.current) pausePlayback(false); }, [pausePlayback]);
@@ -109,7 +117,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       retainedTimeRef.current = result.state.outputTimeSeconds;
       setDisplayedFrame(result.state.frameIndex);
       setHasRetainedCanvas(true);
-      if (!playingRef.current) setBalloons(renderer.getDisplayedBalloons());
+      if (!playingRef.current) { setBalloons(renderer.getDisplayedBalloons()); setMarkers(renderer.getDisplayedMarkers()); }
       setFrame({ options: currentOptions, status: 'ready', error: '', hasDisplayed: true });
       if (requestedFrameRef.current === target) setPendingFrame(false);
       if (playingRef.current && result.state.frameIndex === renderer.framePlan.totalFrames - 1) pause();
@@ -147,6 +155,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       setFramePlan(result.framePlan);
       setEvents(result.events ?? []);
       setBalloons(renderer.getDisplayedBalloons());
+      setMarkers(renderer.getDisplayedMarkers());
       if (eventJump) {
         pendingEventRef.current = null;
         setEventJumpNotice(result.eventAnchorId ? '' : 'このバルーンは動画内には表示されません。');
@@ -207,10 +216,10 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
 
   useEffect(() => {
     if (!enabled || suspended) return;
-    const onVisibilityChange = () => { if (document.hidden) pause(); };
+    const onVisibilityChange = () => { if (document.hidden) { finishBalloonEdit(false); pause(); } };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [enabled, suspended, pause]);
+  }, [enabled, suspended, pause, finishBalloonEdit]);
 
   const play = () => {
     const renderer = rendererRef.current;
@@ -258,28 +267,45 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     selectEvent(null);
     setEvents([]);
     setBalloons([]);
+    setMarkers([]);
     pendingEventRef.current = null;
     setEventJumpNotice('');
     setGuidesVisible(true);
   }, [stop, selectEvent]);
 
-  const beginBalloonEdit = useCallback((pointId: string) => {
+  const beginEdit = useCallback((target: { kind: 'balloon'; pointId: string } | PreviewMarkerTarget) => {
     const renderer = rendererRef.current;
     const state = renderer?.getDisplayedState();
-    if (!renderer || !state || playingRef.current || updatingRef.current || balloonEditRef.current
+    if (!editingAvailableRef.current || !renderer || !state || playingRef.current || updatingRef.current || balloonEditRef.current
       || optionsRef.current !== appliedOptionsRef.current || requestedFrameRef.current !== state.frameIndex) return false;
-    if (!renderer.getDisplayedBalloons().some((balloon) => balloon.pointId === pointId)) return false;
+    if (target.kind === 'balloon'
+      ? !renderer.getDisplayedBalloons().some((balloon) => balloon.pointId === target.pointId)
+      : !renderer.getDisplayedMarkers().some((marker) => previewMarkerId(marker.target) === previewMarkerId(target))) return false;
     requestEpochRef.current += 1;
     renderer.cancelPendingFrames();
-    balloonEditRef.current = { pointId, state };
-    setEditingBalloonId(pointId);
+    balloonEditRef.current = { target, state };
+    setEditingBalloonId(target.kind === 'balloon' ? target.pointId : previewMarkerId(target));
     return true;
   }, []);
+  const beginBalloonEdit = useCallback((pointId: string) => beginEdit({ kind: 'balloon', pointId }), [beginEdit]);
+  const beginMarkerEdit = useCallback((target: PreviewMarkerTarget) => beginEdit(target), [beginEdit]);
+  const isEditingTarget = (target: { kind: 'balloon'; pointId: string } | PreviewMarkerTarget) => {
+    const active = balloonEditRef.current?.target;
+    if (!active || active.kind !== target.kind) return false;
+    return active.kind === 'balloon' && target.kind === 'balloon' ? active.pointId === target.pointId
+      : active.kind !== 'balloon' && target.kind !== 'balloon' && previewMarkerId(active) === previewMarkerId(target);
+  };
   const previewBalloon = useCallback((position: BalloonFramePosition | null) => {
     const edit = balloonEditRef.current;
     const renderer = rendererRef.current;
-    if (!edit || renderer?.getDisplayedState() !== edit.state) return [];
-    return renderer.previewBalloonPosition(edit.pointId, position);
+    if (!edit || edit.target.kind !== 'balloon' || renderer?.getDisplayedState() !== edit.state) return [];
+    return renderer.previewBalloonPosition(edit.target.pointId, position);
+  }, []);
+  const previewMarker = useCallback((position: PreviewMarkerPosition | null) => {
+    const edit = balloonEditRef.current;
+    const renderer = rendererRef.current;
+    if (!edit || edit.target.kind === 'balloon' || renderer?.getDisplayedState() !== edit.state) return [];
+    return renderer.previewMarkerPosition(edit.target, position);
   }, []);
   const pauseForSelection = useCallback(() => {
     if (updatingRef.current || balloonEditRef.current) return [];
@@ -304,7 +330,9 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,
     updating: retainedPlanRef.current !== null && (frame.options !== options || frame.status === 'preparing'),
-    balloons, editingBalloonId, guidesVisible, eventJumpNotice, beginBalloonEdit, finishBalloonEdit, previewBalloon,
+    balloons, markers, editingBalloonId, editCancellation, guidesVisible, eventJumpNotice, beginBalloonEdit, beginMarkerEdit, finishBalloonEdit, previewBalloon, previewMarker,
+    isEditingTarget,
+    getVisibleMarkers: () => rendererRef.current?.getDisplayedMarkers() ?? [],
     pauseForSelection, requestBalloonEvent, toggleGuides, isEditingBalloon: () => balloonEditRef.current !== null,
     play, pause, seek, jumpToEvent, stop, reset, retry: () => setRetry((value) => value + 1),
   };
