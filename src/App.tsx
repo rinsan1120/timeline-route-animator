@@ -23,7 +23,8 @@ import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSettings';
 import VideoWorkspace from './video/VideoWorkspace';
-import { createPreviewFrameRenderer, type PreviewFrameOptions } from './video/previewFrameRenderer';
+import type { PreviewFrameOptions } from './video/previewFrameRenderer';
+import { useVideoPlayer } from './video/useVideoPlayer';
 import { balloonPauseSeconds } from './video/balloonPauses';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
@@ -38,20 +39,7 @@ export default function App() {
   const [endpointMarkerPlacements, setEndpointMarkerPlacements] = useState<EndpointMarkerPlacements>({});
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
   const [workspaceView, setWorkspaceView] = useState<'map' | 'video'>('map');
-  const videoCanvasRef = useRef<HTMLCanvasElement>(null);
-  const previewRendererRef = useRef<ReturnType<typeof createPreviewFrameRenderer> | null>(null);
-  const previewReleaseRef = useRef<Promise<void>>(Promise.resolve());
-  const previewGenerationRef = useRef(0);
   const initialGuideShownRef = useRef(false);
-  const [frameRetry, setFrameRetry] = useState(0);
-  const [videoFrame, setVideoFrame] = useState<{ options: PreviewFrameOptions; status: 'preparing' | 'ready' | 'error'; error: string } | null>(null);
-  const stopVideoPreview = useCallback(() => {
-    previewGenerationRef.current += 1;
-    const renderer = previewRendererRef.current;
-    previewRendererRef.current = null;
-    if (renderer) previewReleaseRef.current = Promise.all([previewReleaseRef.current, renderer.dispose()]).then(() => {});
-    return previewReleaseRef.current;
-  }, []);
   const [selectedOutputDay, setSelectedOutputDay] = useState('all');
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -411,30 +399,14 @@ export default function App() {
     endpointMarkerPlacements, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
     cameraMode, overviewCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom,
     followViewMode, balloonFollowCamera, introZoomEnabled, annotationStyle, distanceHud]);
-  useEffect(() => {
-    if (!showingVideo || videoProgress || !videoCanvasRef.current) return;
-    let cancelled = false;
-    const generation = ++previewGenerationRef.current;
-    const canvas = videoCanvasRef.current;
-    setVideoFrame({ options: framePreviewOptions, status: 'preparing', error: '' });
-    void (async () => {
-      try {
-        await previewReleaseRef.current;
-        if (cancelled || generation !== previewGenerationRef.current) return;
-        const renderer = createPreviewFrameRenderer(canvas, framePreviewOptions);
-        previewRendererRef.current = renderer;
-        const result = await renderer.renderFrame(0);
-        if (!cancelled && generation === previewGenerationRef.current && result.status === 'rendered') {
-          setVideoFrame({ options: framePreviewOptions, status: 'ready', error: '' });
-        }
-      } catch (reason) {
-        if (!cancelled && generation === previewGenerationRef.current) {
-          setVideoFrame({ options: framePreviewOptions, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。' });
-        }
-      }
-    })();
-    return () => { cancelled = true; void stopVideoPreview(); };
-  }, [showingVideo, videoProgress, framePreviewOptions, frameRetry, stopVideoPreview]);
+  const videoPlayer = useVideoPlayer(framePreviewOptions, showingVideo, !!videoProgress);
+  const stopVideoPreview = videoPlayer.stop;
+  const openVideoWorkspace = () => {
+    videoPlayer.pause();
+    setOpenToolbarHelpKey(null);
+    setPreviewProgress(null);
+    setWorkspaceView('video');
+  };
   useEffect(() => {
     if (!distanceHudModel) return;
     setDistanceHudSettings((current) => {
@@ -459,6 +431,7 @@ export default function App() {
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
+        videoPlayer.reset();
         setWorkspaceView('map');
         initialGuideShownRef.current = false;
         applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
@@ -516,7 +489,7 @@ export default function App() {
       worker.terminate();
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     };
-  }, [applyVideoSettings]);
+  }, [applyVideoSettings, videoPlayer.reset]);
 
   useEffect(() => {
     if (previewProgress === null) return;
@@ -610,6 +583,7 @@ export default function App() {
 
   const startPlanMode = () => {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
+    videoPlayer.reset();
     setWorkspaceView('map');
     initialGuideShownRef.current = false;
     applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
@@ -652,6 +626,7 @@ export default function App() {
 
   const startSpotMode = () => {
     if (workspaceMode === 'spot' || busy || videoProgress) return;
+    videoPlayer.reset();
     setWorkspaceView('map');
     startPlanMode();
     dispatch({ type: 'load', points: [] });
@@ -694,6 +669,7 @@ export default function App() {
         return;
       }
       dispatch({ type: 'load', points: saved.points });
+      videoPlayer.reset();
       setWorkspaceView('map');
       initialGuideShownRef.current = false;
       setWorkspaceMode('timeline');
@@ -771,6 +747,7 @@ export default function App() {
       }
       applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
       setAnnotationStyle(saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      videoPlayer.reset();
       setWorkspaceView('map');
       initialGuideShownRef.current = false;
       setWorkspaceMode('plan');
@@ -947,7 +924,7 @@ export default function App() {
         return;
       }
     }
-    setVideoFrame(null);
+    videoPlayer.pause();
     setVideoProgress({ current: 0, total: outputVideoFrameCount(duration, animationPauseSeconds, preRollSeconds, postRollSeconds), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1307,7 +1284,7 @@ export default function App() {
                 </div>;
               })}
             </div>
-            <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
+            <button className="preview-button" disabled={busy || !!videoProgress || animationPoints.length < 2} onClick={openVideoWorkspace}>映像で確認</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成</button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoUrl && <button className="download-button" disabled={busy || !!videoProgress} onClick={() => void saveVideo()}>MP4を保存</button>}
@@ -1320,7 +1297,7 @@ export default function App() {
             <button type="button" aria-pressed={!showingVideo} disabled={busy || !!videoProgress}
               onClick={() => { if (showingVideo) { void stopVideoPreview(); setWorkspaceView('map'); } }}>地図</button>
             <button type="button" aria-pressed={showingVideo} disabled={busy || !!videoProgress}
-              onClick={() => { if (!showingVideo) { setVideoFrame(null); setOpenToolbarHelpKey(null); setPreviewProgress(null); setWorkspaceView('video'); } }}>映像</button>
+              onClick={() => { if (!showingVideo) openVideoWorkspace(); }}>映像</button>
           </div>
           <span className="workspace-view-role">{showingVideo ? '完成映像を確認・調整' : 'ルートと地点を編集'}</span>
           <HelpTip helpKey="workspaceView" />
@@ -1353,9 +1330,7 @@ export default function App() {
           </nav>}
         </section>
         </div>
-        {showingVideo && <VideoWorkspace canvasRef={videoCanvasRef} suspended={!!videoProgress}
-          status={videoFrame?.options === framePreviewOptions ? videoFrame.status : 'preparing'}
-          error={videoFrame?.options === framePreviewOptions ? videoFrame.error : ''} onRetry={() => setFrameRetry((current) => current + 1)} />}
+        {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} />}
         {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
         {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
         </div>

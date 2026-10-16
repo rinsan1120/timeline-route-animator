@@ -367,6 +367,28 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .video-frame-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; overflow-y: auto; text-align: center; background: #0a1c31; font-size: 12px; overflow-wrap: anywhere; }
 .video-frame-status p { margin: 0; }
 .video-frame-status button { flex-shrink: 0; min-height: 44px; padding: 8px 20px; }
+.video-player-controls { flex: 0 1 auto; min-height: 0; max-height: 70%; overflow-y: auto; overscroll-behavior: contain; font-size: 12px; }
+.video-playback-row { display: flex; align-items: center; gap: 8px; }
+.video-player-controls button { min-height: 44px; border: 1px solid #74869b; border-radius: 6px; padding: 6px 10px; background: #203b59; color: white; cursor: pointer; }
+.video-player-controls button:disabled { opacity: .5; cursor: default; }
+.video-player-controls button:focus-visible, .video-seek input:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.video-playback-row > button { min-width: 76px; }
+.video-playback-row output { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.video-playback-row .help-tip-button { margin: 0; min-width: 36px; padding: 0; }
+.video-seek { position: relative; padding-bottom: 8px; }
+.video-seek input { display: block; width: 100%; height: 36px; margin: 0; padding: 0; accent-color: var(--orange); touch-action: pan-y; }
+.video-event-markers { position: absolute; bottom: 5px; left: 8px; right: 8px; height: 6px; pointer-events: none; }
+.video-event-markers span { position: absolute; width: 2px; height: 6px; background: #ffad83; transform: translateX(-1px); }
+.video-event-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, .8fr); gap: 6px; }
+.video-event-buttons button { min-width: 0; padding-inline: 3px; font-size: 11px; }
+.video-selected-event { margin: 4px 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.6; }
+.video-event-list { max-height: 140px; overflow-y: auto; overscroll-behavior: contain; margin-top: 4px; border-top: 1px solid #74869b; }
+.video-event-entry { padding: 3px 0; }
+.video-event-entry button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; }
+.video-event-entry button[aria-pressed='true'] { border-color: var(--orange); background: #38516d; }
+.video-event-entry button span { min-width: 0; overflow-wrap: anywhere; }
+.video-event-entry button small { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.video-event-entry p { margin: 4px 6px; font-size: 11px; color: #e4c8b4; }
 @media (max-width: 760px) {
   .workspace-view-bar { gap: 6px; padding: 4px 8px; }
   .workspace-view-buttons button { min-width: 52px; }

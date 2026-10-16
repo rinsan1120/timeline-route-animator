@@ -1,5 +1,16 @@
 # HANDOFF
 
+## Video playback, seeking and event navigation — v1.3 Step 5-B (2026-10-16)
+
+- `video/useVideoPlayer.ts`が非保存のplaying／paused、要求位置playheadFrame、実表示displayedFrame、準備／失敗、selectedEventIdを管理。requestAnimationFrameの経過時間をFramePlan.fpsとgetFrameIndexAtTimeでフレームへ変換し、従来のpreviewProgressから独立して共有renderFrameへ要求する。最終フレームの描画成功後に停止し、終端からの再生は先頭へ戻る。
+- 一時停止はrendererの実際の公開済みFrameStateを取得し、cancelPendingFramesで要求IDを進めて処理中／待機中の旧要求を無効化する。Step 3-Cの処理中1件＋待機最新1件と完成Canvasの同期公開を維持。フック側もセッション世代と要求epochで遅れた結果を無効化する。高速シークは一時停止して最新位置だけを要求する。時刻欄は実表示、バーは要求位置を示す。
+- 地図への切替・タブ非表示で停止し、同一作品の映像再入場／MP4生成後は最終表示位置を停止状態で復元。新規読込・作業／計画再開・制作モード変更時はreset。設定オブジェクト変更時はStep 5-A同様に先頭へ戻す。地図保持・解放Promiseによるプレビュー／MP4セッションの直列化を維持する。
+- `video/videoEvents.ts`は種別＋地点IDの安定IDを持つSTART／DAY／バルーン／GOALを生成。STARTはpreFrames、GOALはsampleFrameで到着した最初のフレーム。DAYはday設定時のみ。地点配列からラベルを抽出するため停止0秒も対象になる。到達条件はOverviewのprogress／pausePointIndexとFollow・Overview introのreachedPointIndexを区別する。
+- イベント探索は共有sampleFrameと実動画用MapLibre transformのクローンによる投影・既存画面内判定を利用。到達・停止境界、intro／パン／斜め旋回中の候補フレームを調べ、停止区間の同一カメラをまとめる。全フレームのCanvas描画／タイル取得は行わない。Overview通常DAYのクランプ表示とFollow／introの画面外非表示、固定バルーンのアンカー判定を維持。未表示バルーンは理由付きframeIndex:nullで保持し前後移動から除外する。
+- `VideoWorkspace`に再生／停止、フレーム刻みのrange、現在／総時刻、前後イベント、選択名、通常閉じたスクロール一覧を追加。同フレームの印は1つにまとめ、一覧では個別選択。イベント印は位置表示専用、選択は前後ボタン／一覧から行う。スマホも設定シート外に配置し、既存16:9とResizeObserver、シート回避を維持。Step 03の既存preview-buttonは「映像で確認」へ接続。旧プレビュー内部と「動画構図で配置」はStep 8／7まで残す。
+- Step 6-Aへ：イベントIDと要求フレーム／実表示フレームは別情報。手動シーク・連続再生時は選択IDを解除する。設定変更後の同一イベント基準の復元は未実装で、現在は先頭リセット。バルーン直接編集、MP4鮮度管理、旧プレビュー削除にも未着手。JSON・MP4エンコード・RouteMap・MobileBottomSheetは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
 ## Map/video workspace views — v1.3 Step 5-A (2026-10-16)
 
 - Appに非保存のworkspaceView（map／video、初期map）を追加。移動実績／計画のanimationPointsが2点以上のとき、設定パネル外の表示領域上部へ切替・役割説明と既存HelpTipによる案内を表示する。新規読込／作業再開／制作モード変更・ルート無効時はmapへ戻す。初回のルート確認案内は既存通知と1つにまとめ、5秒後に消す。Step 01〜03と既存DOM属性を維持して説明・カメラ見出しを調整。

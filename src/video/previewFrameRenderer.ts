@@ -6,6 +6,7 @@ import { drawVideoFrame } from './frameRenderer';
 import { frameClockText, prepareFollowFrameScene, prepareOverviewFrameData, prepareOverviewFrameScene, prepareVideoDayMarkers, resolveVideoBalloons, type FrameDrawingOptions } from './frameScene';
 import { createOverviewCamera, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { createVideoMapSession } from './videoMapSession';
+import { buildVideoEvents, createVideoEventProjector, type VideoEvent } from './videoEvents';
 
 export interface PreviewFrameOptions extends FrameDrawingOptions {
   signal?: AbortSignal;
@@ -55,6 +56,9 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
   let drawingOptions: FrameDrawingOptions = options;
   let balloonsResolved = false;
+  let eventProjector: ReturnType<typeof createVideoEventProjector> | null = null;
+  let events: VideoEvent[] | null = null;
+  let displayedState: FrameState | null = null;
   let overviewBackground: ImageBitmap | null = null;
   let overviewData: ReturnType<typeof prepareOverviewFrameData> | null = null;
   let dynamicBackground: { bitmap: ImageBitmap; key: string; map: MapLibreMap; introEndReady: boolean } | null = null;
@@ -151,6 +155,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
         framePlan.cameraMode === 'overview' ? framePlan.overviewCamera : createOverviewCamera(options.points)!,
         framePlan.cameraMode === 'follow' ? framePlan.followCameraPlan : null);
       balloonsResolved = true;
+      eventProjector = createVideoEventProjector(map);
     }
 
     if (state.cameraMode === 'overview' && state.renderPath === 'static') {
@@ -215,6 +220,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
             assertMapHealthy();
             // Publish only a complete, current frame; failures leave output intact.
             outputContext.drawImage(workCanvas, 0, 0);
+            displayedState = state;
             request.resolve({ status: 'rendered', requestId: request.id, canvas, state });
           }
         } catch (error) {
@@ -246,5 +252,15 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     });
   };
 
-  return { framePlan, renderFrame, dispose };
+  const cancelPendingFrames = () => {
+    latestRequestId += 1;
+    if (pending) { pending.resolve(discarded(pending)); pending = null; }
+    return displayedState;
+  };
+  const getEvents = () => {
+    ensureActive();
+    if (!eventProjector) throw new Error('映像の準備が完了していません。');
+    return events ??= buildVideoEvents(framePlan, drawingOptions, eventProjector);
+  };
+  return { framePlan, renderFrame, cancelPendingFrames, getDisplayedState: () => displayedState, getEvents, dispose };
 }
