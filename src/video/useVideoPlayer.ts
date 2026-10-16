@@ -40,9 +40,8 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [markers, setMarkers] = useState<PreviewMarker[]>([]);
   const [editingBalloonId, setEditingBalloonId] = useState<string | null>(null);
   const [editCancellation, setEditCancellation] = useState(0);
-  const [guidesVisible, setGuidesVisible] = useState(true);
   const editingAvailableRef = useRef(false);
-  editingAvailableRef.current = enabled && !suspended && guidesVisible;
+  editingAvailableRef.current = enabled && !suspended;
   const [eventJumpNotice, setEventJumpNotice] = useState('');
   const [frame, setFrame] = useState<{ options: PreviewFrameOptions; status: 'preparing' | 'ready' | 'error'; error: string; hasDisplayed: boolean }>({ options, status: 'preparing', error: '', hasDisplayed: false });
 
@@ -270,7 +269,6 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setMarkers([]);
     pendingEventRef.current = null;
     setEventJumpNotice('');
-    setGuidesVisible(true);
   }, [stop, selectEvent]);
 
   const beginEdit = useCallback((target: { kind: 'balloon'; pointId: string } | PreviewMarkerTarget) => {
@@ -316,12 +314,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     if (balloonEditRef.current) return;
     pendingEventRef.current = `balloon:${pointId}`;
     setEventJumpNotice('');
-    setGuidesVisible(true);
     if (enabled && !suspended && rendererRef.current) void updatePreview(rendererRef.current, optionsRef.current);
-  };
-  const toggleGuides = () => {
-    finishBalloonEdit(false);
-    setGuidesVisible((visible) => !visible);
   };
 
   return {
@@ -330,10 +323,10 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,
     updating: retainedPlanRef.current !== null && (frame.options !== options || frame.status === 'preparing'),
-    balloons, markers, editingBalloonId, editCancellation, guidesVisible, eventJumpNotice, beginBalloonEdit, beginMarkerEdit, finishBalloonEdit, previewBalloon, previewMarker,
+    balloons, markers, editingBalloonId, editCancellation, eventJumpNotice, beginBalloonEdit, beginMarkerEdit, finishBalloonEdit, previewBalloon, previewMarker,
     isEditingTarget,
     getVisibleMarkers: () => rendererRef.current?.getDisplayedMarkers() ?? [],
-    pauseForSelection, requestBalloonEvent, toggleGuides, isEditingBalloon: () => balloonEditRef.current !== null,
+    pauseForSelection, requestBalloonEvent, isEditingBalloon: () => balloonEditRef.current !== null,
     play, pause, seek, jumpToEvent, stop, reset, retry: () => setRetry((value) => value + 1),
   };
 }

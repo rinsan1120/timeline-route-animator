@@ -1606,7 +1606,9 @@ export default function App() {
         </section>
         </div>
         {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} generationProgress={videoProgress} editingDisabled={busy || !!videoProgress}
-          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon} onCommitBalloon={setBalloonFramePosition} onCommitMarker={commitVideoMarker}
+          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon}
+          onClearSelection={() => { setSelectedPointId(null); setSelectedRaw(null); setSelectionCandidateIds([]); }}
+          onCommitBalloon={setBalloonFramePosition} onCommitMarker={commitVideoMarker}
           canUndo={!!history.past.length} canRedo={!!history.future.length}
           onUndo={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }} onRedo={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }} />}
         {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
