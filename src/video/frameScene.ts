@@ -49,8 +49,8 @@ export function resolveVideoBalloons<T extends FrameDrawingOptions>(options: T, 
   return { ...options, points };
 }
 
-export function prepareOverviewFrameData(options: FrameDrawingOptions, map: maplibregl.Map, pointIndexById: ReadonlyMap<string, number>, dayNumberByPointId: ReadonlyMap<string, number>) {
-  const pixels = options.points.map((point) => map.project([point.longitude, point.latitude]));
+export function prepareOverviewFrameData(options: FrameDrawingOptions, map: Pick<maplibregl.Map, 'project'>, pointIndexById: ReadonlyMap<string, number>, dayNumberByPointId: ReadonlyMap<string, number>, projectedPixels?: maplibregl.Point[]) {
+  const pixels = projectedPixels ?? options.points.map((point) => map.project([point.longitude, point.latitude]));
   const arrivals = tripRoutePointProgresses(options.points);
   const annotations = options.points.flatMap((point, index) => point.annotation?.label
     ? [{ ...point.annotation, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
@@ -149,7 +149,7 @@ interface VideoRouteSegment {
 
 export function prepareFollowFrameScene(
   background: CanvasImageSource,
-  map: maplibregl.Map,
+  map: Pick<maplibregl.Map, 'project'>,
   points: RoutePoint[],
   playback: FollowPlaybackState,
   dayMarkers: FollowVideoDayMarker[],

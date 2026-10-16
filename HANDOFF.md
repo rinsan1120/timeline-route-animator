@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Live video settings and position retention — v1.3 Step 6-A (2026-10-16)
+
+- `useVideoPlayer`は描画セッションの生成／解放と、設定反映を分離。確定したPreviewFrameOptionsの変更をlayout effectで検知し、再生を停止・旧要求を無効化して同じrendererの`updateOptions`へ送る。Step 03の既存UIは維持し、再生中に設定欄へフォーカス／タップした時点でも停止する。文字列入力と確定数値stateの既存区別、MP4中の操作制限、MobileBottomSheetのジェスチャー／開閉状態は変更しない。
+- 最後に公開されたFrameStateとFramePlan・経過秒数を保持し、選択イベントは地点ID＋種別のIDをeventAnchorRefへ保持する。`previewUpdates.ts`が旧表示計画と新計画の停止・パン／DAY切替・ルート構成等を比較し、時間軸が変わる場合だけ有効な同一イベントへ対応付ける。それ以外は同じFPSのフレーム（経過秒数）を維持し有効範囲へclamp。イベントが消えた／表示不可なら選択を解除して旧経過秒数へ戻す。手動シーク・通常再生はアンカー解除。設定変更や地図編集による先頭リセットを撤去し、新しい作品へのresetは維持する。
+- `previewFrameRenderer.updateOptions(next, position)`はフレームと同じ最新要求優先の直列キューを利用。処理中1件＋待機最新1件に設定スナップショットを持たせ、共有状態の更新と地図操作を同時実行しない。旧結果は要求ID・フックのepoch／世代で破棄し、新設定の完成フレームと計画・イベント・アンカーをまとめてUIへ反映する。描画中は「設定を反映して映像を更新しています…」を表示し、旧画像を新設定の成功表示にしない。失敗時は旧位置基準を保持して再試行できる。
+- Canvasのみの設定は既存FramePlan・Follow計画・イベント・背景を維持。Overviewの事前投影データ、Followのカメラごとの投影キャッシュを再利用し、HUD／時計／バルーン寸法変更で背景を取得し直さない。マーカー／DAY色分け等は必要な描画メタデータを更新。時間変更時は必要なFramePlan／イベントを再計算し、同じFollowカメラ計画は再利用する。カメラ変更は同じMapLibreセッションを動かし、背景キーに一致する場合のみキャッシュを使用。背景・カメラ・投影の組を維持し、エラー時は背景と投影キャッシュを破棄する。
+- `frameScene`の2つの準備関数はprojectだけを受け取れる型へ最小拡張し、MP4は従来のMapLibre、プレビューはキャッシュ付きprojectを渡す。Canvas描画仕様・FramePlanの補間・MP4エンコードは未変更。既存annotation.framePositionを優先し、サイズ変更で位置を補正しない。READMEと共有ヘルプを更新した。
+- Step 6-Bへ：今回のスナップショットは再生位置保持用で、生成済みMP4との一致／鮮度判定には使用していない。鮮度表示・保存制御・MP4生成時比較、Step 7の直接編集、旧プレビュー削除には未着手。JSON形式・地図編集・Undo／Redo・スポット画像・MP4生成保存は維持する。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
 ## Video playback, seeking and event navigation — v1.3 Step 5-B (2026-10-16)
 
 - `video/useVideoPlayer.ts`が非保存のplaying／paused、要求位置playheadFrame、実表示displayedFrame、準備／失敗、selectedEventIdを管理。requestAnimationFrameの経過時間をFramePlan.fpsとgetFrameIndexAtTimeでフレームへ変換し、従来のpreviewProgressから独立して共有renderFrameへ要求する。最終フレームの描画成功後に停止し、終端からの再生は先頭へ戻る。

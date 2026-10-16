@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getFrameIndexAtTime, type FramePlan } from './frameTimeline';
 import { createPreviewFrameRenderer, type PreviewFrameOptions } from './previewFrameRenderer';
 import type { VideoEvent } from './videoEvents';
@@ -14,7 +14,15 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const playingRef = useRef(false);
   const retainedFrameRef = useRef(0);
   const requestedFrameRef = useRef(0);
-  const previousOptionsRef = useRef(options);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const requestedOptionsRef = useRef<PreviewFrameOptions | null>(null);
+  const initializationFailedRef = useRef<PreviewFrameOptions | null>(null);
+  const appliedOptionsRef = useRef(options);
+  const retainedPlanRef = useRef<FramePlan | null>(null);
+  const retainedTimeRef = useRef(0);
+  const eventAnchorRef = useRef<string | null>(null);
+  const updatingRef = useRef(false);
   const [retry, setRetry] = useState(0);
   const [framePlan, setFramePlan] = useState<FramePlan | null>(null);
   const [playbackStatus, setPlaybackStatus] = useState<'playing' | 'paused'>('paused');
@@ -25,7 +33,12 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [frame, setFrame] = useState<{ options: PreviewFrameOptions; status: 'preparing' | 'ready' | 'error'; error: string; hasDisplayed: boolean }>({ options, status: 'preparing', error: '', hasDisplayed: false });
 
-  const pause = useCallback(() => {
+  const selectEvent = useCallback((id: string | null) => {
+    eventAnchorRef.current = id;
+    setSelectedEventId(id);
+  }, []);
+
+  const pausePlayback = useCallback((preserveAnchor: boolean) => {
     playingRef.current = false;
     setPlaybackStatus('paused');
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
@@ -34,17 +47,20 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     if (renderer?.getDisplayedState()) {
       requestEpochRef.current += 1;
       const state = renderer.cancelPendingFrames()!;
-      if (state.frameIndex !== requestedFrameRef.current) setSelectedEventId(null);
+      if (!preserveAnchor && !updatingRef.current && state.frameIndex !== requestedFrameRef.current) selectEvent(null);
       retainedFrameRef.current = state.frameIndex;
+      retainedPlanRef.current = renderer.getDisplayedPlan();
+      retainedTimeRef.current = state.outputTimeSeconds;
       requestedFrameRef.current = state.frameIndex;
       setDisplayedFrame(state.frameIndex);
       setPlayheadFrame(state.frameIndex);
       setPendingFrame(false);
     }
-  }, []);
+  }, [selectEvent]);
+  const pause = useCallback(() => { if (!updatingRef.current) pausePlayback(false); }, [pausePlayback]);
 
   const stop = useCallback(() => {
-    pause();
+    pausePlayback(false);
     generationRef.current += 1;
     const renderer = rendererRef.current;
     rendererRef.current = null;
@@ -52,13 +68,14 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setFrame((current) => ({ ...current, status: 'preparing', hasDisplayed: false }));
     if (renderer) releaseRef.current = Promise.all([releaseRef.current, renderer.dispose()]).then(() => {});
     return releaseRef.current;
-  }, [pause]);
+  }, [pausePlayback]);
 
   const requestFrame = useCallback(async (index: number) => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     const generation = generationRef.current;
     const epoch = requestEpochRef.current;
+    const currentOptions = appliedOptionsRef.current;
     const target = Math.max(0, Math.min(renderer.framePlan.totalFrames - 1, Math.floor(index)));
     requestedFrameRef.current = target;
     setPlayheadFrame(target);
@@ -67,8 +84,10 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       const result = await renderer.renderFrame(target);
       if (generation !== generationRef.current || epoch !== requestEpochRef.current || result.status !== 'rendered') return;
       retainedFrameRef.current = result.state.frameIndex;
+      retainedPlanRef.current = result.framePlan;
+      retainedTimeRef.current = result.state.outputTimeSeconds;
       setDisplayedFrame(result.state.frameIndex);
-      setFrame((current) => ({ ...current, status: 'ready', error: '', hasDisplayed: true }));
+      setFrame({ options: currentOptions, status: 'ready', error: '', hasDisplayed: true });
       if (requestedFrameRef.current === target) setPendingFrame(false);
       if (playingRef.current && result.state.frameIndex === renderer.framePlan.totalFrames - 1) pause();
       return result;
@@ -80,36 +99,78 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     }
   }, [pause]);
 
-  useEffect(() => {
-    if (previousOptionsRef.current !== options) {
-      retainedFrameRef.current = 0;
-      setSelectedEventId(null);
-      previousOptionsRef.current = options;
+  const updatePreview = useCallback(async (renderer: ReturnType<typeof createPreviewFrameRenderer>, next: PreviewFrameOptions) => {
+    // Keep the event anchor even if an earlier settings update is still pending.
+    pausePlayback(true);
+    const epoch = ++requestEpochRef.current;
+    const generation = generationRef.current;
+    requestedOptionsRef.current = next;
+    updatingRef.current = true;
+    setPendingFrame(true);
+    setFrame({ options: next, status: 'preparing', error: '', hasDisplayed: false });
+    try {
+      const result = await renderer.updateOptions(next, {
+        timeSeconds: retainedTimeRef.current, frameIndex: retainedFrameRef.current,
+        eventAnchorId: eventAnchorRef.current, framePlan: retainedPlanRef.current,
+      });
+      if (generation !== generationRef.current || epoch !== requestEpochRef.current || result.status !== 'rendered') return;
+      appliedOptionsRef.current = next;
+      retainedFrameRef.current = result.state.frameIndex;
+      retainedPlanRef.current = result.framePlan;
+      retainedTimeRef.current = result.state.outputTimeSeconds;
+      requestedFrameRef.current = result.state.frameIndex;
+      setFramePlan(result.framePlan);
+      setEvents(result.events ?? []);
+      selectEvent(result.eventAnchorId ?? null);
+      setPlayheadFrame(result.state.frameIndex);
+      setDisplayedFrame(result.state.frameIndex);
+      setPendingFrame(false);
+      updatingRef.current = false;
+      setFrame({ options: next, status: 'ready', error: '', hasDisplayed: true });
+    } catch (reason) {
+      if (generation !== generationRef.current || epoch !== requestEpochRef.current) return;
+      updatingRef.current = false;
+      setPendingFrame(false);
+      setFrame({ options: next, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。', hasDisplayed: false });
     }
+  }, [pausePlayback, selectEvent]);
+
+  useEffect(() => {
     if (!enabled || suspended || !canvasRef.current) return;
     let cancelled = false;
     const generation = ++generationRef.current;
     const canvas = canvasRef.current;
-    setFrame({ options, status: 'preparing', error: '', hasDisplayed: false });
+    initializationFailedRef.current = null;
+    setFrame({ options: optionsRef.current, status: 'preparing', error: '', hasDisplayed: false });
     setFramePlan(null);
     setEvents([]);
     void (async () => {
       try {
         await releaseRef.current;
         if (cancelled || generation !== generationRef.current) return;
-        const renderer = createPreviewFrameRenderer(canvas, options);
+        const next = optionsRef.current;
+        const renderer = createPreviewFrameRenderer(canvas, next);
         rendererRef.current = renderer;
-        setFramePlan(renderer.framePlan);
-        const result = await requestFrame(retainedFrameRef.current);
-        if (!cancelled && generation === generationRef.current && result) setEvents(renderer.getEvents());
+        await updatePreview(renderer, next);
       } catch (reason) {
         if (!cancelled && generation === generationRef.current) {
-          setFrame({ options, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。', hasDisplayed: false });
+          initializationFailedRef.current = optionsRef.current;
+          setFrame({ options: optionsRef.current, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。', hasDisplayed: false });
         }
       }
     })();
     return () => { cancelled = true; void stop(); };
-  }, [enabled, suspended, options, retry, requestFrame, stop]);
+  }, [enabled, suspended, retry, updatePreview, stop]);
+
+  // Invalidate before painting a changed setting; lifecycle/disposal is separate.
+  useLayoutEffect(() => {
+    const renderer = rendererRef.current;
+    if (enabled && !suspended && renderer && requestedOptionsRef.current !== options) void updatePreview(renderer, options);
+    else if (enabled && !suspended && !renderer && initializationFailedRef.current && initializationFailedRef.current !== options) {
+      initializationFailedRef.current = null;
+      setRetry((value) => value + 1);
+    }
+  }, [options, enabled, suspended, updatePreview]);
 
   useEffect(() => {
     if (!enabled || suspended) return;
@@ -122,7 +183,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     const renderer = rendererRef.current;
     if (!renderer || frame.status !== 'ready' || document.hidden) return;
     pause();
-    setSelectedEventId(null);
+    selectEvent(null);
     const plan = renderer.framePlan;
     const fromFrame = retainedFrameRef.current === plan.totalFrames - 1 ? 0 : retainedFrameRef.current;
     const origin = performance.now();
@@ -142,7 +203,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   };
   const seek = (index: number, eventId: string | null = null) => {
     pause();
-    setSelectedEventId(eventId);
+    selectEvent(eventId);
     void requestFrame(index);
   };
   const jumpToEvent = (event: VideoEvent) => {
@@ -151,18 +212,23 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const reset = useCallback(() => {
     void stop();
     retainedFrameRef.current = 0;
+    retainedPlanRef.current = null;
+    retainedTimeRef.current = 0;
+    updatingRef.current = false;
+    initializationFailedRef.current = null;
     requestedFrameRef.current = 0;
     setPlayheadFrame(0);
     setDisplayedFrame(0);
-    setSelectedEventId(null);
+    selectEvent(null);
     setEvents([]);
-  }, [stop]);
+  }, [stop, selectEvent]);
 
   return {
     canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId,
     status: frame.options === options ? frame.status : 'preparing' as const,
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,
+    updating: retainedPlanRef.current !== null && (frame.options !== options || frame.status === 'preparing'),
     play, pause, seek, jumpToEvent, stop, reset, retry: () => setRetry((value) => value + 1),
   };
 }

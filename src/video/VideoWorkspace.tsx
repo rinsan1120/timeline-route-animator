@@ -50,7 +50,7 @@ export default function VideoWorkspace({ player, suspended }: VideoWorkspaceProp
       {(suspended || status !== 'ready') && <div className="video-frame-status" role={status === 'error' && !suspended ? 'alert' : 'status'}>
         {suspended ? <p>MP4生成中は映像確認を休止しています。</p>
           : status === 'error' ? <><p>{error}</p><button type="button" className="secondary-button" onClick={player.retry}>再試行</button></>
-            : <><span className="spinner" /><p>映像を準備しています…</p></>}
+            : <><span className="spinner" /><p>{player.updating ? '設定を反映して映像を更新しています…' : '映像を準備しています…'}</p></>}
       </div>}
     </div>
     <div className="video-player-controls" aria-label="映像プレイヤー">

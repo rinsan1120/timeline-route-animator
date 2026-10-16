@@ -1123,7 +1123,9 @@ export default function App() {
             {workspaceMode === 'timeline' && selectedRaw && <RawDetail point={selectedRaw} onClose={() => setSelectedRaw(null)} />}
           </section>
 
-          <section className="panel-section video-section">
+          <section className="panel-section video-section"
+            onFocusCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}
+            onPointerDownCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}>
             <div className="section-heading"><span className="step">03</span><div><h2>動画を確認・出力する</h2><p>地図からそのままMP4を生成できます。FHD · 30fps · MP4（H.264）</p></div></div>
             <div className="video-camera-controls">
               <div className="control-label-with-help"><label>動画のカメラ</label><HelpTip helpKey="cameraMode" /></div>
