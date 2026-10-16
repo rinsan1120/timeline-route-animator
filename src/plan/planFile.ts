@@ -1,6 +1,6 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
-import { isBalloonFramePosition } from '../popup/placement';
-import type { EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
+import { isBalloonFramePosition, parseMarkerFramePositions } from '../popup/placement';
+import type { BalloonFramePosition, EndpointMarkerFramePositions, EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
 import type { RoutePoint } from '../timeline/types';
@@ -19,6 +19,8 @@ export interface PlanState {
   animationStartPointId?: string | null;
   animationEndPointId?: string | null;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
+  dayMarkerFramePositions?: Record<string, BalloonFramePosition>;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
 }
 
 export interface PlanFile extends PlanState {
@@ -41,6 +43,8 @@ export function serializePlanFile(state: PlanState, savedAt = new Date()): strin
     ...(state.animationStartPointId !== undefined ? { animationStartPointId: state.animationStartPointId } : {}),
     ...(state.animationEndPointId !== undefined ? { animationEndPointId: state.animationEndPointId } : {}),
     ...(state.endpointMarkerPlacements !== undefined ? { endpointMarkerPlacements: state.endpointMarkerPlacements } : {}),
+    ...(state.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: state.dayMarkerFramePositions } : {}),
+    ...(state.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: state.endpointMarkerFramePositions } : {}),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -123,6 +127,10 @@ export function parsePlanFile(text: string): PlanState {
   }));
   // Keep IDs, including temporarily unused DAY metadata retained by route editing.
   const state: PlanState = { points, planDayStarts: data.planDayStarts, planDayNotes, dayMarkerPlacements };
+  try {
+    if (data.dayMarkerFramePositions !== undefined) state.dayMarkerFramePositions = parseMarkerFramePositions(data.dayMarkerFramePositions, isId);
+    if (data.endpointMarkerFramePositions !== undefined) state.endpointMarkerFramePositions = parseMarkerFramePositions(data.endpointMarkerFramePositions, (key) => key === 'START' || key === 'GOAL');
+  } catch { throw new Error(PLAN_FILE_ERROR); }
   if (data.videoSettings !== undefined) {
     try { state.videoSettings = parseVideoSettings(data.videoSettings); }
     catch { throw new Error(PLAN_FILE_ERROR); }

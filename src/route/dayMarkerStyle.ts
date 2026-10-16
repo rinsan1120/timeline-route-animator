@@ -145,8 +145,9 @@ function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>,
   };
 }
 
-export function dayMarkerConnector(rect: { left: number; top: number; width: number; height: number }, anchor: { x: number; y: number }, manual: boolean, below: boolean, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {
-  if (manual) return { start: nearestPointOnRect(rect, anchor), end: anchor, dot: anchor, width: style.manualConnectorWidth, radius: style.manualAnchorRadius };
+export function dayMarkerConnector(rect: { left: number; top: number; width: number; height: number }, anchor: { x: number; y: number }, manual: boolean, below: boolean, style: Record<keyof typeof VIDEO_DAY_STYLE, number>, fixed = false) {
+  if (manual || fixed) return { start: nearestPointOnRect(rect, anchor), end: anchor, dot: anchor,
+    width: manual ? style.manualConnectorWidth : style.connectorWidth, radius: manual ? style.manualAnchorRadius : style.anchorRadius };
   const x = Math.max(rect.left + style.anchorInset, Math.min(rect.left + rect.width - style.anchorInset, anchor.x));
   const y = below ? rect.top : rect.top + rect.height;
   const direction = below ? -1 : 1;

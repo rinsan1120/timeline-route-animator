@@ -1,6 +1,6 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
-import { isBalloonFramePosition } from '../popup/placement';
-import type { EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
+import { isBalloonFramePosition, parseMarkerFramePositions } from '../popup/placement';
+import type { BalloonFramePosition, EndpointMarkerFramePositions, EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RoutePoint } from './types';
 import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
@@ -18,6 +18,8 @@ export interface TimelineWorkState {
   dayMarkerNotes: Record<string, string>;
   dayMarkerPlacements: Record<string, PopupPlacement>;
   endpointMarkerPlacements: EndpointMarkerPlacements;
+  dayMarkerFramePositions?: Record<string, BalloonFramePosition>;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
   annotationStyle: AnnotationStyle;
   animationStartPointId: string | null;
   animationEndPointId: string | null;
@@ -44,6 +46,8 @@ export function serializeWorkFile(state: TimelineWorkState, savedAt = new Date()
     dayMarkerNotes: state.dayMarkerNotes,
     dayMarkerPlacements: state.dayMarkerPlacements,
     endpointMarkerPlacements: state.endpointMarkerPlacements,
+    ...(state.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: state.dayMarkerFramePositions } : {}),
+    ...(state.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: state.endpointMarkerFramePositions } : {}),
     annotationStyle: state.annotationStyle,
     animationStartPointId: state.animationStartPointId,
     animationEndPointId: state.animationEndPointId,
@@ -156,6 +160,8 @@ export function parseWorkFile(text: string): TimelineWorkState {
     return {
       points, startDate: data.startDate, endDate: data.endDate, from: data.from, to: data.to,
       dayMarkerNotes, dayMarkerPlacements, endpointMarkerPlacements,
+      ...(data.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: parseMarkerFramePositions(data.dayMarkerFramePositions, isDate) } : {}),
+      ...(data.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: parseMarkerFramePositions(data.endpointMarkerFramePositions, (key) => key === 'START' || key === 'GOAL') } : {}),
       annotationStyle: { balloonScale: data.annotationStyle.balloonScale, fontScale: data.annotationStyle.fontScale },
       animationStartPointId: parseRangeId(data.animationStartPointId),
       animationEndPointId: parseRangeId(data.animationEndPointId),

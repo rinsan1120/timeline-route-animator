@@ -2,7 +2,8 @@ import MobileBottomSheet from './components/MobileBottomSheet';
 import { WORKSPACE_MODE_COPY } from './workspaceModeCopy';
 import { hasRecordedRouteTime } from './video/routeClock';
 import SpotWorkspace from './spot/SpotWorkspace';
-import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
+import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel, EndpointMarkerFramePositions } from './popup/placement';
+import { hasMissingMarkerFramePositions, resolveMarkerFramePositions, type MarkerReferenceProjector } from './video/markerFramePositions';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
 import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT, type PlanState } from './plan/planFile';
@@ -25,6 +26,7 @@ import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSetting
 import VideoWorkspace from './video/VideoWorkspace';
 import type { PreviewFrameOptions } from './video/previewFrameRenderer';
 import { useVideoPlayer } from './video/useVideoPlayer';
+import { sameFramePlanInputs } from './video/previewUpdates';
 import { captureVideoOutputOptions, createVideoOutputSnapshot, type VideoOutputOptions } from './video/videoOutputSnapshot';
 import { balloonPauseSeconds } from './video/balloonPauses';
 import { normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
@@ -50,13 +52,40 @@ function defaultPlanState(): PlanState {
   return {
     points: [], planDayStarts: [], planDayNotes: {}, dayMarkerPlacements: {},
     videoSettings: DEFAULT_VIDEO_SETTINGS, annotationStyle: DEFAULT_ANNOTATION_STYLE,
-    animationStartPointId: null, animationEndPointId: null, endpointMarkerPlacements: {},
+    animationStartPointId: null, animationEndPointId: null, endpointMarkerPlacements: {}, dayMarkerFramePositions: {}, endpointMarkerFramePositions: {},
   };
 }
 
 export default function App() {
   const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
   const [endpointMarkerPlacements, setEndpointMarkerPlacements] = useState<EndpointMarkerPlacements>({});
+  const [dayMarkerFramePositions, setDayMarkerFramePositions] = useState<Record<string, BalloonFramePosition>>({});
+  const [endpointMarkerFramePositions, setEndpointMarkerFramePositions] = useState<EndpointMarkerFramePositions>({});
+  const legacyDayKeysRef = useRef(new Set<string>());
+  const markerRevisionRef = useRef(0);
+  const markerProjectorRef = useRef<MarkerReferenceProjector | null>(null);
+  const [markerProjector, setMarkerProjector] = useState<MarkerReferenceProjector | null>(null);
+  const markerProjectorWaitersRef = useRef(new Set<(projector: MarkerReferenceProjector) => void>());
+  const onMarkerProjectorReady = useCallback((projector: MarkerReferenceProjector | null) => {
+    markerProjectorRef.current = projector;
+    setMarkerProjector(() => projector);
+    if (projector) {
+      for (const resolve of markerProjectorWaitersRef.current) resolve(projector);
+      markerProjectorWaitersRef.current.clear();
+    }
+  }, []);
+  const waitForMarkerProjector = useCallback((signal?: AbortSignal): Promise<MarkerReferenceProjector> => {
+    if (markerProjectorRef.current) return Promise.resolve(markerProjectorRef.current);
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { window.clearTimeout(timer); markerProjectorWaitersRef.current.delete(ready); signal?.removeEventListener('abort', abort); };
+      const ready = (projector: MarkerReferenceProjector) => { cleanup(); resolve(projector); };
+      const abort = () => { cleanup(); reject(new DOMException('マーカー配置の準備をキャンセルしました。', 'AbortError')); };
+      const timer = window.setTimeout(() => { cleanup(); reject(new Error('地図の準備完了後にもう一度操作してください。')); }, 20_000);
+      markerProjectorWaitersRef.current.add(ready);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+  }, []);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
   const [mobileModeMenuOpen, setMobileModeMenuOpen] = useState(false);
   const topbarRef = useRef<HTMLElement>(null);
@@ -180,11 +209,13 @@ export default function App() {
   const timelineWorkState: TimelineWorkState = {
     points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
     endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
+    dayMarkerFramePositions, endpointMarkerFramePositions,
     videoSettings, selectedOutputDay,
   };
   const planState: PlanState = {
     points, planDayStarts, planDayNotes, dayMarkerPlacements, videoSettings, annotationStyle,
     animationStartPointId, animationEndPointId, endpointMarkerPlacements,
+    dayMarkerFramePositions, endpointMarkerFramePositions,
   };
   if (timelineBaselineRef.current === null && workspaceMode === 'timeline') {
     timelineBaselineRef.current = stableSerialize(timelineWorkState);
@@ -222,7 +253,10 @@ export default function App() {
     && selectionCandidateIds.length >= 2 && selectionCandidateIndex >= 0;
   const dayMarkers = useMemo(() => (workspaceMode === 'plan'
     ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
-    : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => ({ ...marker, placement: dayMarkerPlacements[workspaceMode === 'plan' ? marker.pointId : marker.date!] })), [dayMarkerPlacements, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
+    : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => {
+      const key = workspaceMode === 'plan' ? marker.pointId : marker.date!;
+      return { ...marker, placement: dayMarkerPlacements[key], framePosition: dayMarkerFramePositions[key], legacyFramePlacement: legacyDayKeysRef.current.has(key) };
+    }), [dayMarkerPlacements, dayMarkerFramePositions, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
   const selectedDayMarker = dayMarkers.find((marker) => marker.pointId === selectedPointId) ?? null;
   const dayNumberByPointId = useMemo(() => buildRoutePointDayNumbers(points, dayMarkers), [points, dayMarkers]);
   const outputDay = workspaceMode === 'timeline' && selectedOutputDay !== 'all'
@@ -311,6 +345,11 @@ export default function App() {
     const marker = dayMarkers.find((item) => item.pointId === id);
     const key = workspaceMode === 'plan' ? id : marker?.date;
     if (!key) return;
+    const previous = dayMarkerPlacements[key];
+    if (placement && previous && placement.offsetX === previous.offsetX && placement.offsetY === previous.offsetY) { setSelectedPointId(id); return; }
+    markerRevisionRef.current += 1;
+    legacyDayKeysRef.current.delete(key);
+    setDayMarkerFramePositions((current) => { const next = { ...current }; delete next[key]; return next; });
     setDayMarkerPlacements((current) => {
       const next = { ...current };
       if (placement) next[key] = placement;
@@ -320,6 +359,13 @@ export default function App() {
     setSelectedPointId(id);
   };
   const setEndpointPlacement = (label: EndpointMarkerLabel, placement?: PopupPlacement) => {
+    const previous = endpointMarkerPlacements[label];
+    if (placement && previous && placement.offsetX === previous.offsetX && placement.offsetY === previous.offsetY) {
+      setSelectedPointId((label === 'START' ? animationPoints[0] : animationPoints.at(-1))?.id ?? null);
+      return;
+    }
+    markerRevisionRef.current += 1;
+    setEndpointMarkerFramePositions((current) => { const next = { ...current }; delete next[label]; return next; });
     setEndpointMarkerPlacements((current) => {
       const next = { ...current };
       if (placement) next[label] = placement;
@@ -440,19 +486,82 @@ export default function App() {
     ? { settings: distanceHudSettings, model: distanceHudModel } : undefined, [distanceHudModel, distanceHudSettings]);
   const framePreviewOptions = useMemo<PreviewFrameOptions>(() => ({
     points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers,
-    recordedTimeClockEnabled: showRecordedTimeClock, dayRouteColorsEnabled, endpointMarkerPlacements,
+    recordedTimeClockEnabled: showRecordedTimeClock, dayRouteColorsEnabled, endpointMarkerPlacements, endpointMarkerFramePositions,
     routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true,
     cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom,
     followZoomPreset, followCustomZoom, followViewMode, followCameraPlan: balloonFollowCamera ?? undefined,
     introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined,
   }), [animationPoints, visibleDayMarkers, visibleDayNumbers, showRecordedTimeClock, dayRouteColorsEnabled,
-    endpointMarkerPlacements, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
+    endpointMarkerPlacements, endpointMarkerFramePositions, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
     cameraMode, overviewCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom,
     followViewMode, balloonFollowCamera, introZoomEnabled, annotationStyle, distanceHud]);
+  // Position resolution must survive its own state commit, but never a different
+  // route, placement edit, camera, output range, or restored work session.
+  const markerConversionToken = useMemo(() => ({}), [workspaceMode, animationPoints, selectedOutputDay,
+    dayMarkerPlacements, endpointMarkerPlacements, dayMarkerNotes, planDayNotes, planDayStarts, startDate,
+    routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, cameraMode,
+    overviewCamera, balloonFollowCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode, introZoomEnabled, annotationStyle]);
+  const markerConversionTokenRef = useRef(markerConversionToken);
+  markerConversionTokenRef.current = markerConversionToken;
+  const markerFrameOptionsRef = useRef(framePreviewOptions);
+  markerFrameOptionsRef.current = framePreviewOptions;
+  const [markerReadyToken, setMarkerReadyToken] = useState<object | null>(null);
+  const missingMarkerPositions = useMemo(() => hasMissingMarkerFramePositions(framePreviewOptions), [framePreviewOptions]);
+  const ensureMarkerPositions = useCallback(async (signal?: AbortSignal) => {
+    const input = framePreviewOptions;
+    const revision = markerRevisionRef.current;
+    if (!hasMissingMarkerFramePositions(input)) return {
+      options: input, positions: { dayMarkerFramePositions, endpointMarkerFramePositions },
+    };
+    const projector = await waitForMarkerProjector(signal);
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) throw new Error('マーカー配置の計算用Canvasを作成できませんでした。');
+    const resolved = await resolveMarkerFramePositions(context, input, projector, signal);
+    const current = markerFrameOptionsRef.current;
+    // Normal balloon coordinate initialization may replace the points array
+    // while leaving every marker reference-frame input unchanged.
+    const sameInputs = markerConversionTokenRef.current === markerConversionToken || sameFramePlanInputs(input, current)
+      && input.annotationStyle?.balloonScale === current.annotationStyle?.balloonScale
+      && input.annotationStyle?.fontScale === current.annotationStyle?.fontScale
+      && (input.dayMarkers ?? []).every((marker, index) => {
+        const next = current.dayMarkers?.[index];
+        return next && marker.pointId === next.pointId && marker.date === next.date && marker.note === next.note
+          && marker.legacyFramePlacement === next.legacyFramePlacement;
+      });
+    if (signal?.aborted || revision !== markerRevisionRef.current || !sameInputs) {
+      throw new DOMException('マーカー配置の準備をキャンセルしました。', 'AbortError');
+    }
+    const nextDays = { ...dayMarkerFramePositions };
+    const nextEndpoints = { ...endpointMarkerFramePositions };
+    let daysChanged = false, endpointsChanged = false;
+    for (const marker of resolved.dayMarkers ?? []) {
+      const key = workspaceMode === 'plan' ? marker.pointId : marker.date;
+      if (key && marker.framePosition && !nextDays[key]) { nextDays[key] = { ...marker.framePosition }; daysChanged = true; }
+    }
+    for (const label of ['START', 'GOAL'] as const) {
+      const position = resolved.endpointMarkerFramePositions?.[label];
+      if (position && !nextEndpoints[label]) { nextEndpoints[label] = { ...position }; endpointsChanged = true; }
+    }
+    if (daysChanged) setDayMarkerFramePositions(nextDays);
+    if (endpointsChanged) setEndpointMarkerFramePositions(nextEndpoints);
+    setMarkerReadyToken(markerConversionToken);
+    return { options: resolved, positions: { dayMarkerFramePositions: nextDays, endpointMarkerFramePositions: nextEndpoints } };
+  }, [framePreviewOptions, dayMarkerFramePositions, endpointMarkerFramePositions, workspaceMode, markerConversionToken, waitForMarkerProjector]);
+  useEffect(() => {
+    if (!missingMarkerPositions || !markerProjector || busy || videoProgress || markerReadyToken === markerConversionToken) return;
+    const controller = new AbortController();
+    void ensureMarkerPositions(controller.signal).catch((reason: unknown) => {
+      if (!controller.signal.aborted && !(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setError(reason instanceof Error ? reason.message : 'マーカーの配置を準備できませんでした。');
+      }
+    });
+    return () => controller.abort();
+  }, [missingMarkerPositions, markerProjector, busy, videoProgress, markerReadyToken, markerConversionToken, ensureMarkerPositions]);
+  const markerPositionsReady = !missingMarkerPositions || markerReadyToken === markerConversionToken;
   const currentOutputSnapshot = useMemo(() => createVideoOutputSnapshot(framePreviewOptions), [framePreviewOptions]);
   currentOutputSnapshotRef.current = currentOutputSnapshot;
   const videoNeedsRegeneration = !!videoUrl && generatedOutputSnapshot !== currentOutputSnapshot;
-  const videoPlayer = useVideoPlayer(framePreviewOptions, showingVideo, !!videoProgress);
+  const videoPlayer = useVideoPlayer(framePreviewOptions, showingVideo && markerPositionsReady, !!videoProgress);
 
   const canReplaceSession = () => {
     if (videoPlayer.isEditingBalloon()) {
@@ -536,7 +645,7 @@ export default function App() {
         setNotice(`${message.dates.length}日分の日付を検出しました。ルートを抽出しています…`);
         pendingExtractionSnapshotRef.current = (routePoints) => stableSerialize({
           points: routePoints, startDate: firstDate, endDate: firstDate, from: '00:00', to: '23:59',
-          dayMarkerNotes: {}, dayMarkerPlacements: {}, endpointMarkerPlacements: {},
+          dayMarkerNotes: {}, dayMarkerPlacements: {}, endpointMarkerPlacements: {}, dayMarkerFramePositions: {}, endpointMarkerFramePositions: {},
           annotationStyle: DEFAULT_ANNOTATION_STYLE, animationStartPointId: null, animationEndPointId: null,
           videoSettings: DEFAULT_VIDEO_SETTINGS, selectedOutputDay: 'all',
         });
@@ -548,6 +657,10 @@ export default function App() {
         pendingExtractionSnapshotRef.current = null;
         pendingTimelineLoadRef.current = null;
         if (pendingLoad) {
+          markerRevisionRef.current += 1;
+          legacyDayKeysRef.current.clear();
+          setDayMarkerFramePositions({});
+          setEndpointMarkerFramePositions({});
           videoPlayer.reset();
           setWorkspaceView('map');
           initialGuideShownRef.current = false;
@@ -690,6 +803,10 @@ export default function App() {
   };
 
   const beginNewMode = (mode: 'plan' | 'spot') => {
+    markerRevisionRef.current += 1;
+    legacyDayKeysRef.current.clear();
+    setDayMarkerFramePositions({});
+    setEndpointMarkerFramePositions({});
     videoPlayer.reset();
     setWorkspaceView('map');
     initialGuideShownRef.current = false;
@@ -743,10 +860,11 @@ export default function App() {
 
   const saveWork = async () => {
     if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || !canReplaceSession()) return;
-    const stateAtSave: TimelineWorkState = timelineWorkState;
-    const baselineAtSave = stableSerialize(stateAtSave);
     setBusy(true);
     try {
+      const resolved = await ensureMarkerPositions();
+      const stateAtSave: TimelineWorkState = { ...timelineWorkState, ...resolved.positions };
+      const baselineAtSave = stableSerialize(stateAtSave);
       const name = await downloadWorkFile(stateAtSave, workSaveName);
       if (name) {
         setWorkSaveName(name);
@@ -778,7 +896,13 @@ export default function App() {
       const resumedState: TimelineWorkState = {
         ...saved, videoSettings: saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS,
         selectedOutputDay: saved.selectedOutputDay ?? 'all',
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
       };
+      markerRevisionRef.current += 1;
+      legacyDayKeysRef.current = new Set(deriveDayMarkers(saved.points, saved.dayMarkerNotes, saved.startDate)
+        .filter((marker) => !saved.dayMarkerFramePositions?.[marker.date!]).map((marker) => marker.date!));
+      setDayMarkerFramePositions(saved.dayMarkerFramePositions ?? {});
+      setEndpointMarkerFramePositions(saved.endpointMarkerFramePositions ?? {});
       dispatch({ type: 'load', points: saved.points });
       videoPlayer.reset();
       setWorkspaceView('map');
@@ -833,10 +957,11 @@ export default function App() {
 
   const savePlan = async () => {
     if (workspaceMode !== 'plan' || !points.length || busy || videoProgress || !canReplaceSession()) return;
-    const stateAtSave: PlanState = planState;
-    const baselineAtSave = stableSerialize(stateAtSave);
     setBusy(true);
     try {
+      const resolved = await ensureMarkerPositions();
+      const stateAtSave: PlanState = { ...planState, ...resolved.positions };
+      const baselineAtSave = stableSerialize(stateAtSave);
       const name = await downloadPlanFile(stateAtSave, planSaveName);
       if (name) {
         setPlanSaveName(name);
@@ -867,7 +992,13 @@ export default function App() {
         animationStartPointId: saved.animationStartPointId ?? null,
         animationEndPointId: saved.animationEndPointId ?? null,
         endpointMarkerPlacements: saved.endpointMarkerPlacements ?? {},
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
       };
+      markerRevisionRef.current += 1;
+      legacyDayKeysRef.current = new Set(derivePlanDayMarkers(saved.points, saved.planDayStarts, saved.planDayNotes)
+        .filter((marker) => !saved.dayMarkerFramePositions?.[marker.pointId]).map((marker) => marker.pointId));
+      setDayMarkerFramePositions(saved.dayMarkerFramePositions ?? {});
+      setEndpointMarkerFramePositions(saved.endpointMarkerFramePositions ?? {});
       applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
       setAnnotationStyle(saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       videoPlayer.reset();
@@ -1019,18 +1150,22 @@ export default function App() {
   const generateVideo = async () => {
     if (busy || videoProgress || abortRef.current || videoPlayer.isEditingBalloon()) return;
     setError('');
+    setBusy(true);
+    videoPlayer.pause();
     let output: VideoOutputOptions;
     let snapshot: string;
     try {
-      output = captureVideoOutputOptions(framePreviewOptions);
+      const resolved = await ensureMarkerPositions();
+      output = captureVideoOutputOptions(resolved.options);
       if (output.cameraMode === 'follow') output.followCameraPlan = buildFollowCameraPlan(output.points,
         output.followZoomPreset ?? 'standard', output.duration, output.followCustomZoom, output.followViewMode);
       snapshot = createVideoOutputSnapshot(output);
     } catch (reason) {
+      setBusy(false);
       setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
       return;
     }
-    videoPlayer.pause();
+    setBusy(false);
     const pauseTotal = totalPauseSeconds(balloonPauseSeconds(output.points, output.dayMarkers ?? [], output.routeMarkerMode ?? 'day', output.commonPauseSeconds ?? 0));
     setVideoProgress({ current: 0, total: outputVideoFrameCount(output.duration, pauseTotal, output.preRollSeconds, output.postRollSeconds), percent: 0 });
     const controller = new AbortController();
@@ -1437,7 +1572,7 @@ export default function App() {
         <div className={`map-edit-view${showingVideo ? ' map-edit-view--hidden' : ''}`} inert={showingVideo || busy || !!videoProgress} aria-hidden={showingVideo || undefined}>
         <div id="plan-coordinate-jump" />
         <section className="map-stage">
-          <RouteMap balloonMigrationPoints={points} balloonFollowCameraPlan={balloonFollowCamera} onBalloonFramePosition={setBalloonFramePosition} onResolveBalloonPositions={resolveBalloonPositions} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} cameraMode={cameraMode} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap onMarkerProjectorReady={onMarkerProjectorReady} balloonMigrationPoints={points} balloonFollowCameraPlan={balloonFollowCamera} onBalloonFramePosition={setBalloonFramePosition} onResolveBalloonPositions={resolveBalloonPositions} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} cameraMode={cameraMode} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>旅の道筋を、アニメーションに</h2><p>GoogleマップからエクスポートしたJSONファイルを読み込み、<br />移動履歴をアニメーションに。新しいルートの作成やスポット情報の画像作成も。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
   <small>{WORKSPACE_MODE_COPY.timeline.description}</small>

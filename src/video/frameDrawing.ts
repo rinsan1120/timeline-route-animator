@@ -1,5 +1,5 @@
 import { GSI_ATTRIBUTION } from '../map/gsiStyle';
-import { nearestPointOnRect, placedPopupRect, type PopupPlacement } from '../popup/placement';
+import { nearestPointOnRect, videoMarkerRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
 import { dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import type { DayMarker } from '../route/tripRoute';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
@@ -20,16 +20,9 @@ export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDa
   context.save();
   const { width, height, style, rows } = dayMarkerLayout(marker, context, annotationStyle);
   const colors = dayMarkerColors(marker.dayNumber, dayRouteColorsEnabled);
-  const margin = style.margin;
-  const bottom = HEIGHT - style.bottomMargin;
-  const gap = style.anchorGap;
-  let left = Math.max(margin, Math.min(WIDTH - margin - width, marker.pixel.x - width / 2));
-  const below = marker.pixel.y - height - gap < margin;
-  let top = Math.max(margin, Math.min(bottom - height, below ? marker.pixel.y + gap : marker.pixel.y - height - gap));
-  if (marker.placement) {
-    ({ left, top } = placedPopupRect(marker.pixel, marker.placement, width, height, WIDTH, bottom, margin));
-  }
-  const connector = dayMarkerConnector({ left, top, width, height }, marker.pixel, Boolean(marker.placement), below, style);
+  const { left, top, below } = videoMarkerRect(marker.pixel, width, height, style.margin, style.bottomMargin,
+    style.anchorGap, marker.placement, marker.framePosition);
+  const connector = dayMarkerConnector({ left, top, width, height }, marker.pixel, Boolean(marker.placement), below, style, Boolean(marker.framePosition));
   context.strokeStyle = colors.outline;
   context.lineWidth = connector.width;
   context.lineCap = 'butt';
@@ -73,25 +66,17 @@ export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDa
   context.restore();
 }
 
-export function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL', placement?: PopupPlacement) {
+export function drawEndpointMarker(context: CanvasRenderingContext2D, pixel: { x: number; y: number }, label: 'START' | 'GOAL', placement?: PopupPlacement, framePosition?: BalloonFramePosition) {
   context.save();
-  const margin = 24;
-  const bottom = HEIGHT - 70;
   const width = 230;
   const height = 78;
-  const gap = 42;
-  let left = Math.max(margin, Math.min(WIDTH - margin - width, pixel.x - width / 2));
-  const below = pixel.y - height - gap < margin;
-  let top = Math.max(margin, Math.min(bottom - height, below ? pixel.y + gap : pixel.y - height - gap));
-  if (placement) {
-    ({ left, top } = placedPopupRect(pixel, placement, width, height, WIDTH, bottom, margin));
-  }
+  const { left, top, below } = videoMarkerRect(pixel, width, height, 24, 70, 42, placement, framePosition);
   const anchorX = Math.max(left + 18, Math.min(left + width - 18, pixel.x));
 
   context.strokeStyle = '#ff8b68';
   context.lineWidth = 5;
   context.beginPath();
-  const connectorStart = placement
+  const connectorStart = placement || framePosition
     ? nearestPointOnRect({ left, top, width, height }, pixel)
     : { x: anchorX, y: below ? top : top + height };
   context.moveTo(connectorStart.x, connectorStart.y);

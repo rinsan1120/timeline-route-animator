@@ -10,6 +10,7 @@ import { installTerrainTintFallback, isTerrainTintError } from './gsiTerrainTint
 import FrameAnnotationOverlay from './FrameAnnotationOverlay';
 import { balloonReferenceCamera, resolveBalloonFramePositions } from '../route/balloonFrame';
 import { createBalloonReferenceProjector } from './balloonProjection';
+import type { MarkerReferenceProjector } from '../video/markerFramePositions';
 import DayMarkerOverlay from './DayMarkerOverlay';
 import EndpointMarkerOverlay from './EndpointMarkerOverlay';
 import DistanceHudOverlay from './DistanceHudOverlay';
@@ -46,6 +47,7 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
+  onMarkerProjectorReady: (projector: MarkerReferenceProjector | null) => void;
   balloonMigrationPoints: RoutePoint[];
   balloonFollowCameraPlan: FollowCameraPlan | null;
   onBalloonFramePosition: (id: string, position: BalloonFramePosition) => void;
@@ -134,6 +136,12 @@ export default function RouteMap(props: RouteMapProps) {
   const propsRef = useRef(props);
   propsRef.current = props;
   const dayColorsEnabled = true;
+
+  useEffect(() => {
+    if (mapStatus !== 'ready' || !mapRef.current) return;
+    props.onMarkerProjectorReady(createBalloonReferenceProjector(mapRef.current, true));
+    return () => props.onMarkerProjectorReady(null);
+  }, [mapStatus, props.onMarkerProjectorReady]);
 
   const cancelRangeDeleteFrame = () => {
     if (rangeDeleteFrameRef.current === null) return;

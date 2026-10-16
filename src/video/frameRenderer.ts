@@ -1,4 +1,4 @@
-import type { PopupPlacement } from '../popup/placement';
+import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
 import { drawAnnotation, type CanvasAnnotation } from '../route/annotationCanvas';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteDistanceProgress } from '../route/routeDistanceProgress';
@@ -17,7 +17,7 @@ export interface VideoFrameScene {
   annotationStyle: AnnotationStyle;
   dayMarkers: VideoDayMarker[];
   dayRouteColorsEnabled: boolean;
-  endpointMarkers: { pixel: { x: number; y: number }; label: 'START' | 'GOAL'; placement?: PopupPlacement }[];
+  endpointMarkers: { pixel: { x: number; y: number }; label: 'START' | 'GOAL'; placement?: PopupPlacement; framePosition?: BalloonFramePosition }[];
   distanceHud?: { progress: RouteDistanceProgress; options: DistanceHudOptions };
 }
 
@@ -45,7 +45,7 @@ export function drawVideoFrame(context: CanvasRenderingContext2D, scene: VideoFr
   drawRouteClock(context, scene.clockText, x, y);
   for (const annotation of scene.annotations) drawAnnotation(context, annotation, scene.annotationStyle);
   for (const dayMarker of scene.dayMarkers) drawDayMarker(context, dayMarker, scene.dayRouteColorsEnabled, scene.annotationStyle);
-  for (const endpoint of scene.endpointMarkers) drawEndpointMarker(context, endpoint.pixel, endpoint.label, endpoint.placement);
+  for (const endpoint of scene.endpointMarkers) drawEndpointMarker(context, endpoint.pixel, endpoint.label, endpoint.placement, endpoint.framePosition);
   if (scene.distanceHud) drawDistanceHud(context, scene.distanceHud.progress, scene.distanceHud.options);
   // Intentionally keep the existing Canvas state inheritance and draw this last.
   drawMapAttribution(context);

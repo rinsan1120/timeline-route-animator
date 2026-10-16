@@ -1,4 +1,4 @@
-import type { PopupPlacement } from '../popup/placement';
+import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
 import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
 import type { RoutePoint } from '../timeline/types';
@@ -12,6 +12,7 @@ import type { RenderVideoOptions } from './renderer';
 
 export type VideoOutputOptions = Omit<RenderVideoOptions, 'signal' | 'onProgress'>;
 const placement = (value?: PopupPlacement) => value ? [value.offsetX, value.offsetY] : null;
+const framePosition = (value?: BalloonFramePosition) => value ? [value.x, value.y] : null;
 const geometry = (point: RoutePoint) => [point.id, point.longitude, point.latitude, point.timestamp?.slice(0, 10) ?? null];
 
 // A session-local comparison string, never logged, persisted or sent elsewhere.
@@ -53,8 +54,10 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
     // Follow always reveals the travelled route, regardless of this option.
     revealRoute: cameraMode === 'overview' ? options.revealRoute : true,
     markerMode: mode,
-    dayMarkers: mode === 'day' ? markers.map((marker) => [marker.pointId, marker.dayNumber, marker.date || null, marker.note ?? '', placement(marker.placement)]) : null,
-    endpoints: mode === 'start-goal' ? [placement(options.endpointMarkerPlacements?.START), placement(options.endpointMarkerPlacements?.GOAL)] : null,
+    dayMarkers: mode === 'day' ? markers.map((marker) => [marker.pointId, marker.dayNumber, marker.date || null, marker.note ?? '',
+      framePosition(marker.framePosition), marker.framePosition ? Boolean(marker.placement) : placement(marker.placement)]) : null,
+    endpoints: mode === 'start-goal' ? (['START', 'GOAL'] as const).map((label) => [framePosition(options.endpointMarkerFramePositions?.[label]),
+      options.endpointMarkerFramePositions?.[label] ? null : placement(options.endpointMarkerPlacements?.[label])]) : null,
     dayColors: !!options.dayRouteColorsEnabled,
     routeDayNumbers: colorNumbers ? options.points.map((point) => colorNumbers.get(point.id) ?? null) : null,
     hud: hud && hudLayout && hudPlacement ? {
@@ -70,6 +73,7 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
 }
 
 const copyPlacement = (value?: PopupPlacement) => value ? { ...value } : undefined;
+const copyFramePosition = (value?: BalloonFramePosition) => value ? { ...value } : undefined;
 const copyPoint = (point: RoutePoint): RoutePoint => ({ ...point, annotation: point.annotation ? {
   ...point.annotation, placement: copyPlacement(point.annotation.placement),
   framePosition: point.annotation.framePosition ? { ...point.annotation.framePosition } : undefined,
@@ -83,13 +87,14 @@ export function captureVideoOutputOptions(options: VideoOutputOptions): VideoOut
   const hudPoints = hud?.model.animationPoints === options.points ? points : hud?.model.animationPoints.map(copyPoint);
   return {
     ...options, points,
-    dayMarkers: options.dayMarkers?.map((marker) => ({ ...marker, placement: copyPlacement(marker.placement) })),
+    dayMarkers: options.dayMarkers?.map((marker) => ({ ...marker, placement: copyPlacement(marker.placement), framePosition: copyFramePosition(marker.framePosition) })),
     dayNumberByPointId: options.dayNumberByPointId
       ? new Map(points.flatMap((point) => {
         const day = options.dayNumberByPointId!.get(point.id);
         return day === undefined ? [] : [[point.id, day] as const];
       })) : undefined,
     endpointMarkerPlacements: { START: copyPlacement(options.endpointMarkerPlacements?.START), GOAL: copyPlacement(options.endpointMarkerPlacements?.GOAL) },
+    endpointMarkerFramePositions: { START: copyFramePosition(options.endpointMarkerFramePositions?.START), GOAL: copyFramePosition(options.endpointMarkerFramePositions?.GOAL) },
     annotationStyle: options.annotationStyle ? { ...options.annotationStyle } : undefined,
     overviewCamera: options.overviewCamera ? { ...options.overviewCamera } : undefined,
     followCameraPlan: undefined,

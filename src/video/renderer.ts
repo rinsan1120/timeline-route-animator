@@ -10,7 +10,7 @@ import type { DistanceHudOptions } from './distanceHud';
 import { buildFramePlan, sampleFrame } from './frameTimeline';
 import { drawVideoFrame } from './frameRenderer';
 import { frameClockText, prepareOverviewFrameScene, prepareFollowFrameScene, prepareOverviewFrameData, prepareVideoDayMarkers, resolveVideoBalloons } from './frameScene';
-import type { EndpointMarkerPlacements } from '../popup/placement';
+import type { EndpointMarkerPlacements, EndpointMarkerFramePositions } from '../popup/placement';
 import type { DayMarker } from '../route/tripRoute';
 export { outputVideoDuration, outputVideoFrameCount } from './outputTiming';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
@@ -24,6 +24,7 @@ export interface RenderVideoOptions {
   recordedTimeClockEnabled?: boolean;
   distanceHud?: DistanceHudOptions;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
   points: RoutePoint[];
   dayMarkers?: DayMarker[];
   dayNumberByPointId?: ReadonlyMap<string, number>;
@@ -99,7 +100,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
         const state = sampleFrame(framePlan, frame);
         if (state.renderPath !== 'intro-zoom') throw new RangeError('開始時ズームのフレームではありません。');
         map = await videoMap.prepare(state.camera);
-        drawVideoFrame(context, prepareFollowFrameScene(map.getCanvas(), map, options.points, state.playback, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(options, state)));
+        drawVideoFrame(context, prepareFollowFrameScene(map.getCanvas(), map, options.points, state.playback, dynamicDayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(options, state), options.endpointMarkerFramePositions));
         await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
         options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
         if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -114,7 +115,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
     for (let frame = options.introZoomEnabled ? preFrames : 0; frame < total; frame += 1) {
       if (options.signal?.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
       const state = sampleFrame(framePlan, frame);
-      drawVideoFrame(context, prepareOverviewFrameScene(background, pixels, routeSegments, options.points, state.routeProgress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockText(options, state)));
+      drawVideoFrame(context, prepareOverviewFrameScene(background, pixels, routeSegments, options.points, state.routeProgress, options.revealRoute, annotations, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud, options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockText(options, state), options.endpointMarkerFramePositions));
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -183,7 +184,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
         background = nextBackground;
         backgroundKey = nextBackgroundKey;
       }
-      drawVideoFrame(context, prepareFollowFrameScene(background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(options, state)));
+      drawVideoFrame(context, prepareFollowFrameScene(background, map, options.points, playback, dayMarkers, routeMarkerMode, options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, true, options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(options, state), options.endpointMarkerFramePositions));
       await source.add(frame / VIDEO_FPS, 1 / VIDEO_FPS, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
       options.onProgress({ current: frame + 1, total, percent: Math.round((frame + 1) / total * 100) });
       if (frame % 5 === 0) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

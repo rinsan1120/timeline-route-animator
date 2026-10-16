@@ -1,5 +1,5 @@
 import type * as maplibregl from 'maplibre-gl';
-import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements } from '../popup/placement';
+import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerFramePositions } from '../popup/placement';
 import { createBalloonReferenceProjector } from '../map/balloonProjection';
 import { balloonReferenceCamera, resolveBalloonFramePositions } from '../route/balloonFrame';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
@@ -21,6 +21,7 @@ export interface FrameDrawingOptions extends FramePlanOptions {
   recordedTimeClockEnabled?: boolean;
   distanceHud?: DistanceHudOptions;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
   annotationStyle?: AnnotationStyle;
   dayNumberByPointId?: ReadonlyMap<string, number>;
   dayRouteColorsEnabled?: boolean;
@@ -84,6 +85,7 @@ export function prepareOverviewFrameScene(
   dayRouteColorsEnabled = false,
   pausePointIndex: number | null = null,
   clockText: string | null = null,
+  endpointMarkerFramePositions: EndpointMarkerFramePositions = {},
 ) {
   const position = interpolateTripRoute(points, progress)!;
   const markerStart = pixels[pausePointIndex ?? position.fromIndex];
@@ -124,6 +126,10 @@ export function prepareOverviewFrameScene(
     if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) scene.endpointMarkers.push({ pixel: goalPixel, label: 'GOAL', placement: endpointMarkerPlacements.GOAL });
   }
 
+  for (const endpoint of scene.endpointMarkers) {
+    const position = endpointMarkerFramePositions[endpoint.label];
+    if (position) endpoint.framePosition = position;
+  }
   if (distanceHud?.settings.enabled) scene.distanceHud = { progress: routeDistanceProgress(distanceHud.model, progress, pausePointIndex ?? undefined), options: distanceHud };
   return scene;
 }
@@ -162,6 +168,7 @@ export function prepareFollowFrameScene(
   dayNumberByPointId: ReadonlyMap<string, number> = new Map(),
   dayRouteColorsEnabled = false,
   clockText: string | null = null,
+  endpointMarkerFramePositions: EndpointMarkerFramePositions = {},
 ) {
   const routeSegments = colorRouteSegments(
     revealRoute ? revealedTripRouteSegments(points, playback.routeProgress) : splitRouteByDay(points),
@@ -204,6 +211,10 @@ export function prepareFollowFrameScene(
     }
   }
 
+  for (const endpoint of scene.endpointMarkers) {
+    const position = endpointMarkerFramePositions[endpoint.label];
+    if (position) endpoint.framePosition = position;
+  }
   if (distanceHud?.settings.enabled) scene.distanceHud = { progress: routeDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), options: distanceHud };
   return scene;
 }

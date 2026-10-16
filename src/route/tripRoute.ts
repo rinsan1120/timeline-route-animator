@@ -1,9 +1,12 @@
-import type { PopupPlacement } from '../popup/placement';
+import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
 import type { RoutePoint } from '../timeline/types';
 import { distanceMeters, interpolateRoute, nearestSegmentIndex, routeDistance, routePointProgresses, type InterpolatedPosition } from './geometry';
 
 export interface DayMarker {
   placement?: PopupPlacement;
+  framePosition?: BalloonFramePosition;
+  // Session-only compatibility hint; never serialized as DAY data.
+  legacyFramePlacement?: boolean;
   dayNumber: number;
   date?: string;
   pointId: string;
