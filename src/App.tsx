@@ -39,6 +39,8 @@ export default function App() {
   const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
   const [endpointMarkerPlacements, setEndpointMarkerPlacements] = useState<EndpointMarkerPlacements>({});
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
+  const [mobileModeMenuOpen, setMobileModeMenuOpen] = useState(false);
+  const topbarRef = useRef<HTMLElement>(null);
   const [workspaceView, setWorkspaceView] = useState<'map' | 'video'>('map');
   const initialGuideShownRef = useRef(false);
   const [selectedOutputDay, setSelectedOutputDay] = useState('all');
@@ -151,6 +153,28 @@ export default function App() {
   }, []);
 
   const points = history.present;
+  const compactMobileHeader = !(workspaceMode === 'timeline' && points.length === 0);
+  const currentWorkspaceModeCopy = WORKSPACE_MODE_COPY[workspaceMode];
+
+  useEffect(() => {
+    if (!mobileModeMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !topbarRef.current?.contains(event.target)) setMobileModeMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMobileModeMenuOpen(false);
+      topbarRef.current?.querySelector<HTMLButtonElement>('.mobile-mode-trigger')?.focus();
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileModeMenuOpen]);
+
+  useEffect(() => setMobileModeMenuOpen(false), [workspaceMode]);
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
@@ -937,8 +961,30 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
+      <header ref={topbarRef} className={`topbar${compactMobileHeader ? ' topbar--compact-mobile' : ''}`}>
         <img className="brand-logo" src={`${import.meta.env.BASE_URL}journey-map-studio-logo.png`} alt="Journey Map Studio" />
+        <div className="mobile-compact-header">
+          <div className="mobile-brand-copy"><strong>Journey Map Studio</strong><span>{currentWorkspaceModeCopy.title}</span></div>
+          <div className="mobile-mode-menu-wrap">
+            <button className="mobile-mode-trigger" type="button" aria-expanded={mobileModeMenuOpen} aria-controls="mobile-mode-menu"
+              onClick={() => setMobileModeMenuOpen((open) => !open)}>モード <span aria-hidden="true">{mobileModeMenuOpen ? '▴' : '▾'}</span></button>
+            <HelpTip helpKey="mobileModeMenu" />
+            {mobileModeMenuOpen && <div className="mobile-mode-menu" id="mobile-mode-menu" aria-label="制作モード">
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'timeline' ? 'page' : undefined}
+                disabled={busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); fileInputRef.current?.click(); }}>
+                <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>
+              </button>
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'plan' ? 'page' : undefined}
+                disabled={workspaceMode === 'plan' || busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); startPlanMode(); }}>
+                <span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small>
+              </button>
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'spot' ? 'page' : undefined}
+                disabled={workspaceMode === 'spot' || busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); startSpotMode(); }}>
+                <span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small>
+              </button>
+            </div>}
+          </div>
+        </div>
         <div className="topbar-actions">
           <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress}>
             <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>

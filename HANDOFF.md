@@ -1,5 +1,10 @@
 # HANDOFF
 
+## Mobile header mode menu (Issue #3)
+
+- 760px以下では、Timelineモードかつ地点0件の初期案内を従来のロゴ／3モード案内で維持する。地点読み込み後と計画／スポット画像モードでは高さ56pxのテキストブランド＋現在モード名＋モードメニューへ切り替える。
+- メニューは既存のWORKSPACE_MODE_COPYとstartPlanMode／startSpotMode／JSON選択処理を利用し、外側タップ・Escape・選択で閉じる。地図／映像上へ重ね、低い画面では内部スクロールする。HelpTipを追加。761px以上のヘッダーや作業データ処理は変更しない。
+
 ## Mobile UI and legacy preview cleanup — v1.3 Step 8 (2026-10-16)
 
 - Appの旧previewProgress、rAF／終了タイマー、専用Follow計画・未使用開始関数・balloonFrameEditingと旧配置入口関数を撤去。RouteMapの旧動画時刻補間・移動マーカー／時計・プレビュー用カメラ切替／復元と専用props、未使用ヘルプ／CSSも削除した。地図／映像とStep 03「映像で確認」へ集約済みの操作入口を維持し、地図から直接MP4を生成できる。

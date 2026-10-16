@@ -7,6 +7,7 @@ button, input, select { font: inherit; }
 button { touch-action: manipulation; }
 .app-shell { height: 100vh; height: 100dvh; min-height: 620px; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { height: 82px; flex: 0 0 auto; display: flex; align-items: center; gap: 16px; padding: 0 28px; color: white; background: var(--navy); border-bottom: 1px solid #26384e; }
+.mobile-compact-header { display: none; }
 .brand-logo { display: block; width: auto; height: 76px; max-width: min(320px, 100%); min-width: 0; object-fit: contain; object-position: left center; }
 .topbar-actions { margin-left: auto; display: flex; gap: 10px; min-width: 0; }
 .file-button { min-width: 156px; min-height: 48px; border: 1px solid #405169; border-radius: 9px; background: #142b45; color: white; display: flex; align-items: center; justify-content: center; flex-direction: column; cursor: pointer; }
@@ -263,6 +264,22 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
   .topbar-actions .file-button { min-width: 95px; }
 }
 @media (max-width: 760px) {
+  .topbar--compact-mobile { position: relative; z-index: 20; height: 56px; min-height: 56px; flex: 0 0 56px; flex-wrap: nowrap; gap: 8px; padding: 4px 10px 4px 13px; }
+  .topbar--compact-mobile .brand-logo, .topbar--compact-mobile .topbar-actions { display: none; }
+  .topbar--compact-mobile .mobile-compact-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; }
+  .mobile-brand-copy { display: grid; gap: 1px; min-width: 0; line-height: 1.2; }
+  .mobile-brand-copy strong { overflow: hidden; color: #fff; font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-brand-copy span { overflow: hidden; color: #b8c5d2; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-mode-menu-wrap { position: relative; display: flex; align-items: center; flex: 0 0 auto; gap: 4px; }
+  .mobile-mode-trigger { min-width: 72px; min-height: 44px; padding: 0 9px; border: 1px solid #52647a; border-radius: 7px; color: #fff; background: #20364e; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .mobile-mode-trigger span { margin-left: 4px; }
+  .mobile-mode-menu { position: absolute; z-index: 30; top: calc(100% + 5px); right: -2px; display: grid; gap: 5px; width: min(320px, calc(100vw - 20px)); max-height: min(60vh, calc(100dvh - 100px)); padding: 7px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #405169; border-radius: 10px; background: #10243a; box-shadow: 0 10px 28px rgba(0,0,0,.32); }
+  .mobile-mode-option { display: grid; align-content: center; gap: 3px; min-height: 54px; padding: 7px 10px; border: 1px solid #334b65; border-radius: 7px; color: #fff; background: #192f47; text-align: left; cursor: pointer; }
+  .mobile-mode-option[aria-current="page"] { border-color: #ff8c70; background: #263a4d; }
+  .mobile-mode-option:disabled { opacity: .72; }
+  .mobile-mode-option span { font-size: 12px; font-weight: 700; }
+  .mobile-mode-option small { color: #b8c5d2; font-size: 10px; line-height: 1.35; }
+  .mobile-mode-menu-wrap > .help-tip { align-self: center; }
   .spot-tool-hint { bottom: 85px; }
   .topbar-actions { width: 100%; margin-left: 0; }
   .topbar-actions .file-button { flex: 1; min-width: 0; }
