@@ -4,7 +4,7 @@ import { createPreviewFrameRenderer, type PreviewBalloon, type PreviewFrameOptio
 import type { BalloonFramePosition } from '../popup/placement';
 import type { VideoEvent } from './videoEvents';
 
-// UI playback state is deliberately separate from legacy previewProgress and JSON.
+// Playback and retained Canvas pixels belong to this session, never to JSON.
 export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, suspended: boolean) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createPreviewFrameRenderer> | null>(null);
@@ -32,6 +32,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [playheadFrame, setPlayheadFrame] = useState(0);
   const [displayedFrame, setDisplayedFrame] = useState(0);
   const [pendingFrame, setPendingFrame] = useState(false);
+  const [hasRetainedCanvas, setHasRetainedCanvas] = useState(false);
   const [events, setEvents] = useState<VideoEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [balloons, setBalloons] = useState<PreviewBalloon[]>([]);
@@ -82,6 +83,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     pausePlayback(false);
     generationRef.current += 1;
     const renderer = rendererRef.current;
+    if (renderer?.getDisplayedState()) setHasRetainedCanvas(true);
     rendererRef.current = null;
     setPendingFrame(false);
     setFrame((current) => ({ ...current, status: 'preparing', hasDisplayed: false }));
@@ -106,6 +108,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       retainedPlanRef.current = result.framePlan;
       retainedTimeRef.current = result.state.outputTimeSeconds;
       setDisplayedFrame(result.state.frameIndex);
+      setHasRetainedCanvas(true);
       if (!playingRef.current) setBalloons(renderer.getDisplayedBalloons());
       setFrame({ options: currentOptions, status: 'ready', error: '', hasDisplayed: true });
       if (requestedFrameRef.current === target) setPendingFrame(false);
@@ -151,6 +154,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       selectEvent(result.eventAnchorId ?? null);
       setPlayheadFrame(result.state.frameIndex);
       setDisplayedFrame(result.state.frameIndex);
+      setHasRetainedCanvas(true);
       setPendingFrame(false);
       updatingRef.current = false;
       setFrame({ options: next, status: 'ready', error: '', hasDisplayed: true });
@@ -163,7 +167,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   }, [pausePlayback, selectEvent, finishBalloonEdit]);
 
   useEffect(() => {
-    if (!enabled) { pendingEventRef.current = null; return; }
+    if (!enabled) { pendingEventRef.current = null; setHasRetainedCanvas(false); return; }
     if (suspended || !canvasRef.current) return;
     let cancelled = false;
     const generation = ++generationRef.current;
@@ -177,6 +181,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
         await releaseRef.current;
         if (cancelled || generation !== generationRef.current) return;
         const next = optionsRef.current;
+        setHasRetainedCanvas(false);
         const renderer = createPreviewFrameRenderer(canvas, next);
         rendererRef.current = renderer;
         await updatePreview(renderer, next);
@@ -248,6 +253,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     requestedFrameRef.current = 0;
     setPlayheadFrame(0);
     setDisplayedFrame(0);
+    setHasRetainedCanvas(false);
     selectEvent(null);
     setEvents([]);
     setBalloons([]);
@@ -292,7 +298,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   };
 
   return {
-    canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId,
+    canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId, hasRetainedCanvas,
     status: frame.options === options ? frame.status : 'preparing' as const,
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,

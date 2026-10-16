@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Mobile UI and legacy preview cleanup — v1.3 Step 8 (2026-10-16)
+
+- Appの旧previewProgress、rAF／終了タイマー、専用Follow計画・未使用開始関数・balloonFrameEditingと旧配置入口関数を撤去。RouteMapの旧動画時刻補間・移動マーカー／時計・プレビュー用カメラ切替／復元と専用props、未使用ヘルプ／CSSも削除した。地図／映像とStep 03「映像で確認」へ集約済みの操作入口を維持し、地図から直接MP4を生成できる。
+- 通常地図のルート線・地点選択／移動／範囲操作、FrameAnnotationOverlay、DAY／Endpoint／DistanceHudOverlayは維持。HUD用16:9枠とgetVideoPreviewViewport、framePositionと旧JSON補完、参照カメラのclone投影、共有frameDrag／Canvas描画・フレーム計算は残した。編集地図は映像切替中も同じインスタンスを保持するため、通常カメラ／Zoomの保存復元を新設する必要はない。
+- PCは左設定／右映像を維持。プレイヤーのシーク・ヘルプを44px以上へ調整し、狭い映像領域ではガイド／Undo／Redo等を折り返す。イベント名の省略／一覧で全文表示、縦スクロールを維持。スマホはSafe Areaの左右と既存シート高を考慮し、切替・映像操作はシート外。MobileBottomSheetの3状態・ジェスチャー・resetKeyは未変更。表示サイズ変更はCSS倍率だけで、1920×1080・16:9、再生位置／選択／履歴を初期化しない。
+- Canvasとシークのtouch-actionを分離し、シークはPointer Captureを使用。バルーンは既存共有Pointer Captureとサイズ変更時キャンセルを継続。背後の編集地図は既存inert／visibilityで操作を遮断する。
+- useVideoPlayerは正常描画済みCanvasの有無を保持。MP4生成中はMapLibre／背景Bitmapを解放しても出力Canvasの画素をそのまま静止表示し、VideoWorkspaceが半透明の生成進捗を重ねる。追加の地図読込やBitmapコピーはしない。既存の解放Promiseを待ってMP4を開始し、終了・キャンセル後はStep 6-Aの保持位置から停止状態でセッションを再開する。正常フレームがない場合は進捗のみ表示。新規セッション／作品resetで画素の有効フラグを解除する。
+- 今後もプレイヤー状態・Canvas保持・ガイドをJSON／履歴／MP4鮮度へ混ぜないこと。共通フレーム・カメラ・MP4エンコードは変更していない。旧プレビューという名前だけで地図編集用共通処理を削除しないこと。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
 ## Direct video balloon editing — v1.3 Step 7 (2026-10-16)
 
 - 共有sceneのバルーンへpointIdを付与し、previewFrameRendererが実際に公開したsceneとFrameStateを保持する。getDisplayedBalloonsはそのsceneの実表示対象とannotationLayoutから1920×1080の矩形を取得。VideoBalloonOverlayは矩形を表示倍率で配置した透明buttonと選択枠のみを持ち、バルーン本体を二重描画しない。選択はAppのselectedPointIdと共有し、DAY／START・GOAL／HUD等は編集しない。再生中の映像タップは公開済みフレームで停止してヒット判定する。

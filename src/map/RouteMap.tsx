@@ -1,11 +1,10 @@
-import { sampleRecordedRouteTime, followClockPointIndex, routeClockRect, ROUTE_CLOCK_STYLE } from '../video/routeClock';
 import CoordinateJumpControl from './CoordinateJumpControl';
 import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from '../popup/placement';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, MapLayerMouseEvent, ErrorEvent } from 'maplibre-gl';
 import type { RawPosition, RoutePoint } from '../timeline/types';
-import { interpolateTripRoute, revealedTripRouteSegments, splitRouteByDay, type DayMarker } from '../route/tripRoute';
+import { splitRouteByDay, type DayMarker } from '../route/tripRoute';
 import { GSI_STYLE } from './gsiStyle';
 import { installTerrainTintFallback, isTerrainTintError } from './gsiTerrainTint';
 import FrameAnnotationOverlay from './FrameAnnotationOverlay';
@@ -17,11 +16,8 @@ import DistanceHudOverlay from './DistanceHudOverlay';
 import type { DistanceHudOptions, DistanceHudPlacement } from '../video/distanceHud';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
-import { sampleFollowOutputPlayback, type FollowCameraPlan, type GeoPosition, type VideoCameraMode } from '../video/followCamera';
-import { getIntroStartZoom, interpolateIntroZoom } from '../video/introZoom';
-import { constrainVideoCamera, getVideoPreviewViewport, videoPreviewFieldOfView, videoZoomToPreviewZoom, OVERVIEW_FIT_PADDING, VIDEO_MIN_ZOOM, type VideoCamera } from '../video/overviewCamera';
-import { samplePlaybackTimeline, type PlaybackTimeline } from '../video/playbackTimeline';
-import { sampleVideoOutputTime } from '../video/outputTiming';
+import { type FollowCameraPlan, type VideoCameraMode } from '../video/followCamera';
+import { getVideoPreviewViewport, OVERVIEW_FIT_PADDING, type VideoCamera } from '../video/overviewCamera';
 import { colorRouteSegments, type DayRouteSegment } from '../route/dayRouteColor';
 
 function routeCollection(segments: DayRouteSegment[]) {
@@ -50,12 +46,10 @@ function rawCollection(points: RawPosition[]) {
 }
 
 interface RouteMapProps {
-  balloonFrameEditing: boolean;
   balloonMigrationPoints: RoutePoint[];
   balloonFollowCameraPlan: FollowCameraPlan | null;
   onBalloonFramePosition: (id: string, position: BalloonFramePosition) => void;
   onResolveBalloonPositions: (positions: ReadonlyMap<string, BalloonFramePosition>) => void;
-  recordedTimeClockEnabled?: boolean;
   coordinateJumpEnabled?: boolean;
   coordinateJumpDisabled?: boolean;
   mobileDayMarkerEditingScale: number;
@@ -70,7 +64,6 @@ interface RouteMapProps {
   annotationStyle: AnnotationStyle;
   dayMarkers: DayMarker[];
   dayNumberByPointId: ReadonlyMap<string, number>;
-  dayRouteColorsEnabled: boolean;
   points: RoutePoint[];
   animationPoints: RoutePoint[];
   rawPositions: RawPosition[];
@@ -83,16 +76,8 @@ interface RouteMapProps {
   rangeDeletePointIds: string[];
   routeMarkerMode: RouteMarkerMode;
   selectedPointId: string | null;
-  previewProgress: number | null;
-  previewDuration: number;
-  playbackTimeline: PlaybackTimeline;
-  preRollSeconds: number;
-  postRollSeconds: number;
-  introZoomEnabled: boolean;
-  revealRoute: boolean;
   cameraMode: VideoCameraMode;
   overviewCamera: VideoCamera | null;
-  followCameraPlan: FollowCameraPlan | null;
   onSelectPoint: (id: string | null) => void;
   onSelectionCandidates: (ids: string[]) => void;
   onSelectRaw: (point: RawPosition | null) => void;
@@ -101,15 +86,6 @@ interface RouteMapProps {
   onMovePoint: (id: string, latitude: number, longitude: number) => void;
   onRangeDeleteSelection: (ids: string[]) => void;
   onError: (message: string) => void;
-}
-
-interface MapCameraSnapshot {
-  fov: number;
-  longitude: number;
-  latitude: number;
-  zoom: number;
-  bearing: number;
-  pitch: number;
 }
 
 interface RangeSelectionRect {
@@ -130,7 +106,7 @@ const MAX_POINT_SELECTION_DISTANCE = 28;
 const OVERLAP_CANDIDATE_PADDING = 6;
 
 function isEditSelectionMode(props: RouteMapProps): boolean {
-  return !props.balloonFrameEditing && props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null;
+  return props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode;
 }
 
 function isSelectionAssistActive(props: RouteMapProps): boolean {
@@ -140,17 +116,12 @@ function isSelectionAssistActive(props: RouteMapProps): boolean {
 export default function RouteMap(props: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routeOverlayRef = useRef<SVGGElement>(null);
-  const previewClockRef = useRef<SVGGElement>(null);
-  const previewMarkerRef = useRef<SVGCircleElement>(null);
   const editPointsOverlayRef = useRef<SVGSVGElement>(null);
   const rangeDeleteBoxRef = useRef<HTMLDivElement>(null);
   const rangeDeleteHintRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const loadedRef = useRef(false);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const wasPreviewingRef = useRef(false);
-  const previewCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
-  const balloonCameraSnapshotRef = useRef<MapCameraSnapshot | null>(null);
   const rangeDeleteDragRef = useRef<RangeDeleteDrag | null>(null);
   const rangeDeleteRectRef = useRef<RangeSelectionRect | null>(null);
   const rangeDeletePendingRectRef = useRef<RangeSelectionRect | null>(null);
@@ -162,9 +133,7 @@ export default function RouteMap(props: RouteMapProps) {
   const [videoViewport, setVideoViewport] = useState(() => getVideoPreviewViewport(0, 0));
   const propsRef = useRef(props);
   propsRef.current = props;
-  const dayColorsEnabled = shouldUseDayColors(props);
-  const isPreviewing = props.previewProgress !== null;
-  const previewState = getPreviewState(props);
+  const dayColorsEnabled = true;
 
   const cancelRangeDeleteFrame = () => {
     if (rangeDeleteFrameRef.current === null) return;
@@ -266,17 +235,12 @@ export default function RouteMap(props: RouteMapProps) {
     mapRef.current = map;
     installTerrainTintFallback(map);
     const redrawOverlay = () => {
-      const preview = getPreviewState(propsRef.current);
-      updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
-      updatePreviewClock(map, propsRef.current, preview, previewClockRef.current);
+      updateRouteOverlay(map, getVisibleRouteSegments(propsRef.current), routeOverlayRef.current);
     };
     const updateZoomDisplay = () => setMapZoom(map.getZoom());
     const updateVideoViewport = () => {
       const container = map.getContainer();
       setVideoViewport(getVideoPreviewViewport(container.clientWidth, container.clientHeight));
-      const current = propsRef.current;
-      if (wasPreviewingRef.current) applyVideoPreviewCamera(map, current);
-      else if (balloonCameraSnapshotRef.current) matchVideoProjection(map);
     };
     map.on('resize', updateVideoViewport);
     updateVideoViewport();
@@ -311,23 +275,8 @@ export default function RouteMap(props: RouteMapProps) {
       window.clearTimeout(loadTimeout);
       setMapStatus('ready');
       installRouteLayers(map, propsRef.current);
-      const preview = getPreviewState(propsRef.current);
-      const previewing = propsRef.current.previewProgress !== null;
-      if (previewing && !wasPreviewingRef.current) {
-        map.stop();
-        previewCameraSnapshotRef.current = captureMapCamera(map);
-        beginVideoPreview(map);
-      }
-      if (previewing) applyVideoPreviewCamera(map, propsRef.current, preview);
-      refreshMap(map, propsRef.current, preview);
-      if (!previewing && wasPreviewingRef.current && previewCameraSnapshotRef.current) {
-        map.setTransformConstrain(null);
-        restoreMapCamera(map, previewCameraSnapshotRef.current);
-      } else if (!previewing && propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
-      wasPreviewingRef.current = previewing;
-      if (!previewing) {
-        previewCameraSnapshotRef.current = null;
-      }
+      refreshMap(map, propsRef.current);
+      if (propsRef.current.autoFitRouteChanges) fitRoute(map, propsRef.current.points, 0);
       redrawOverlay();
       updateZoomDisplay();
       if (!firstLoad) map.triggerRepaint();
@@ -337,23 +286,20 @@ export default function RouteMap(props: RouteMapProps) {
     map.on('zoom', updateZoomDisplay);
     map.on('error', handleMapError);
     map.on('click', 'route-points-layer', (event: MapLayerMouseEvent) => {
-      if (propsRef.current.balloonFrameEditing) return;
       if (propsRef.current.rangeDeleteMode || propsRef.current.insertMode) return;
       if (isEditSelectionMode(propsRef.current)) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id === 'string') propsRef.current.onSelectPoint(id);
     });
     map.on('click', 'raw-points', (event: MapLayerMouseEvent) => {
-      if (propsRef.current.balloonFrameEditing) return;
       if (propsRef.current.rangeDeleteMode || propsRef.current.insertMode) return;
       const id = event.features?.[0]?.properties?.id;
       propsRef.current.onSelectRaw(propsRef.current.rawPositions.find((point) => point.id === id) ?? null);
     });
     map.on('click', (event: MapMouseEvent) => {
-      if (propsRef.current.balloonFrameEditing) return;
       if (propsRef.current.rangeDeleteMode) return;
       if (propsRef.current.insertMode) {
-        if (!propsRef.current.editMode || propsRef.current.previewProgress !== null) return;
+        if (!propsRef.current.editMode) return;
         const hits = map.queryRenderedFeatures(event.point, { layers: ['route-points-layer', 'raw-points'] });
         if (!hits.length) propsRef.current.onInsertPoint(event.lngLat.lat, event.lngLat.lng);
         return;
@@ -405,52 +351,15 @@ export default function RouteMap(props: RouteMapProps) {
     props.onResolveBalloonPositions(new Map(resolved.flatMap((point) => point.annotation?.framePosition ? [[point.id, point.annotation.framePosition] as const] : [])));
   }, [mapStatus, props.balloonMigrationPoints, props.overviewCamera, props.balloonFollowCameraPlan, props.cameraMode, props.annotationStyle, props.onResolveBalloonPositions]);
 
-  const placementCamera = props.balloonFrameEditing && props.overviewCamera ? balloonReferenceCamera(props.selectedPointId ?? props.animationPoints[0]?.id ?? '', props.overviewCamera,
-    props.cameraMode === 'follow' ? props.balloonFollowCameraPlan : null) : null;
-  const placementCameraKey = placementCamera ? JSON.stringify(placementCamera) : '';
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || mapStatus !== 'ready') return;
-    if (props.balloonFrameEditing && !isPreviewing && placementCamera) {
-      if (!balloonCameraSnapshotRef.current) balloonCameraSnapshotRef.current = captureMapCamera(map);
-      map.stop();
-      beginVideoPreview(map);
-      applyVideoCamera(map, placementCamera);
-    } else if (balloonCameraSnapshotRef.current) {
-      const snapshot = balloonCameraSnapshotRef.current;
-      balloonCameraSnapshotRef.current = null;
-      map.setTransformConstrain(null);
-      restoreMapCamera(map, snapshot);
-    }
-  }, [props.balloonFrameEditing, props.selectedPointId, placementCameraKey, mapStatus, isPreviewing]);
-
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    const previewStarting = isPreviewing && !wasPreviewingRef.current;
-    const previewEnding = !isPreviewing && wasPreviewingRef.current;
-    if (previewStarting) {
-      map.stop();
-      previewCameraSnapshotRef.current = captureMapCamera(map);
-      beginVideoPreview(map);
-    }
-    const preview = getPreviewState(props);
-    if (isPreviewing) applyVideoPreviewCamera(map, props, preview);
-    refreshMap(map, props, preview);
+    refreshMap(map, props);
     map.resize();
     map.triggerRepaint();
-    updateRouteOverlay(map, getVisibleRouteSegments(props, preview), routeOverlayRef.current, previewMarkerRef.current, preview?.markerPosition ?? null);
-    updatePreviewClock(map, props, preview, previewClockRef.current);
+    updateRouteOverlay(map, getVisibleRouteSegments(props), routeOverlayRef.current);
     updateMapDiagnostics(map, props.points);
-    if (previewEnding && previewCameraSnapshotRef.current) {
-      map.setTransformConstrain(null);
-      restoreMapCamera(map, previewCameraSnapshotRef.current);
-    }
-    wasPreviewingRef.current = isPreviewing;
-    if (previewEnding) {
-      previewCameraSnapshotRef.current = null;
-    }
-  }, [props.balloonFrameEditing, props.recordedTimeClockEnabled, props.points, props.animationPoints, props.dayNumberByPointId, props.dayRouteColorsEnabled, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId, props.previewProgress, props.previewDuration, props.playbackTimeline, props.preRollSeconds, props.postRollSeconds, props.introZoomEnabled, props.revealRoute, props.cameraMode, props.overviewCamera, props.followCameraPlan, isPreviewing]);
+  }, [props.points, props.dayNumberByPointId, props.rawPositions, props.showRaw, props.editMode, props.animationRangeMode, props.selectedPointId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -459,7 +368,7 @@ export default function RouteMap(props: RouteMapProps) {
     rangeDeletePointsRef.current = props.points;
     if (!props.rangeDeleteMode || pointsChanged) clearRangeDeleteSelection();
     else if (!rangeDeleteDragRef.current) rangeDeleteSelectionRef.current = new Set(props.rangeDeletePointIds);
-    if (!map || !overlay || props.balloonFrameEditing || !props.editMode || isPreviewing) return;
+    if (!map || !overlay || !props.editMode) return;
     const redraw = () => updateEditPointsOverlay(map, props.points, props.selectedPointId, rangeDeleteSelectionRef.current, overlay, isSelectionAssistActive(props));
     redraw();
     map.on('move', redraw);
@@ -468,13 +377,13 @@ export default function RouteMap(props: RouteMapProps) {
       map.off('move', redraw);
       map.off('resize', redraw);
     };
-  }, [props.balloonFrameEditing, props.points, props.selectedPointId, props.editMode, props.addMode, props.insertMode, props.rangeDeleteMode, props.rangeDeletePointIds, isPreviewing]);
+  }, [props.points, props.selectedPointId, props.editMode, props.addMode, props.insertMode, props.rangeDeleteMode, props.rangeDeletePointIds]);
 
   useEffect(() => {
     const map = mapRef.current;
     selectedMarkerRef.current?.remove();
     selectedMarkerRef.current = null;
-    if (!map || props.balloonFrameEditing || !props.editMode || props.insertMode || props.rangeDeleteMode || !props.selectedPointId || isPreviewing) return;
+    if (!map || !props.editMode || props.insertMode || props.rangeDeleteMode || !props.selectedPointId) return;
     const point = props.points.find((candidate) => candidate.id === props.selectedPointId);
     if (!point) return;
     const element = document.createElement('div');
@@ -488,27 +397,22 @@ export default function RouteMap(props: RouteMapProps) {
       propsRef.current.onMovePoint(point.id, position.lat, position.lng);
     });
     selectedMarkerRef.current = marker;
-  }, [props.balloonFrameEditing, props.selectedPointId, props.editMode, props.insertMode, props.rangeDeleteMode, props.points, isPreviewing]);
+  }, [props.selectedPointId, props.editMode, props.insertMode, props.rangeDeleteMode, props.points]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!props.autoFitRouteChanges || props.balloonFrameEditing) return;
+    if (!props.autoFitRouteChanges) return;
     if (!map || !loadedRef.current || props.points.length === 0) return;
     fitRoute(map, props.points, 500);
   }, [props.autoFitRouteChanges, props.points.length ? `${props.points[0].id}:${props.points.at(-1)?.id}` : 'empty']);
 
   return <>
-    {props.coordinateJumpEnabled && <CoordinateJumpControl map={mapRef.current} hostId="plan-coordinate-jump" disabled={!!props.coordinateJumpDisabled || isPreviewing || props.balloonFrameEditing} hidden={isPreviewing || props.balloonFrameEditing} onError={props.onError} />}
+    {props.coordinateJumpEnabled && <CoordinateJumpControl map={mapRef.current} hostId="plan-coordinate-jump" disabled={!!props.coordinateJumpDisabled} onError={props.onError} />}
     <div className={`map ${props.addMode || props.insertMode ? 'map--adding' : ''}${props.distanceHud?.settings.enabled ? ' map--distance-hud' : ''}`} ref={containerRef} />
     <svg className="route-overlay" aria-hidden="true">
       <g ref={routeOverlayRef} />
-      <g ref={previewClockRef} display="none">
-        <rect width={ROUTE_CLOCK_STYLE.width} height={ROUTE_CLOCK_STYLE.height} rx={ROUTE_CLOCK_STYLE.radius} fill={ROUTE_CLOCK_STYLE.background} stroke={ROUTE_CLOCK_STYLE.border} />
-        <text x={ROUTE_CLOCK_STYLE.width / 2} y={ROUTE_CLOCK_STYLE.height / 2} textAnchor="middle" dominantBaseline="central" fontSize={ROUTE_CLOCK_STYLE.fontSize} fontWeight="600" fill={ROUTE_CLOCK_STYLE.color} />
-      </g>
-      <circle ref={previewMarkerRef} className="preview-marker" r="11" display="none" />
     </svg>
-    {props.editMode && !props.balloonFrameEditing && !isPreviewing && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
+    {props.editMode && <svg ref={editPointsOverlayRef} className="edit-points-overlay" aria-hidden="true">
       <path className="selected-route-before" />
       <path className="selected-route-after" />
       <path className="edit-points-original" />
@@ -518,7 +422,7 @@ export default function RouteMap(props: RouteMapProps) {
       <path className="edit-points-range-selected" />
       <path className="edit-points-selected" />
     </svg>}
-    {props.editMode && !props.balloonFrameEditing && props.rangeDeleteMode && !isPreviewing && <>
+    {props.editMode && props.rangeDeleteMode && <>
       <div
         className="range-delete-overlay"
         onPointerDown={handleRangeDeletePointerDown}
@@ -530,19 +434,19 @@ export default function RouteMap(props: RouteMapProps) {
       </div>
       <div ref={rangeDeleteHintRef} className="range-delete-hint">{props.rangeDeletePointIds.length ? `${props.rangeDeletePointIds.length}点を選択中` : 'ドラッグして削除したいポイントを囲ってください'}</div>
     </>}
-    <FrameAnnotationOverlay draggable={(props.balloonFrameEditing || props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode) && !isPreviewing}
+    <FrameAnnotationOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode}
       onFramePosition={props.onBalloonFramePosition} map={mapRef.current} points={props.points} animationPoints={props.animationPoints}
-      visibleInEditor={props.balloonFrameEditing || props.editMode || props.points.some((point) => point.annotation?.framePosition)}
-      previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} annotationStyle={props.annotationStyle} />
-    {props.routeMarkerMode === 'day' && <DayMarkerOverlay mobileEditingScale={props.mobileDayMarkerEditingScale} draggable={!props.balloonFrameEditing && props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} dayColorsEnabled={dayColorsEnabled} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={!props.balloonFrameEditing && props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode && props.previewProgress === null} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex} />}
-    {(isPreviewing || props.balloonFrameEditing || props.distanceHud?.settings.enabled) && <div className="video-preview-frame-overlay" aria-hidden="true">
+      visibleInEditor={props.editMode || props.points.some((point) => point.annotation?.framePosition)}
+      previewProgress={null} annotationStyle={props.annotationStyle} />
+    {props.routeMarkerMode === 'day' && <DayMarkerOverlay mobileEditingScale={props.mobileDayMarkerEditingScale} draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode} onPlacement={props.onDayPlacement} map={mapRef.current} points={props.points} animationPoints={props.animationPoints} markers={props.dayMarkers} dayColorsEnabled={dayColorsEnabled} previewProgress={null} />}
+    {props.routeMarkerMode === 'start-goal' && <EndpointMarkerOverlay draggable={props.editMode && !props.addMode && !props.insertMode && !props.rangeDeleteMode} onPlacement={props.onEndpointPlacement} placements={props.endpointMarkerPlacements} map={mapRef.current} animationPoints={props.animationPoints} previewProgress={null} />}
+    {props.distanceHud?.settings.enabled && <div className="video-preview-frame-overlay" aria-hidden="true">
       <div className="video-preview-frame" style={{ width: videoViewport.width, height: videoViewport.height, left: videoViewport.left, top: videoViewport.top }} />
     </div>}
     {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={{ ...props.distanceHud, dayColorsEnabled }} viewport={videoViewport}
-      routeProgress={previewState?.routeProgress ?? null} reachedPointIndex={previewState?.reachedPointIndex}
-      draggable={!props.balloonFrameEditing && !isPreviewing && !!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
-    <div className="map-zoom" aria-hidden="true">Zoom {(getPreviewVideoCamera(props, previewState)?.zoom ?? mapZoom).toFixed(1)}</div>
+      routeProgress={null}
+      draggable={!!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
+    <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}
     </div>}
@@ -581,73 +485,6 @@ function installRouteLayers(map: MapLibreMap, props: RouteMapProps) {
   } });
 }
 
-function captureMapCamera(map: MapLibreMap): MapCameraSnapshot {
-  const center = map.getCenter();
-  return {
-    fov: map.getVerticalFieldOfView(),
-    longitude: center.lng,
-    latitude: center.lat,
-    zoom: map.getZoom(),
-    bearing: map.getBearing(),
-    pitch: map.getPitch(),
-  };
-}
-
-function restoreMapCamera(map: MapLibreMap, snapshot: MapCameraSnapshot) {
-  map.setVerticalFieldOfView(snapshot.fov);
-  map.jumpTo({
-    center: [snapshot.longitude, snapshot.latitude],
-    zoom: snapshot.zoom,
-    bearing: snapshot.bearing,
-    pitch: snapshot.pitch,
-  });
-}
-
-function getPreviewVideoCamera(props: RouteMapProps, preview = getPreviewState(props)): VideoCamera | null {
-  if (props.previewProgress === null) return null;
-  const target = props.cameraMode === 'follow'
-    ? preview?.cameraCenter && preview.zoom !== undefined
-      ? { ...preview.cameraCenter, zoom: preview.zoom, bearing: preview.bearing ?? 0, pitch: preview.pitch ?? 0 }
-      : null
-    : props.overviewCamera;
-  if (!target) return null;
-  const introProgress = getPreviewIntroProgress(props);
-  const zoom = introProgress === null ? target.zoom
-    : interpolateIntroZoom(getIntroStartZoom(target.zoom, VIDEO_MIN_ZOOM), target.zoom, introProgress);
-  return constrainVideoCamera({ ...target, zoom });
-}
-
-function beginVideoPreview(map: MapLibreMap) {
-  // Constrain in video space instead: portrait/landscape margins outside the
-  // frame must not make MapLibre shift the center or zoom to fill the container.
-  map.setTransformConstrain((center, zoom) => ({ center, zoom }));
-}
-
-function applyVideoPreviewCamera(map: MapLibreMap, props: RouteMapProps, preview = getPreviewState(props)) {
-  const camera = getPreviewVideoCamera(props, preview);
-  if (!camera) return;
-  applyVideoCamera(map, camera);
-}
-
-function matchVideoProjection(map: MapLibreMap) {
-  const container = map.getContainer();
-  // Preserve the video camera's perspective in the letterboxed frame even when
-  // the browser map is taller (Android) or wider than 16:9.
-  map.setVerticalFieldOfView(videoPreviewFieldOfView(container.clientWidth, container.clientHeight));
-}
-
-function applyVideoCamera(map: MapLibreMap, camera: VideoCamera) {
-  matchVideoProjection(map);
-  const container = map.getContainer();
-  const { scale } = getVideoPreviewViewport(container.clientWidth, container.clientHeight);
-  map.jumpTo({
-    center: [camera.longitude, camera.latitude],
-    zoom: videoZoomToPreviewZoom(camera.zoom, scale),
-    bearing: camera.bearing,
-    pitch: camera.pitch,
-  });
-}
-
 function fitRoute(map: MapLibreMap, points: RoutePoint[], duration: number) {
   if (!points.length) return;
   const bounds = new maplibregl.LngLatBounds();
@@ -671,8 +508,8 @@ function updateMapDiagnostics(map: MapLibreMap, points: RoutePoint[]) {
   });
 }
 
-function refreshMap(map: MapLibreMap, props: RouteMapProps, preview = getPreviewState(props)) {
-  const visibleSegments = getVisibleRouteSegments(props, preview);
+function refreshMap(map: MapLibreMap, props: RouteMapProps) {
+  const visibleSegments = getVisibleRouteSegments(props);
   (map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(visibleSegments));
   (map.getSource('route-points') as GeoJSONSource | undefined)?.setData(pointCollection(props.points, props.selectedPointId));
   (map.getSource('raw-positions') as GeoJSONSource | undefined)?.setData(rawCollection(props.rawPositions));
@@ -682,26 +519,17 @@ function refreshMap(map: MapLibreMap, props: RouteMapProps, preview = getPreview
 }
 
 function shouldShowRoutePoints(props: RouteMapProps): boolean {
-  return !props.balloonFrameEditing && props.previewProgress === null && (props.editMode || props.animationRangeMode);
+  return props.editMode || props.animationRangeMode;
 }
 
-function getVisibleRouteSegments(props: RouteMapProps, preview = getPreviewState(props)): DayRouteSegment[] {
-  const segments = !preview ? splitRouteByDay(props.points) : props.revealRoute
-    ? revealedTripRouteSegments(props.animationPoints, preview.routeProgress)
-    : splitRouteByDay(props.animationPoints);
-  return colorRouteSegments(segments, props.dayNumberByPointId, shouldUseDayColors(props));
-}
-
-function shouldUseDayColors(props: RouteMapProps): boolean {
-  return props.previewProgress === null || props.dayRouteColorsEnabled;
+function getVisibleRouteSegments(props: RouteMapProps): DayRouteSegment[] {
+  return colorRouteSegments(splitRouteByDay(props.points), props.dayNumberByPointId, true);
 }
 
 function updateRouteOverlay(
   map: MapLibreMap,
   segments: DayRouteSegment[],
   group: SVGGElement | null,
-  previewMarker: SVGCircleElement | null,
-  markerPosition: GeoPosition | null,
 ) {
   if (!group) return;
   group.replaceChildren(...segments.filter((segment) => segment.points.length >= 2).map((segment) => {
@@ -711,53 +539,6 @@ function updateRouteOverlay(
     path.style.stroke = segment.color;
     return path;
   }));
-  updateOverlayMarker(map, markerPosition, previewMarker);
-}
-
-interface MapPreviewState {
-  pausePointIndex: number | null;
-  routeProgress: number;
-  markerPosition: GeoPosition;
-  reachedPointIndex: number | null;
-  cameraCenter?: GeoPosition;
-  zoom?: number;
-  bearing?: number;
-  pitch?: number;
-}
-
-function getPreviewState(props: RouteMapProps): MapPreviewState | null {
-  if (props.previewProgress === null || !props.animationPoints.length) return null;
-  const outputElapsedSeconds = getPreviewOutputElapsed(props);
-  const timelineSample = samplePlaybackTimeline(props.playbackTimeline, outputElapsedSeconds);
-  if (props.cameraMode === 'follow' && props.followCameraPlan) {
-    const playback = sampleFollowOutputPlayback(props.followCameraPlan, props.playbackTimeline, outputElapsedSeconds);
-    return { ...playback, pausePointIndex: followClockPointIndex(playback, timelineSample.pausePointIndex) };
-  }
-  const movementProgress = timelineSample.baseElapsedSeconds / props.previewDuration;
-  const position = interpolateTripRoute(props.animationPoints, movementProgress);
-  return position ? { pausePointIndex: timelineSample.pausePointIndex, routeProgress: movementProgress, markerPosition: timelineSample.pausePointIndex === null ? position : props.animationPoints[timelineSample.pausePointIndex], reachedPointIndex: timelineSample.pausePointIndex } : null;
-}
-
-function getPreviewOutputElapsed(props: RouteMapProps): number {
-  if (props.previewProgress === null) return 0;
-  return sampleVideoOutputTime(props.previewProgress, props.playbackTimeline.outputDurationSeconds, props.preRollSeconds, props.postRollSeconds).playbackElapsedSeconds;
-}
-
-function getPreviewIntroProgress(props: RouteMapProps): number | null {
-  if (!props.introZoomEnabled || props.previewProgress === null) return null;
-  return sampleVideoOutputTime(props.previewProgress, props.playbackTimeline.outputDurationSeconds, props.preRollSeconds, props.postRollSeconds).introZoomProgress;
-}
-
-function updateOverlayMarker(map: MapLibreMap, point: { longitude: number; latitude: number } | null, marker: SVGCircleElement | null) {
-  if (!marker) return;
-  if (!point) {
-    marker.setAttribute('display', 'none');
-    return;
-  }
-  const projected = map.project([point.longitude, point.latitude]);
-  marker.setAttribute('cx', projected.x.toFixed(1));
-  marker.setAttribute('cy', projected.y.toFixed(1));
-  marker.removeAttribute('display');
 }
 
 function findNearestRoutePoint(map: MapLibreMap, points: RoutePoint[], clickPoint: MapMouseEvent['point'], maxDistance = MAX_POINT_SELECTION_DISTANCE): RoutePoint | null {
@@ -886,17 +667,4 @@ function projectedRoutePath(map: MapLibreMap, points: RoutePoint[]): string {
 
 function setEditOverlayPath(overlay: SVGSVGElement, className: string, path: string) {
   overlay.querySelector<SVGPathElement>(`.${className}`)?.setAttribute('d', path);
-}
-
-function updatePreviewClock(map: MapLibreMap, props: RouteMapProps, preview: MapPreviewState | null, group: SVGGElement | null) {
-  if (!group) return;
-  const text = props.recordedTimeClockEnabled && preview
-    ? sampleRecordedRouteTime(props.animationPoints, preview.routeProgress, preview.pausePointIndex) : null;
-  if (!text || !preview) { group.setAttribute('display', 'none'); return; }
-  const pixel = map.project([preview.markerPosition.longitude, preview.markerPosition.latitude]);
-  const viewport = map.getContainer();
-  const rect = routeClockRect(pixel.x, pixel.y, viewport.clientWidth, viewport.clientHeight);
-  group.setAttribute('transform', `translate(${rect.x},${rect.y})`);
-  group.querySelector('text')!.textContent = text;
-  group.removeAttribute('display');
 }

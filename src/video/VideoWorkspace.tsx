@@ -5,10 +5,12 @@ import type { BalloonFramePosition } from '../popup/placement';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 import VideoBalloonOverlay from './VideoBalloonOverlay';
+import type { VideoProgress } from './renderer';
 
 interface VideoWorkspaceProps {
   player: VideoPlayer;
   suspended: boolean;
+  generationProgress: VideoProgress | null;
   editingDisabled: boolean;
   selectedPointId: string | null;
   annotationStyle: AnnotationStyle;
@@ -25,7 +27,7 @@ function formatVideoTime(seconds: number) {
   return `${String(Math.floor(tenths / 600)).padStart(2, '0')}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`;
 }
 
-export default function VideoWorkspace({ player, suspended, editingDisabled, selectedPointId, annotationStyle,
+export default function VideoWorkspace({ player, suspended, generationProgress, editingDisabled, selectedPointId, annotationStyle,
   onSelectBalloon, onCommitBalloon, canUndo, canRedo, onUndo, onRedo }: VideoWorkspaceProps) {
   const { canvasRef, status, error, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId } = player;
   const holderRef = useRef<HTMLDivElement>(null);
@@ -67,14 +69,17 @@ export default function VideoWorkspace({ player, suspended, editingDisabled, sel
         if (target) onSelectBalloon(target.pointId);
       }}>
         <canvas ref={canvasRef} width="1920" height="1080" role="img" aria-label={`動画映像 ${formatVideoTime(displayedFrame / fps)}`}
-          style={{ visibility: player.hasDisplayed && !suspended ? 'visible' : 'hidden' }} />
+          style={{ visibility: suspended ? player.hasRetainedCanvas ? 'visible' : 'hidden' : player.hasDisplayed ? 'visible' : 'hidden' }} />
         <VideoBalloonOverlay player={player} selectedPointId={selectedPointId} annotationStyle={annotationStyle}
           onSelect={onSelectBalloon} onCommit={onCommitBalloon}
           enabled={!editingDisabled && !suspended && status === 'ready' && !pendingFrame && player.guidesVisible && playbackStatus === 'paused'} />
+        {suspended && <div className="video-frame-status video-frame-status--generating" role="status">
+          <p>MP4を生成しています… {generationProgress?.percent ?? 0}%</p>
+          <progress aria-label="MP4生成の進捗" max={100} value={generationProgress?.percent ?? 0} />
+        </div>}
       </div>
-      {(suspended || status !== 'ready') && <div className="video-frame-status" role={status === 'error' && !suspended ? 'alert' : 'status'}>
-        {suspended ? <p>MP4生成中は映像確認を休止しています。</p>
-          : status === 'error' ? <><p>{error}</p><button type="button" className="secondary-button" onClick={player.retry}>再試行</button></>
+      {!suspended && status !== 'ready' && <div className="video-frame-status" role={status === 'error' ? 'alert' : 'status'}>
+        {status === 'error' ? <><p>{error}</p><button type="button" className="secondary-button" onClick={player.retry}>再試行</button></>
             : <><span className="spinner" /><p>{player.updating ? '設定を反映して映像を更新しています…' : '映像を準備しています…'}</p></>}
       </div>}
     </div>
@@ -87,7 +92,10 @@ export default function VideoWorkspace({ player, suspended, editingDisabled, sel
       <div className="video-seek">
         <input type="range" aria-label="動画の再生位置" aria-valuetext={`${formatVideoTime(playheadFrame / fps)}、フレーム${playheadFrame}`}
           min={0} max={lastFrame} step={1} value={Math.min(playheadFrame, lastFrame)} disabled={disabled}
-          onPointerDown={player.pause}
+          onPointerDown={(event) => {
+            player.pause();
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
           onKeyDown={(event) => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) player.pause(); }}
           onChange={(event) => player.seek(Number(event.target.value))} />
         <div className="video-event-markers" aria-hidden="true">
