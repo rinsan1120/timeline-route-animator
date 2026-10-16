@@ -24,6 +24,7 @@ export interface PreviewBalloon {
 
 export type PreviewFrameResult =
   | { status: 'rendered'; requestId: number; canvas: HTMLCanvasElement; state: FrameState; framePlan: FramePlan; events?: VideoEvent[]; eventAnchorId?: string | null }
+  | { status: 'prepared'; requestId: number; state: FrameState; framePlan: FramePlan }
   | { status: 'discarded'; requestId: number; frameIndex: number; reason: 'superseded' | 'disposed'; error?: unknown };
 
 interface FrameRequest {
@@ -31,6 +32,7 @@ interface FrameRequest {
   frameIndex: number;
   options: PreviewFrameOptions;
   position?: PreviewPosition;
+  prepareOnly?: boolean;
   eventAnchorId?: string | null;
   resolve: (result: PreviewFrameResult) => void;
   reject: (error: unknown) => void;
@@ -103,6 +105,8 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const projections = new Map<string, Point>();
   let latestRequestId = 0;
   let pending: FrameRequest | null = null;
+  // One frame in the existing staging Canvas; never publish it ahead of time.
+  let preparedFrame: { request: FrameRequest; state: FrameState; scene: VideoFrameScene; plan: FramePlan } | null = null;
   let running = false;
   let disposed = false;
   let finishDisposal!: () => void;
@@ -136,6 +140,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   };
   const releaseResources = () => {
     videoMap.dispose();
+    preparedFrame = null;
     displayedScene = null;
     draftScene = null;
     invalidateBackgrounds();
@@ -149,6 +154,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const dispose = () => {
     if (disposed) return disposalDone;
     disposed = true;
+    preparedFrame = null;
     controller.abort();
     externalSignal?.removeEventListener('abort', dispose);
     if (pending) {
@@ -322,6 +328,20 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     return { state, scene };
   };
 
+  const publishFrame = (request: FrameRequest, state: FrameState, scene: VideoFrameScene, plan: FramePlan): PreviewFrameResult => {
+    if (!isCurrent(request)) return discarded(request);
+    assertMapHealthy();
+    outputContext.drawImage(workCanvas, 0, 0);
+    displayedState = state;
+    displayedPlan = plan;
+    displayedScene = scene;
+    draftScene = null;
+    retiredBackgrounds.forEach((bitmap) => { if (bitmap !== scene.background) bitmap.close(); });
+    retiredBackgrounds.clear();
+    return { status: 'rendered', requestId: request.id, canvas, state, framePlan: plan,
+      events: request.position ? getEvents() : undefined, eventAnchorId: request.eventAnchorId };
+  };
+
   const processRequests = async () => {
     if (running) return;
     running = true;
@@ -334,18 +354,11 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
           if (!rendered || !isCurrent(request)) {
             request.resolve(discarded(request));
           } else {
-            assertMapHealthy();
-            // Publish only a complete, current frame; failures leave output intact.
-            outputContext.drawImage(workCanvas, 0, 0);
             const { state, scene } = rendered;
-            displayedState = state;
-            displayedPlan = framePlan;
-            displayedScene = scene;
-            draftScene = null;
-            retiredBackgrounds.forEach((bitmap) => { if (bitmap !== scene.background) bitmap.close(); });
-            retiredBackgrounds.clear();
-            request.resolve({ status: 'rendered', requestId: request.id, canvas, state, framePlan,
-              events: request.position ? getEvents() : undefined, eventAnchorId: request.eventAnchorId });
+            if (request.prepareOnly) {
+              preparedFrame = { request, state, scene, plan: framePlan };
+              request.resolve({ status: 'prepared', requestId: request.id, state, framePlan });
+            } else request.resolve(publishFrame(request, state, scene, framePlan));
           }
         } catch (error) {
           invalidateBackgrounds();
@@ -364,19 +377,29 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     }
   };
 
-  const enqueue = async (requestedFrameIndex: number, position?: PreviewPosition): Promise<PreviewFrameResult> => {
+  const enqueue = async (requestedFrameIndex: number, position?: PreviewPosition, prepareOnly = false): Promise<PreviewFrameResult> => {
     ensureActive();
+    preparedFrame = null;
     const frameIndex = Number.isNaN(requestedFrameIndex) ? 0
       : Math.max(0, Math.min(framePlan.totalFrames - 1, Math.floor(requestedFrameIndex)));
     const id = ++latestRequestId;
     return new Promise<PreviewFrameResult>((resolve, reject) => {
       if (pending) pending.resolve(discarded(pending));
-      pending = { id, frameIndex, options: desiredOptions, position, resolve, reject };
+      pending = { id, frameIndex, options: desiredOptions, position, prepareOnly, resolve, reject };
       void processRequests();
     });
   };
 
   const renderFrame = (frameIndex: number) => enqueue(frameIndex);
+  const prepareFrame = (frameIndex: number) => enqueue(frameIndex, undefined, true);
+  const publishPreparedFrame = (requestId: number): PreviewFrameResult => {
+    const prepared = preparedFrame;
+    if (!prepared || prepared.request.id !== requestId) return {
+      status: 'discarded', requestId, frameIndex: 0, reason: disposed ? 'disposed' : 'superseded',
+    };
+    preparedFrame = null;
+    return publishFrame(prepared.request, prepared.state, prepared.scene, prepared.plan);
+  };
   const updateOptions = (next: PreviewFrameOptions, position: PreviewPosition) => {
     desiredOptions = next;
     return enqueue(0, position);
@@ -384,6 +407,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
 
   const cancelPendingFrames = () => {
     latestRequestId += 1;
+    preparedFrame = null;
     if (pending) { pending.resolve(discarded(pending)); pending = null; }
     return displayedState;
   };
@@ -406,6 +430,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   };
   const previewBalloonPosition = (pointId: string, position: BalloonFramePosition | null) => {
     ensureActive();
+    preparedFrame = null;
     if (!displayedScene) return [];
     const scene = position ? { ...displayedScene, annotations: displayedScene.annotations.map((annotation) =>
       annotation.pointId === pointId ? { ...annotation, framePosition: position } : annotation) } : displayedScene;
@@ -416,6 +441,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     draftScene = position ? scene : null;
     return getDisplayedBalloons();
   };
-  return { get framePlan() { return framePlan; }, renderFrame, updateOptions, cancelPendingFrames,
+  return { get framePlan() { return framePlan; }, renderFrame, prepareFrame, publishPreparedFrame, updateOptions, cancelPendingFrames,
     getDisplayedState: () => displayedState, getDisplayedPlan: () => displayedPlan, getDisplayedBalloons, previewBalloonPosition, getEvents, dispose };
 }

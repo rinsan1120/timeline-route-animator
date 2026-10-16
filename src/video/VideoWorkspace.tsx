@@ -29,7 +29,7 @@ function formatVideoTime(seconds: number) {
 
 export default function VideoWorkspace({ player, suspended, generationProgress, editingDisabled, selectedPointId, annotationStyle,
   onSelectBalloon, onCommitBalloon, canUndo, canRedo, onUndo, onRedo }: VideoWorkspaceProps) {
-  const { canvasRef, status, error, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId } = player;
+  const { canvasRef, status, error, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, buffering, events, selectedEventId } = player;
   const holderRef = useRef<HTMLDivElement>(null);
   const [frameWidth, setFrameWidth] = useState(0);
   const [listOpen, setListOpen] = useState(false);
@@ -56,8 +56,8 @@ export default function VideoWorkspace({ player, suspended, generationProgress, 
     observer.observe(holder);
     return () => observer.disconnect();
   }, []);
-  return <section className="video-workspace" aria-label="映像画面" aria-busy={!suspended && status === 'preparing'}>
-    <p className="video-workspace-caption">{player.editingBalloonId ? 'バルーンを配置中（未確定）' : playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
+  return <section className="video-workspace" aria-label="映像画面" aria-busy={!suspended && (status === 'preparing' || buffering)}>
+    <p className="video-workspace-caption">{player.editingBalloonId ? 'バルーンを配置中（未確定）' : buffering ? '映像を準備しています…' : playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
     <div className="video-frame-holder" ref={holderRef}>
       <div className="video-frame" style={{ width: frameWidth }} onPointerDown={(event) => {
         if (editingDisabled || suspended || !player.guidesVisible || playbackStatus !== 'playing' || !player.hasDisplayed || status !== 'ready') return;
