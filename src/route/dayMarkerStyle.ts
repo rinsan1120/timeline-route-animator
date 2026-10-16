@@ -23,7 +23,7 @@ const VIDEO_DAY_STYLE = {
 const EDITING_DAY_STYLE = {
   minWidth: 138, noteMaxWidth: 220, paddingX: 14, paddingTop: 10, paddingBottom: 9,
   dayFont: 14, dateFont: 10, noteFont: 11, daySpacing: 1.12, dateSpacing: 0.5,
-  border: 2, radius: 5, rowGap: 2, anchorGap: 24, anchorInset: 12,
+  border: 2, strokeWidth: 2, radius: 5, rowGap: 2, anchorGap: 24, anchorInset: 12,
   connectorWidth: 2, connectorLength: 18, anchorOffset: 20, anchorRadius: 3,
   manualConnectorWidth: 4, manualAnchorRadius: 5, anchorBorder: 2,
   shadowBlur: 14, shadowOffsetY: 4, margin: 8, bottomMargin: 54,
