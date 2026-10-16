@@ -64,6 +64,8 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   let pending: FrameRequest | null = null;
   let running = false;
   let disposed = false;
+  let finishDisposal!: () => void;
+  const disposalDone = new Promise<void>((resolve) => { finishDisposal = resolve; });
 
   const ensureActive = () => {
     if (disposed || controller.signal.aborted) throw new DOMException('プレビュー描画をキャンセルしました。', 'AbortError');
@@ -88,9 +90,10 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     workCanvas.width = 0;
     workCanvas.height = 0;
     mapContainer.remove();
+    finishDisposal();
   };
   const dispose = () => {
-    if (disposed) return;
+    if (disposed) return disposalDone;
     disposed = true;
     controller.abort();
     options.signal?.removeEventListener('abort', dispose);
@@ -100,6 +103,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     }
     // Do not remove the map or staging Canvas under an in-flight prepare/bitmap.
     if (!running) releaseResources();
+    return disposalDone;
   };
   options.signal?.addEventListener('abort', dispose, { once: true });
 

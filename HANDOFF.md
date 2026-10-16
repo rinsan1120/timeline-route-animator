@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Map/video workspace views — v1.3 Step 5-A (2026-10-16)
+
+- Appに非保存のworkspaceView（map／video、初期map）を追加。移動実績／計画のanimationPointsが2点以上のとき、設定パネル外の表示領域上部へ切替・役割説明と既存HelpTipによる案内を表示する。新規読込／作業再開／制作モード変更・ルート無効時はmapへ戻す。初回のルート確認案内は既存通知と1つにまとめ、5秒後に消す。Step 01〜03と既存DOM属性を維持して説明・カメラ見出しを調整。
+- map-edit-viewは寸法を保ったままvisibility＋inert＋aria-hiddenで非表示化。RouteMapと座標検索host・編集ツールを同じDOMに保持し、切替だけでMapLibreを再生成／再フィットしない。RouteMapとMobileBottomSheetは未変更。旧プレビューと「動画構図で配置」は地図へ戻して従来どおり実行する。
+- 新規VideoWorkspaceはCanvasと準備中／完了／失敗・再試行の表示だけを担当。Appが確定設定からPreviewFrameOptionsをmemo化し、createPreviewFrameRenderer → renderFrame(0)で共有FramePlan・scene・Canvas・動画用地図を利用する。設定オブジェクトの一致と描画完了を確認してCanvasを表示し、設定変更時は旧セッションを破棄して先頭を描き直す。旧previewProgressから映像を計算しない。
+- 映像Canvasは1920×1080を固定し、表示枠のResizeObserverは16:9で収まるCSS幅だけを計算。モバイルは既存--mobile-sheet-height（safe area込み）の分を避けて映像を配置し、切替はシートより上層に置く。バルーン等の描画座標・寸法は再計算しない。
+- previewFrameRenderer.dispose()が解放完了Promiseを返すよう最小拡張。Appは世代番号と解放Promiseで、設定変更・画面終了時の旧描画を無効化し、直前の解放後に新セッションを開始する。MP4生成も先にstopVideoPreviewをawaitしてから従来のrenderRouteVideoを呼ぶ。生成中はプレビュー地図を作らず、終了後に映像画面なら再準備する。MP4の描画・ループ・エンコードは未変更。
+- Step 5-Bへ：今回はフレーム0の停止表示のみ。旧「プレビュー」ボタンは維持。再生・シーク・イベントジャンプ・位置維持・バルーン直接編集・MP4鮮度管理は未着手。今後もプレビュー用地図の解放完了を待ち、設定更新中や失敗画像を完成映像として表示しないこと。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4確認は未実施。
+
 ## Persisted video settings — v1.3 Step 4 (2026-10-16)
 
 - Step 3-Cコミット `4566792` を基準に同じ `feature/video-editor-v13` で実装。作業／計画JSONのformat・version 1は維持し、任意のvideoSettingsに時間4項目、Overview／Followのカメラ・Zoom・視点・開始Zoom、マーカー・DAY色・実績時計・距離HUDのenabled／x／y／scaleを保存。1920×1080・FPS・revealRoute等の固定仕様や計算結果・再生位置は保存しない。
