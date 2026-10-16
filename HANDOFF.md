@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Generated MP4 freshness — v1.3 Step 6-B (2026-10-16)
+
+- `video/videoOutputSnapshot.ts`のcreateVideoOutputSnapshotが、renderRouteVideoへ渡す出力入力を固定順のJSON文字列へ正規化。対象ルートの順序・座標・DAY分割用日付、実績時計有効時の時刻、バルーン、実際の共通停止配列、時間・有効カメラ・開始Zoom、マーカー／配置・DAY色分け、HUDの実表示寸法／配置・距離モデルの必要値を比較する。非表示HUDの位置・サイズ、無効なカメラ設定、マーカー非表示時の配置、ラベルなしのバルーン寸法、互換用pauseSeconds等は除外。Mapは対象地点順の値配列へ変換し、参照・UI状態・進捗・Signal・FramePlan／地図／画像／Blobは比較しない。比較値はブラウザの制作セッション内だけに保持し、ログ・外部通信・JSON保存へ出さない。
+- Appの確定PreviewFrameOptionsを生成・比較の共通入力とし、useMemoで制作状態の変更時だけ比較値を作る。再生／シーク・選択・画面切替・ヘルプ・ボトムシート開閉等では再シリアライズしない。captureVideoOutputOptionsが生成開始時に対象ルート・入れ子の配置、DAY・カメラ・スタイル・HUDモデル／Map値をコピーし、その同じ入力から生成時比較値を作る。Follow計画もコピー済みルートから生成時に構築し、共有参照の変更で生成途中の入力が変わらないようにする。FramePlan／背景の複製は行わない。
+- 正常生成後だけBlob・Object URL・生成時比較値を確定。完了時の現状態が異なる場合も開始時比較値を保持し古いMP4として扱う。失敗／キャンセル時は旧正常MP4を維持し、終了直前のキャンセルも登録前に確認する。DAY切替での無条件破棄を撤去。Undo／設定を戻して一致すれば再度保存可能になる。新規作品・作業／計画読込ではBlobと比較値をクリアし、URLは置換・作品終了・unmountで解放、unmount時は生成も中断する。
+- Step 03で不一致時に「再生成が必要」＋短い案内、「MP4を再生成」を表示し保存ボタンを無効化。saveVideoも比較値を確認して不一致なら保存ダイアログより前に拒否する。既存busy／videoProgressを利用し、生成／保存中は設定・ルート編集領域をinert、バルーンサイズ入力とキーボードUndo／Redoも制限。生成キャンセル・既存モバイルシート操作は維持し、描画・エンコード・JSON形式・履歴処理は未変更。
+- Step 7へ：直接編集が既存RoutePoint.annotationのlabel／framePosition等を更新すれば、そのまま比較対象になる。新たなdirtyカウンターやプレイヤー状態を判定へ混ぜないこと。出力へ影響する新入力を増やす場合は、共通出力入力・生成用コピー・比較正規化を揃える。バルーン直接編集・地点詳細からのジャンプ・ガイド切替等には未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
 ## Live video settings and position retention — v1.3 Step 6-A (2026-10-16)
 
 - `useVideoPlayer`は描画セッションの生成／解放と、設定反映を分離。確定したPreviewFrameOptionsの変更をlayout effectで検知し、再生を停止・旧要求を無効化して同じrendererの`updateOptions`へ送る。Step 03の既存UIは維持し、再生中に設定欄へフォーカス／タップした時点でも停止する。文字列入力と確定数値stateの既存区別、MP4中の操作制限、MobileBottomSheetのジェスチャー／開閉状態は変更しない。
