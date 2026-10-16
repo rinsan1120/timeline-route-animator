@@ -1307,9 +1307,10 @@ export default function App() {
                 {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={!!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
               </div>
               <div className="control-label-with-help control-label-with-help--toggle">
-                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始前の時間を使って広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={!!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
+                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>MP4の冒頭で、広域表示から設定した画角へズームします。</small></span><input type="checkbox" checked={introZoomEnabled} disabled={!!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="introZoom" />
               </div>
+              <p className="range-note">※ 開始時ズームはMP4出力時のみ反映されます。映像タブでは処理負荷を抑えるため、ズーム後の画角で静止表示します。</p>
               <div className="control-label-with-help control-label-with-help--toggle">
                 <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線・DAYマーカー・走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={!!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="dayRouteColors" />

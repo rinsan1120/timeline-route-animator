@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getFrameIndexAtTime, type FramePlan, type FrameState } from './frameTimeline';
-import { createPreviewFrameRenderer, type PreviewBalloon, type PreviewFrameOptions, type PreviewFrameResult } from './previewFrameRenderer';
+import { createPreviewFrameRenderer, type PreviewBalloon, type PreviewFrameOptions } from './previewFrameRenderer';
 import type { BalloonFramePosition } from '../popup/placement';
 import type { VideoEvent } from './videoEvents';
 
@@ -32,7 +32,6 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [playheadFrame, setPlayheadFrame] = useState(0);
   const [displayedFrame, setDisplayedFrame] = useState(0);
   const [pendingFrame, setPendingFrame] = useState(false);
-  const [buffering, setBuffering] = useState(false);
   const [hasRetainedCanvas, setHasRetainedCanvas] = useState(false);
   const [events, setEvents] = useState<VideoEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -59,7 +58,6 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
 
   const pausePlayback = useCallback((preserveAnchor: boolean) => {
     playingRef.current = false;
-    setBuffering(false);
     setPlaybackStatus('paused');
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
@@ -93,7 +91,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     return releaseRef.current;
   }, [pausePlayback, finishBalloonEdit]);
 
-  const requestFrame = useCallback(async (index: number, preparedRequestId?: number) => {
+  const requestFrame = useCallback(async (index: number) => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     const generation = generationRef.current;
@@ -104,7 +102,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setPlayheadFrame(target);
     setPendingFrame(true);
     try {
-      const result = await (preparedRequestId === undefined ? renderer.renderFrame(target) : renderer.publishPreparedFrame(preparedRequestId));
+      const result = await renderer.renderFrame(target);
       if (generation !== generationRef.current || epoch !== requestEpochRef.current || result.status !== 'rendered') return;
       retainedFrameRef.current = result.state.frameIndex;
       retainedPlanRef.current = result.framePlan;
@@ -225,70 +223,17 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setPlaybackStatus('playing');
     const epoch = requestEpochRef.current;
     const isPlaying = () => playingRef.current && rendererRef.current === renderer && epoch === requestEpochRef.current;
-    const startRealtime = (startFrame: number) => {
-      const origin = performance.now();
-      let lastRequested = startFrame;
-      const tick = (now: number) => {
-        if (!isPlaying()) return;
-        const target = getFrameIndexAtTime(plan, startFrame / plan.fps + (now - origin) / 1000);
-        if (target !== lastRequested) { lastRequested = target; void requestFrame(target); }
-        // Ordinary playback retains its existing latest-frame policy.
-        if (target < plan.totalFrames - 1) rafRef.current = requestAnimationFrame(tick);
-        else rafRef.current = null;
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    let introDisplayTime = performance.now();
-    const advanceIntro = (currentFrame: number) => {
+    const origin = performance.now();
+    let lastRequested = fromFrame;
+    if (fromFrame !== retainedFrameRef.current) void requestFrame(fromFrame);
+    const tick = (now: number) => {
       if (!isPlaying()) return;
-      if (currentFrame >= plan.preFrames - 1) { startRealtime(currentFrame); return; }
-      const nextFrame = currentFrame + 1;
-      const due = introDisplayTime + 1000 / plan.fps;
-      let prepared: PreviewFrameResult | null = null;
-      let preparedAt = Infinity;
-      let waiting = false;
-      const tick = (now: number) => {
-        rafRef.current = null;
-        if (!isPlaying()) return;
-        if (now < due) { rafRef.current = requestAnimationFrame(tick); return; }
-        if (!prepared) { waiting = true; setBuffering(true); return; }
-        if (prepared.status !== 'prepared') { pause(); return; }
-        setBuffering(false);
-        void requestFrame(nextFrame, prepared.requestId).then((result) => {
-          if (!isPlaying()) return;
-          if (result?.status !== 'rendered') { pause(); return; }
-          // Keep normal display cadence; rebase after rendering/browser stalls.
-          introDisplayTime = preparedAt > due || now - due >= 1000 / plan.fps ? now : due;
-          advanceIntro(nextFrame);
-        });
-      };
-      void renderer.prepareFrame(nextFrame).then((result) => {
-        if (!isPlaying()) return;
-        prepared = result;
-        preparedAt = performance.now();
-        if (waiting) rafRef.current = requestAnimationFrame(tick);
-      }, (reason: unknown) => {
-        if (!isPlaying()) return;
-        pause();
-        setFrame((current) => ({ ...current, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。' }));
-      });
-      rafRef.current = requestAnimationFrame(tick);
+      const target = getFrameIndexAtTime(plan, fromFrame / plan.fps + (now - origin) / 1000);
+      if (target !== lastRequested) { lastRequested = target; void requestFrame(target); }
+      if (target < plan.totalFrames - 1) rafRef.current = requestAnimationFrame(tick);
+      else rafRef.current = null;
     };
-    if (plan.introZoomEnabled && fromFrame < plan.preFrames) {
-      if (fromFrame !== retainedFrameRef.current) {
-        setBuffering(true);
-        void requestFrame(fromFrame).then((result) => {
-          if (!isPlaying()) return;
-          if (result?.status !== 'rendered') { pause(); return; }
-          setBuffering(false);
-          introDisplayTime = performance.now();
-          advanceIntro(fromFrame);
-        });
-      } else advanceIntro(fromFrame);
-    } else {
-      if (fromFrame !== retainedFrameRef.current) void requestFrame(fromFrame);
-      startRealtime(fromFrame);
-    }
+    rafRef.current = requestAnimationFrame(tick);
   };
   const seek = (index: number, eventId: string | null = null) => {
     if (balloonEditRef.current) return;
@@ -354,7 +299,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   };
 
   return {
-    canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, buffering, events, selectedEventId, hasRetainedCanvas,
+    canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId, hasRetainedCanvas,
     status: frame.options === options ? frame.status : 'preparing' as const,
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,

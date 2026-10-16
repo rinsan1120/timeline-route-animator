@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Preview omits intro zoom; MP4 keeps it
+
+- オーナー決定により開始時ズームはMP4出力だけに適用。映像タブではON／OFFに関係なく、Pre-rollの全フレームをズーム完了後の画角で静止表示する。Pre-roll 0秒は停止区間なし。Follow本編のカメラ追従・Zoom変化とOverviewの設定Zoomは維持。
+- previewFrameRenderer内で元のFramePlanを時間軸・イベント番号・既存JSONバルーン位置補完用として保持し、描画のsampleFrameだけintroZoomEnabled:falseのコピーを使う。preFrames／FPS／総フレーム数・再生時刻は元のまま。イベント探索は従来の計画と地図を動かさない参照投影を使い、イベントのフレーム番号を維持する。
+- OverviewのPre-rollは本編と同じ静的背景キャッシュを使う。元設定ON時は従来の冒頭のreachedPointIndex=0によるバルーン・DAY等の表示条件と時計／HUDを保持し、カメラだけ完成画角にする。Followは同じ初期画角の背景・投影・prepareCameraを再利用し、Pre-roll終了時も既存の連続したカメラ計算へつなぐ。描画用にズーム途中のカメラは生成しない。
+- 不要になったズーム専用先行準備・順序再生・buffering状態を撤去。通常の最新要求優先再生、epoch／request IDによる中断、描画済みCanvas保持、直接編集保護は維持。下記「Intro zoom preview playback waits for rendering」は今回より前の実装記録。
+- App設定にMP4専用の説明と常時表示の注意を追加し、introZoom／videoPlayer等のヘルプを更新。MP4生成処理・共通FramePlan／sampleFrame・補間・保存値・JSON形式・鮮度比較は変更しない。プレビュー専用の計画コピーを出力オプションへ戻さないこと。
+- 依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
 ## DAY note width — V1.3 第1回追加修正②
 
 - 動画用DAYのnoteMaxWidthを370px（balloonScale連動）から独立上限なしへ変更。補足を1行で実測し、見出し・日付・補足の最大行幅＋共通余白・枠から横幅を決定する。プレビュー／MP4、Overview／Follow／開始時Zoomは既存の同じレイアウトと矩形配置・接続線計算を使う。

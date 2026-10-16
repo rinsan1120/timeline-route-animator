@@ -24,7 +24,6 @@ export interface PreviewBalloon {
 
 export type PreviewFrameResult =
   | { status: 'rendered'; requestId: number; canvas: HTMLCanvasElement; state: FrameState; framePlan: FramePlan; events?: VideoEvent[]; eventAnchorId?: string | null }
-  | { status: 'prepared'; requestId: number; state: FrameState; framePlan: FramePlan }
   | { status: 'discarded'; requestId: number; frameIndex: number; reason: 'superseded' | 'disposed'; error?: unknown };
 
 interface FrameRequest {
@@ -32,7 +31,6 @@ interface FrameRequest {
   frameIndex: number;
   options: PreviewFrameOptions;
   position?: PreviewPosition;
-  prepareOnly?: boolean;
   eventAnchorId?: string | null;
   resolve: (result: PreviewFrameResult) => void;
   reject: (error: unknown) => void;
@@ -64,6 +62,8 @@ function validateOptions(options: PreviewFrameOptions) {
 export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: PreviewFrameOptions) {
   validateOptions(options);
   let framePlan = buildFramePlan(options);
+  // Keep output timing/events intact; only preview camera sampling omits intro zoom.
+  let cameraFramePlan: FramePlan = { ...framePlan, introZoomEnabled: false };
   let desiredOptions = options;
   const externalSignal = options.signal;
   canvas.width = VIDEO_VIEWPORT.width;
@@ -97,7 +97,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   let overviewBackgroundKey = '';
   let overviewPixels: Point[] | null = null;
   let overviewData: ReturnType<typeof prepareOverviewFrameData> | null = null;
-  let dynamicBackground: { bitmap: ImageBitmap; key: string; map: MapLibreMap; introEndReady: boolean } | null = null;
+  let dynamicBackground: { bitmap: ImageBitmap; key: string; map: MapLibreMap } | null = null;
   let preparedMap: MapLibreMap | null = null;
   let preparedCameraKey = '';
   let projectionKey = '';
@@ -105,8 +105,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const projections = new Map<string, Point>();
   let latestRequestId = 0;
   let pending: FrameRequest | null = null;
-  // One frame in the existing staging Canvas; never publish it ahead of time.
-  let preparedFrame: { request: FrameRequest; state: FrameState; scene: VideoFrameScene; plan: FramePlan } | null = null;
   let running = false;
   let disposed = false;
   let finishDisposal!: () => void;
@@ -140,7 +138,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   };
   const releaseResources = () => {
     videoMap.dispose();
-    preparedFrame = null;
     displayedScene = null;
     draftScene = null;
     invalidateBackgrounds();
@@ -154,7 +151,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const dispose = () => {
     if (disposed) return disposalDone;
     disposed = true;
-    preparedFrame = null;
     controller.abort();
     externalSignal?.removeEventListener('abort', dispose);
     if (pending) {
@@ -185,6 +181,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     const resolvedPoints = drawingOptions.points;
     const samePoints = options.points === next.points;
     options = next;
+    if (nextPlan !== framePlan) cameraFramePlan = { ...nextPlan, introZoomEnabled: false };
     framePlan = nextPlan;
     drawingOptions = { ...options, points: samePoints ? resolvedPoints : options.points };
     if (!samePoints) balloonsResolved = false;
@@ -213,11 +210,11 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const assertMapHealthy = () => {
     if (videoMap.hasError()) throw new Error('プレビュー用の地図背景を取得できませんでした。');
   };
-  const prepareCamera = async (camera: VideoCamera, force = false) => {
+  const prepareCamera = async (camera: VideoCamera) => {
     ensureActive();
     if (videoMap.hasError()) invalidateBackgrounds();
     const key = cameraKey(camera);
-    if (!force && preparedMap && preparedCameraKey === key) return preparedMap;
+    if (preparedMap && preparedCameraKey === key) return preparedMap;
     const map = await videoMap.prepare(camera);
     ensureActive();
     // A retry may replace the map, so prior backgrounds must be revalidated.
@@ -271,16 +268,16 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
         ? event.frameIndex! : previousPlan?.fps === framePlan.fps ? frameIndex : getFrameIndexAtTime(framePlan, timeSeconds);
     }
     request.frameIndex = Math.max(0, Math.min(framePlan.totalFrames - 1, request.frameIndex));
-    const state = sampleFrame(framePlan, request.frameIndex);
+    const state = sampleFrame(cameraFramePlan, request.frameIndex);
     let scene: VideoFrameScene;
 
-    if (state.cameraMode === 'overview' && state.renderPath === 'static') {
+    if (state.cameraMode === 'overview') {
       const key = cameraKey(state.camera);
       if (overviewBackgroundKey !== key) {
         retireBackground(overviewBackground); overviewBackground = null; overviewData = null; overviewPixels = null;
       }
       if (!overviewBackground || !overviewPixels) {
-        // Fixed projection and background are retained when seeking back to intro.
+        // Pre-roll and the main Overview section share one fixed background.
         const map = await prepareCamera(state.camera);
         if (!isCurrent(request)) return;
         if (!overviewBackground) {
@@ -294,34 +291,45 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
           overviewPixels = options.points.map((point) => projection.project([point.longitude, point.latitude]));
         }
       }
-      // Metadata/color edits use the fixed pixels even if the hidden map was
-      // last used for intro: no map move or tile fetch is needed for composition.
+      // Metadata/color edits reuse the fixed pixels without new tile requests.
       if (!overviewData) overviewData = prepareOverviewFrameData(drawingOptions, preparedMap!, pointIndexById, dayNumberByPointId, overviewPixels);
       const { pixels, routeSegments, annotations, dayMarkers: overviewDayMarkers } = overviewData;
-      scene = prepareOverviewFrameScene(overviewBackground, pixels, routeSegments, drawingOptions.points,
-        state.routeProgress, options.revealRoute, annotations, overviewDayMarkers, options.routeMarkerMode ?? 'day',
-        options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud,
-        options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockText(drawingOptions, state));
+      if (framePlan.introZoomEnabled && state.section === 'pre-roll') {
+        // Preserve intro overlay eligibility (reached point 0) while holding the
+        // completed camera. This also keeps coincident later points unrevealed.
+        const map = await prepareCamera(state.camera);
+        if (!isCurrent(request)) return;
+        const playback = { ...framePlan.initialPlayback,
+          cameraCenter: { longitude: state.camera.longitude, latitude: state.camera.latitude },
+          zoom: state.camera.zoom, bearing: state.camera.bearing, pitch: state.camera.pitch };
+        scene = prepareFollowFrameScene(overviewBackground, cachedProjection(map, state.camera), drawingOptions.points, playback,
+          dayMarkers, options.routeMarkerMode ?? 'day', options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
+          options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId,
+          options.dayRouteColorsEnabled ?? false, frameClockText(drawingOptions, { ...state, pausePointIndex: 0 }));
+      } else {
+        scene = prepareOverviewFrameScene(overviewBackground, pixels, routeSegments, drawingOptions.points,
+          state.routeProgress, options.revealRoute, annotations, overviewDayMarkers, options.routeMarkerMode ?? 'day',
+          options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud,
+          options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockText(drawingOptions, state));
+      }
     } else {
-      // Preserve MP4's final intro readiness check once, then reuse that capture.
-      const lastIntroFrame = state.introZoomProgress !== null && state.frameIndex === framePlan.preFrames - 1;
-      const map = await prepareCamera(state.camera, lastIntroFrame && !dynamicBackground?.introEndReady);
+      // Follow's pre-roll samples the same initial camera, so preparation and
+      // background capture reuse these caches throughout the hold.
+      const map = await prepareCamera(state.camera);
       if (!isCurrent(request)) return;
       assertMapHealthy();
       const key = cameraKey(state.camera);
-      if (!dynamicBackground || dynamicBackground.key !== key || dynamicBackground.map !== map
-        || (lastIntroFrame && !dynamicBackground.introEndReady)) {
+      if (!dynamicBackground || dynamicBackground.key !== key || dynamicBackground.map !== map) {
         const bitmap = await captureBackground(map, request);
         if (!bitmap) return;
         if (!isCurrent(request)) { bitmap.close(); return; }
         retireBackground(dynamicBackground?.bitmap);
-        dynamicBackground = { bitmap, key, map, introEndReady: lastIntroFrame };
+        dynamicBackground = { bitmap, key, map };
       }
-      // Overview intro uses Follow composition with its original reveal setting;
-      // actual Follow output always reveals the travelled route, as in MP4.
+      // Follow output always reveals the travelled route, as in MP4.
       scene = prepareFollowFrameScene(dynamicBackground.bitmap, cachedProjection(map, state.camera), drawingOptions.points, state.playback,
         dayMarkers, options.routeMarkerMode ?? 'day', options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
-        options.endpointMarkerPlacements ?? {}, state.cameraMode === 'follow' ? true : options.revealRoute,
+        options.endpointMarkerPlacements ?? {}, true,
         options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(drawingOptions, state));
     }
     drawVideoFrame(context, scene);
@@ -355,10 +363,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
             request.resolve(discarded(request));
           } else {
             const { state, scene } = rendered;
-            if (request.prepareOnly) {
-              preparedFrame = { request, state, scene, plan: framePlan };
-              request.resolve({ status: 'prepared', requestId: request.id, state, framePlan });
-            } else request.resolve(publishFrame(request, state, scene, framePlan));
+            request.resolve(publishFrame(request, state, scene, framePlan));
           }
         } catch (error) {
           invalidateBackgrounds();
@@ -377,29 +382,19 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     }
   };
 
-  const enqueue = async (requestedFrameIndex: number, position?: PreviewPosition, prepareOnly = false): Promise<PreviewFrameResult> => {
+  const enqueue = async (requestedFrameIndex: number, position?: PreviewPosition): Promise<PreviewFrameResult> => {
     ensureActive();
-    preparedFrame = null;
     const frameIndex = Number.isNaN(requestedFrameIndex) ? 0
       : Math.max(0, Math.min(framePlan.totalFrames - 1, Math.floor(requestedFrameIndex)));
     const id = ++latestRequestId;
     return new Promise<PreviewFrameResult>((resolve, reject) => {
       if (pending) pending.resolve(discarded(pending));
-      pending = { id, frameIndex, options: desiredOptions, position, prepareOnly, resolve, reject };
+      pending = { id, frameIndex, options: desiredOptions, position, resolve, reject };
       void processRequests();
     });
   };
 
   const renderFrame = (frameIndex: number) => enqueue(frameIndex);
-  const prepareFrame = (frameIndex: number) => enqueue(frameIndex, undefined, true);
-  const publishPreparedFrame = (requestId: number): PreviewFrameResult => {
-    const prepared = preparedFrame;
-    if (!prepared || prepared.request.id !== requestId) return {
-      status: 'discarded', requestId, frameIndex: 0, reason: disposed ? 'disposed' : 'superseded',
-    };
-    preparedFrame = null;
-    return publishFrame(prepared.request, prepared.state, prepared.scene, prepared.plan);
-  };
   const updateOptions = (next: PreviewFrameOptions, position: PreviewPosition) => {
     desiredOptions = next;
     return enqueue(0, position);
@@ -407,7 +402,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
 
   const cancelPendingFrames = () => {
     latestRequestId += 1;
-    preparedFrame = null;
     if (pending) { pending.resolve(discarded(pending)); pending = null; }
     return displayedState;
   };
@@ -430,7 +424,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   };
   const previewBalloonPosition = (pointId: string, position: BalloonFramePosition | null) => {
     ensureActive();
-    preparedFrame = null;
     if (!displayedScene) return [];
     const scene = position ? { ...displayedScene, annotations: displayedScene.annotations.map((annotation) =>
       annotation.pointId === pointId ? { ...annotation, framePosition: position } : annotation) } : displayedScene;
@@ -441,6 +434,6 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     draftScene = position ? scene : null;
     return getDisplayedBalloons();
   };
-  return { get framePlan() { return framePlan; }, renderFrame, prepareFrame, publishPreparedFrame, updateOptions, cancelPendingFrames,
+  return { get framePlan() { return framePlan; }, renderFrame, updateOptions, cancelPendingFrames,
     getDisplayedState: () => displayedState, getDisplayedPlan: () => displayedPlan, getDisplayedBalloons, previewBalloonPosition, getEvents, dispose };
 }
