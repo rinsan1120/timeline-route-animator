@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Shared video frame timeline — v1.3 Step 1 (2026-10-16)
+
+- 作業ブランチ `feature/video-editor-v13`、取得した最新 `origin/main` とHEADが `c1eac72` で一致する状態から実装。
+- `src/video/frameTimeline.ts` に `FramePlan` / `FrameState` と `buildFramePlan()` / `sampleFrame()` / `getFrameIndexAtTime()` を追加。既存の停止時間・Overview/Follow PlaybackTimeline・カメラ計画・開始時Zoom関数を再利用する。渡されたFollowCameraPlanは再計算せず、その参照を保持する。rendererやエンコード専用型には依存しない。
+- `renderer.ts` の全体表示（開始時Zoomを含む）と追従表示を共通サンプリングへ接続し、重複していたフレーム時刻計算を撤去。本編は従来どおり `animationFrame / (animationFrames - 1)`、前後停止は本編の始端／終端へ固定。提示時刻 `outputTimeSeconds = frameIndex / fps` と本編時刻 `playbackElapsedSeconds` を区別する。
+- Step 2では `cameraMode` とOverviewの `renderPath` で分岐する。Overview開始時Zoomは専用の `playback` を使う既存Follow描画経路で、方位・傾きは0。Followの `playback` はパン／DAY切替・到達地点・真上／斜めの状態をそのまま保持する。時計は引き続きOverview開始時Zoomの地点0指定と `followClockPointIndex()` のDAY切替処理を尊重する。
+- 計画作成にはrendererと同じ検証済みルート・動画設定を渡す。`sampleFrame()` は整数 `0..totalFrames-1` のみ受付。シーク用 `getFrameIndexAtTime()` は指定秒を含むフレームへ切り下げ、範囲外を先頭／末尾へ収める。元のpointsは変更しないため、編集後は計画を作り直す。
+- Canvas描画・MapLibre準備／背景キャッシュ・エンコード／進捗／保存、ReactのpreviewProgress・UI・JSON形式は未変更。`outputTiming.ts` の既存連続プレビュー用 `sampleVideoOutputTime()` も維持。描画共通化と編集プレビュー接続はStep 2以降。
+- `npm run build`（TypeScript／Vite）成功、既存のチャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行、ブラウザ／Android実機操作、実MP4の目視確認は未実施。
+
 ## Mobile bottom sheet (2026-10-16)
 
 - GitHubから取得したorigin/mainとHEAD（075bc8a）が一致した状態を基準に実装。760px以下のみ設定パネルを地図に重ねる。761px以上は既存asideのスクロールとPCレイアウトを維持する。
