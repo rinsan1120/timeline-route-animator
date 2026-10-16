@@ -312,7 +312,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .reference-position-marker::after { height: 2px; width: 40px; top: 13px; left: -6px; }
 @media (max-width: 760px) {
   .map-area { flex: 1; min-height: 0; }
-  .coordinate-jump-control { position: relative; inset: auto; width: auto; max-width: none; border-radius: 0; box-shadow: none; padding: 8px; }
+  .coordinate-jump-control { display: none; }
   .coordinate-jump-row input { flex: 1; width: 0; min-height: 44px; }
   .coordinate-jump-row > button, .coordinate-jump-status button { min-height: 44px; }
 }
