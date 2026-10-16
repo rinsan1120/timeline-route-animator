@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { Children, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import HelpTip from '../help/HelpTip';
 
 type SheetState = 'closed' | 'half' | 'full';
@@ -15,9 +15,11 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
   const [state, setState] = useState<SheetState>('closed');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
+  const [selectedStep, setSelectedStep] = useState(0);
   const panelRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const focusedInputRef = useRef<HTMLElement | null>(null);
+  const scrollPositionsRef = useRef([0, 0, 0]);
   const gestureRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const contentId = useId();
@@ -26,6 +28,9 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
     setState('closed');
     setKeyboardOpen(false);
     focusedInputRef.current = null;
+    setSelectedStep(0);
+    scrollPositionsRef.current = [0, 0, 0];
+    if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [resetKey]);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
@@ -45,6 +50,11 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
     return () => { observer.disconnect(); workspace.style.removeProperty('--mobile-sheet-height'); };
   }, []);
 
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (content) content.scrollTop = scrollPositionsRef.current[selectedStep] ?? 0;
+  }, [selectedStep]);
+
   useEffect(() => {
     const shell = panelRef.current?.closest<HTMLElement>('.app-shell');
     const panel = panelRef.current;
@@ -61,7 +71,7 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
       frame = requestAnimationFrame(() => {
         frame = 0;
         const input = focusedInputRef.current;
-        if (!input || !content.isConnected) return;
+        if (!input || !input.isConnected || !content.isConnected || !content.contains(input) || input.getClientRects().length === 0) return;
         const contentRect = content.getBoundingClientRect();
         const visualTop = viewport?.offsetTop ?? 0;
         const visualBottom = visualTop + (viewport?.height ?? window.innerHeight);
@@ -144,6 +154,17 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
   }, [mobile]);
 
   const move = (direction: number) => setState((current) => STATES[Math.max(0, Math.min(2, STATES.indexOf(current) + direction))]);
+  const selectStep = (index: number) => {
+    if (index === selectedStep || index < 0 || index >= steps.length) return;
+    const content = contentRef.current;
+    if (content) {
+      scrollPositionsRef.current[selectedStep] = content.scrollTop;
+      const currentPanel = content.children.item(selectedStep);
+      const active = document.activeElement;
+      if (currentPanel && active instanceof HTMLElement && currentPanel.contains(active)) active.blur();
+    }
+    setSelectedStep(index);
+  };
   const finishGesture = (event: PointerEvent<HTMLButtonElement>) => {
     const gesture = gestureRef.current;
     if (!gesture || gesture.id !== event.pointerId) return;
@@ -183,19 +204,25 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
         <span className="mobile-sheet-grip" aria-hidden="true" />
         <span>設定パネル <small>{STATE_LABELS[state]}</small></span>
       </button>
-      <div className="mobile-sheet-navigation" hidden={state === 'closed'}>
-        <nav aria-label="設定セクションへ移動">{steps.map((title, index) => <button type="button" key={index}
-          aria-label={`Step 0${index + 1}：${title}へ移動`}
-          onClick={() => {
-            const content = contentRef.current;
-            const section = content?.querySelectorAll<HTMLElement>(':scope > .panel-section')[index];
-            if (content && section) content.scrollTo({ top: section.getBoundingClientRect().top - content.getBoundingClientRect().top + content.scrollTop });
-          }}>Step 0{index + 1}</button>)}</nav>
-        <HelpTip helpKey="mobileBottomSheet" />
-      </div>
+    </div>
+    <div className="mobile-sheet-navigation" hidden={mobile && state === 'closed'}>
+      <nav aria-label="設定ステップ">{steps.map((title, index) => <button type="button" key={index}
+        aria-label={`STEP 0${index + 1}：${title}`}
+        aria-current={selectedStep === index ? 'step' : undefined}
+        aria-controls={`${contentId}-step-${index + 1}`}
+        onClick={() => selectStep(index)}>
+        <span>STEP 0{index + 1}</span><small>{title}</small>
+      </button>)}</nav>
+      <HelpTip helpKey="mobileBottomSheet" />
     </div>
     <div ref={contentRef} id={contentId} className="mobile-sheet-content" inert={mobile && state === 'closed'}>
-      {children}
+      {Children.toArray(children).map((child, index) => <div key={index} id={`${contentId}-step-${index + 1}`}
+        className="mobile-sheet-step" hidden={index !== selectedStep} inert={index !== selectedStep || (mobile && state === 'closed')}
+        aria-hidden={index !== selectedStep || undefined}>{child}</div>)}
+    </div>
+    <div className="mobile-sheet-footer" hidden={mobile && state === 'closed'}>
+      <button type="button" disabled={selectedStep === 0} onClick={() => selectStep(selectedStep - 1)}>戻る</button>
+      <button type="button" disabled={selectedStep === steps.length - 1} onClick={() => selectStep(selectedStep + 1)}>次へ</button>
     </div>
   </aside>;
 }

@@ -1,5 +1,11 @@
 # HANDOFF
 
+## Independent STEP panels (Issue #15)
+
+- MobileBottomSheetのsteps定義をPC／スマホ共通のSTEP切替に使用。選択中のSTEPだけを表示し、上部の直接選択と下部の戻る／次へを追加。初期・resetKey切替時はSTEP 01へ戻す。
+- 各STEPのReact subtreeはマウントしたまま非選択パネルをhidden／inertにし、入力値・編集状態・副作用を維持。STEP単位でスクロール位置を保存・復元し、選択変更時に隠れる入力のフォーカスを解除する。
+- モバイルのシート3状態、キーボード時の一時拡大・入力欄追従、地図／映像状態は変更しない。STEPナビの既存HelpTip文言を切替操作に合わせて更新。
+
 ## Unsaved edit protection (Issue #1)
 
 - TimelineWorkState／PlanStateと同じ保存対象をキー順のJSON比較で未保存判定。初回抽出・正常読込・新規計画・保存成功時に基準を更新し、保存キャンセル／エラーと形式不正では更新しない。保存は開始時の状態を基準にする。
