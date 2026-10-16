@@ -1,6 +1,6 @@
 import { placedPopupRect, popupDisplayScale } from '../popup/placement';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DAY_MARKER_COLORS, dayMarkerColors, dayMarkerConnector, dayMarkerEditingLayout, dayMarkerEditingStyle, dayMarkerLayout, dayMarkerStyle } from './dayMarkerStyle';
+import { DAY_MARKER_COLORS, dayMarkerColors, dayMarkerConnector, dayMarkerEditingLayout, dayMarkerEditingStyle, dayMarkerLayout } from './dayMarkerStyle';
 import { dayRouteColor } from './dayRouteColor';
 
 describe('DAY marker colors', () => {
@@ -80,7 +80,7 @@ describe('DAY marker video coordinates', () => {
   it('uses fixed logical limits for long notes and optional rows', () => {
     const layout = dayMarkerLayout({ ...marker, note: '長い補足文'.repeat(40) }, measureContext());
     expect(layout.rows[2].text.endsWith('…')).toBe(true);
-    expect(layout.rows[2].textWidth).toBeLessThanOrEqual(dayMarkerStyle().noteMaxWidth);
+    expect(layout.rows[2].textWidth).toBeLessThanOrEqual(1920 - 2 * (layout.style.margin + layout.style.border + layout.style.paddingX));
     expect(dayMarkerLayout({ dayNumber: 1 }, measureContext()).height).toBe(74);
   });
 });

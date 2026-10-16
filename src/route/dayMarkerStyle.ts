@@ -6,7 +6,8 @@ import type { DayMarker } from './tripRoute';
 
 // Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
 const VIDEO_DAY_STYLE = {
-  minWidth: 0, noteMaxWidth: 370,
+  // Video notes grow on one line, limited only by the video frame bounds.
+  minWidth: 0, noteMaxWidth: Infinity,
   paddingX: ANNOTATION_BASE_METRICS.paddingX, paddingTop: ANNOTATION_BASE_METRICS.paddingY, paddingBottom: ANNOTATION_BASE_METRICS.paddingY,
   dayFont: ANNOTATION_BASE_METRICS.fontSize, dateFont: ANNOTATION_BASE_METRICS.fontSize * 17 / 24,
   noteFont: ANNOTATION_BASE_METRICS.fontSize * 19 / 24, daySpacing: 1.9, dateSpacing: 0.85,
