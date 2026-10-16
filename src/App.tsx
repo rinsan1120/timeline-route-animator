@@ -15,13 +15,13 @@ import { formatDistance } from './route/geometry';
 import { emptyHistory, historyReducer } from './route/history';
 import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
 import { buildRouteDistanceModel } from './route/routeDistanceProgress';
-import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
+import { clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
 import type { RawPosition, WorkerResponse } from './timeline/types';
 import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
 import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
-import { DEFAULT_PRE_ROLL_SECONDS, DEFAULT_POST_ROLL_SECONDS } from './video/outputTiming';
+import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSettings';
 import { balloonPauseSeconds } from './video/balloonPauses';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
@@ -60,13 +60,13 @@ export default function App() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [selectionCandidateIds, setSelectionCandidateIds] = useState<string[]>([]);
   const [annotationLabel, setAnnotationLabel] = useState('');
-  const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(false);
-  const [commonPauseSeconds, setCommonPauseSeconds] = useState(0);
-  const [commonPauseInput, setCommonPauseInput] = useState('0.0');
-  const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_PRE_ROLL_SECONDS);
-  const [preRollInput, setPreRollInput] = useState(DEFAULT_PRE_ROLL_SECONDS.toFixed(1));
-  const [postRollSeconds, setPostRollSeconds] = useState(DEFAULT_POST_ROLL_SECONDS);
-  const [postRollInput, setPostRollInput] = useState(DEFAULT_POST_ROLL_SECONDS.toFixed(1));
+  const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(DEFAULT_VIDEO_SETTINGS.recordedTimeClockEnabled);
+  const [commonPauseSeconds, setCommonPauseSeconds] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds);
+  const [commonPauseInput, setCommonPauseInput] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds.toFixed(1));
+  const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_VIDEO_SETTINGS.preRollSeconds);
+  const [preRollInput, setPreRollInput] = useState(DEFAULT_VIDEO_SETTINGS.preRollSeconds.toFixed(1));
+  const [postRollSeconds, setPostRollSeconds] = useState(DEFAULT_VIDEO_SETTINGS.postRollSeconds);
+  const [postRollInput, setPostRollInput] = useState(DEFAULT_VIDEO_SETTINGS.postRollSeconds.toFixed(1));
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
   const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
@@ -83,20 +83,20 @@ export default function App() {
   const [rangeDeletePointIds, setRangeDeletePointIds] = useState<string[]>([]);
   const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
   const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number>(10);
-  const [durationInput, setDurationInput] = useState('10');
-  const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
-  const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
-  const [followViewMode, setFollowViewMode] = useState<FollowViewMode>('top');
-  const [overviewZoomMode, setOverviewZoomMode] = useState<'auto' | 'custom'>('auto');
-  const [overviewCustomZoom, setOverviewCustomZoom] = useState(10);
-  const [overviewCustomZoomInput, setOverviewCustomZoomInput] = useState('10.0');
-  const [followCustomZoom, setFollowCustomZoom] = useState(10);
-  const [followCustomZoomInput, setFollowCustomZoomInput] = useState('10.0');
-  const [introZoomEnabled, setIntroZoomEnabled] = useState(true);
-  const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>('day');
-  const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(false);
-  const [distanceHudSettings, setDistanceHudSettings] = useState<DistanceHudSettings>(DEFAULT_DISTANCE_HUD);
+  const [duration, setDuration] = useState<number>(DEFAULT_VIDEO_SETTINGS.duration);
+  const [durationInput, setDurationInput] = useState(String(DEFAULT_VIDEO_SETTINGS.duration));
+  const [cameraMode, setCameraMode] = useState<VideoCameraMode>(DEFAULT_VIDEO_SETTINGS.cameraMode);
+  const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>(DEFAULT_VIDEO_SETTINGS.followZoomPreset);
+  const [followViewMode, setFollowViewMode] = useState<FollowViewMode>(DEFAULT_VIDEO_SETTINGS.followViewMode);
+  const [overviewZoomMode, setOverviewZoomMode] = useState<'auto' | 'custom'>(DEFAULT_VIDEO_SETTINGS.overviewZoomMode);
+  const [overviewCustomZoom, setOverviewCustomZoom] = useState(DEFAULT_VIDEO_SETTINGS.overviewCustomZoom);
+  const [overviewCustomZoomInput, setOverviewCustomZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.overviewCustomZoom.toFixed(1));
+  const [followCustomZoom, setFollowCustomZoom] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom);
+  const [followCustomZoomInput, setFollowCustomZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom.toFixed(1));
+  const [introZoomEnabled, setIntroZoomEnabled] = useState(DEFAULT_VIDEO_SETTINGS.introZoomEnabled);
+  const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>(DEFAULT_VIDEO_SETTINGS.routeMarkerMode);
+  const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(DEFAULT_VIDEO_SETTINGS.dayRouteColorsEnabled);
+  const [distanceHudSettings, setDistanceHudSettings] = useState<DistanceHudSettings>(() => ({ ...DEFAULT_VIDEO_SETTINGS.distanceHudSettings }));
   const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
   const balloonFollowPlanCache = useRef<{ key: string; plan: FollowCameraPlan } | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
@@ -105,6 +105,35 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [videoProgress, setVideoProgress] = useState<VideoProgress | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
+
+  const videoSettings: VideoSettings = {
+    duration, commonPauseSeconds, preRollSeconds, postRollSeconds, cameraMode,
+    overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode,
+    introZoomEnabled, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
+  };
+  const applyVideoSettings = useCallback((settings: VideoSettings) => {
+    setDuration(settings.duration);
+    setDurationInput(String(settings.duration));
+    setCommonPauseSeconds(settings.commonPauseSeconds);
+    setCommonPauseInput(settings.commonPauseSeconds.toFixed(1));
+    setPreRollSeconds(settings.preRollSeconds);
+    setPreRollInput(settings.preRollSeconds.toFixed(1));
+    setPostRollSeconds(settings.postRollSeconds);
+    setPostRollInput(settings.postRollSeconds.toFixed(1));
+    setCameraMode(settings.cameraMode);
+    setOverviewZoomMode(settings.overviewZoomMode);
+    setOverviewCustomZoom(settings.overviewCustomZoom);
+    setOverviewCustomZoomInput(settings.overviewCustomZoom.toFixed(1));
+    setFollowZoomPreset(settings.followZoomPreset);
+    setFollowCustomZoom(settings.followCustomZoom);
+    setFollowCustomZoomInput(settings.followCustomZoom.toFixed(1));
+    setFollowViewMode(settings.followViewMode);
+    setIntroZoomEnabled(settings.introZoomEnabled);
+    setRouteMarkerMode(settings.routeMarkerMode);
+    setDayRouteColorsEnabled(settings.dayRouteColorsEnabled);
+    setRecordedTimeClockEnabled(settings.recordedTimeClockEnabled);
+    setDistanceHudSettings({ ...settings.distanceHudSettings });
+  }, []);
 
   const points = history.present;
   const editMode = mapMode === 'edit';
@@ -361,6 +390,11 @@ export default function App() {
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
+        applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
+        setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
+        setPreviewProgress(null);
+        setFollowCameraPlan(null);
+        setVideoUrl('');
         setDayMarkerPlacements({});
         setEndpointMarkerPlacements({});
         setWorkspaceMode('timeline');
@@ -371,6 +405,8 @@ export default function App() {
         setDates(message.dates);
         setStartDate(message.dates[0]);
         setEndDate(message.dates[0]);
+        setFrom('00:00');
+        setTo('23:59');
         setDayMarkerNotes({});
         setFileName(message.fileName);
         setWorkSaveName('route-work.json');
@@ -409,7 +445,7 @@ export default function App() {
       worker.terminate();
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     };
-  }, []);
+  }, [applyVideoSettings]);
 
   useEffect(() => {
     if (previewProgress === null) return;
@@ -477,11 +513,9 @@ export default function App() {
 
   const loadFile = async (file: File) => {
     if (busy || videoProgress || previewProgress !== null) return;
-    if (workspaceMode === 'spot') setWorkspaceMode('timeline');
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
-    setSelectionCandidateIds([]);
     try {
       const format = await readLeadingFileFormat(file);
       if (format === WORK_FILE_FORMAT) {
@@ -505,7 +539,8 @@ export default function App() {
 
   const startPlanMode = () => {
     if (workspaceMode === 'plan' || busy || videoProgress) return;
-    setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
+    applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
+    setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
     setWorkspaceMode('plan');
     setSelectedOutputDay('all');
     setPlanSaveName('route-plan.json');
@@ -559,6 +594,7 @@ export default function App() {
       const name = await downloadWorkFile({
         points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
         endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
+        videoSettings, selectedOutputDay,
       }, workSaveName);
       if (name) setWorkSaveName(name);
       setError('');
@@ -585,7 +621,8 @@ export default function App() {
       }
       dispatch({ type: 'load', points: saved.points });
       setWorkspaceMode('timeline');
-      setSelectedOutputDay('all');
+      setSelectedOutputDay(saved.selectedOutputDay ?? 'all');
+      applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
       setStartDate(saved.startDate);
       setEndDate(saved.endDate);
       setFrom(saved.from);
@@ -618,7 +655,6 @@ export default function App() {
       setPreviewProgress(null);
       setFollowCameraPlan(null);
       setVideoUrl('');
-      setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
       setMobileDayMarkerEditingScale(1);
       setError('');
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
@@ -636,7 +672,8 @@ export default function App() {
     if (workspaceMode !== 'plan' || !points.length || busy || videoProgress) return;
     setBusy(true);
     try {
-      const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements }, planSaveName);
+      const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements,
+        videoSettings, annotationStyle, animationStartPointId, animationEndPointId, endpointMarkerPlacements }, planSaveName);
       if (name) setPlanSaveName(name);
       setError('');
     } catch (reason) {
@@ -656,7 +693,8 @@ export default function App() {
         setError('動画生成が終了してから、作業を再開してください。');
         return;
       }
-      setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
+      applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
+      setAnnotationStyle(saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
       setWorkspaceMode('plan');
       setSelectedOutputDay('all');
       setInsertMode(false);
@@ -665,13 +703,13 @@ export default function App() {
       setPlanSaveName(file.name);
       setPlanDayNotes(saved.planDayNotes);
       setDayMarkerPlacements(saved.dayMarkerPlacements);
-      setEndpointMarkerPlacements({});
+      setEndpointMarkerPlacements(saved.endpointMarkerPlacements ?? {});
       setSelectedPointId(null);
       setSelectionCandidateIds([]);
       setSelectedRaw(null);
       setRangeDeletePointIds([]);
-      setAnimationStartPointId(null);
-      setAnimationEndPointId(null);
+      setAnimationStartPointId(saved.animationStartPointId ?? null);
+      setAnimationEndPointId(saved.animationEndPointId ?? null);
       setPreviewProgress(null);
       setFollowCameraPlan(null);
       setVideoUrl('');
@@ -1169,7 +1207,7 @@ export default function App() {
                 </label>
                 <button className="secondary-button wide" disabled={previewProgress !== null || !!videoProgress}
                   onClick={() => setDistanceHudSettings((current) => ({ ...current,
-                    ...clampDistanceHudPlacement(DEFAULT_DISTANCE_HUD, distanceHudLayout(distanceHudModel, current.scale)) }))}>位置をリセット</button>
+                    ...clampDistanceHudPlacement(DEFAULT_VIDEO_SETTINGS.distanceHudSettings, distanceHudLayout(distanceHudModel, current.scale)) }))}>位置をリセット</button>
                 <p className="range-note">地図上のHUDをドラッグして位置を変更できます。</p>
               </>}
             </div>

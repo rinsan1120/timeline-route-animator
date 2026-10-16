@@ -1,6 +1,8 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
 import { isBalloonFramePosition } from '../popup/placement';
-import type { PopupPlacement } from '../popup/placement';
+import type { EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
+import type { AnnotationStyle } from '../route/annotationStyle';
+import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
 import type { RoutePoint } from '../timeline/types';
 
 export const PLAN_FILE_FORMAT = 'timeline-route-animator-plan';
@@ -12,6 +14,11 @@ export interface PlanState {
   planDayStarts: string[];
   planDayNotes: Record<string, string>;
   dayMarkerPlacements: Record<string, PopupPlacement>;
+  videoSettings?: VideoSettings;
+  annotationStyle?: AnnotationStyle;
+  animationStartPointId?: string | null;
+  animationEndPointId?: string | null;
+  endpointMarkerPlacements?: EndpointMarkerPlacements;
 }
 
 export interface PlanFile extends PlanState {
@@ -29,6 +36,11 @@ export function serializePlanFile(state: PlanState, savedAt = new Date()): strin
     planDayStarts: state.planDayStarts,
     planDayNotes: state.planDayNotes,
     dayMarkerPlacements: state.dayMarkerPlacements,
+    ...(state.videoSettings !== undefined ? { videoSettings: parseVideoSettings(state.videoSettings) } : {}),
+    ...(state.annotationStyle !== undefined ? { annotationStyle: state.annotationStyle } : {}),
+    ...(state.animationStartPointId !== undefined ? { animationStartPointId: state.animationStartPointId } : {}),
+    ...(state.animationEndPointId !== undefined ? { animationEndPointId: state.animationEndPointId } : {}),
+    ...(state.endpointMarkerPlacements !== undefined ? { endpointMarkerPlacements: state.endpointMarkerPlacements } : {}),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -110,5 +122,30 @@ export function parsePlanFile(text: string): PlanState {
     return [id, parsePlacement(placement)];
   }));
   // Keep IDs, including temporarily unused DAY metadata retained by route editing.
-  return { points, planDayStarts: data.planDayStarts, planDayNotes, dayMarkerPlacements };
+  const state: PlanState = { points, planDayStarts: data.planDayStarts, planDayNotes, dayMarkerPlacements };
+  if (data.videoSettings !== undefined) {
+    try { state.videoSettings = parseVideoSettings(data.videoSettings); }
+    catch { throw new Error(PLAN_FILE_ERROR); }
+  }
+  if (data.annotationStyle !== undefined) {
+    if (!isRecord(data.annotationStyle)
+      || !isFiniteNumber(data.annotationStyle.balloonScale) || data.annotationStyle.balloonScale < 0.5 || data.annotationStyle.balloonScale > 2
+      || !isFiniteNumber(data.annotationStyle.fontScale) || data.annotationStyle.fontScale < 0.5 || data.annotationStyle.fontScale > 2) throw new Error(PLAN_FILE_ERROR);
+    state.annotationStyle = { balloonScale: data.annotationStyle.balloonScale, fontScale: data.annotationStyle.fontScale };
+  }
+  const ids = new Set(points.map((point) => point.id));
+  for (const key of ['animationStartPointId', 'animationEndPointId'] as const) {
+    const id = data[key];
+    if (id === undefined) continue;
+    if (id !== null && (!isId(id) || !ids.has(id))) throw new Error(PLAN_FILE_ERROR);
+    state[key] = id;
+  }
+  if (data.endpointMarkerPlacements !== undefined) {
+    if (!isRecord(data.endpointMarkerPlacements)) throw new Error(PLAN_FILE_ERROR);
+    state.endpointMarkerPlacements = Object.fromEntries(Object.entries(data.endpointMarkerPlacements).map(([label, placement]) => {
+      if (label !== 'START' && label !== 'GOAL') throw new Error(PLAN_FILE_ERROR);
+      return [label, parsePlacement(placement)];
+    }));
+  }
+  return state;
 }

@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Persisted video settings — v1.3 Step 4 (2026-10-16)
+
+- Step 3-Cコミット `4566792` を基準に同じ `feature/video-editor-v13` で実装。作業／計画JSONのformat・version 1は維持し、任意のvideoSettingsに時間4項目、Overview／Followのカメラ・Zoom・視点・開始Zoom、マーカー・DAY色・実績時計・距離HUDのenabled／x／y／scaleを保存。1920×1080・FPS・revealRoute等の固定仕様や計算結果・再生位置は保存しない。
+- `video/videoSettings.ts` が共通型・現行と同じDEFAULT_VIDEO_SETTINGS・parseVideoSettingsを提供。存在するvideoSettingsは全既知項目を検証し、数値範囲・刻み・列挙値・boolean・HUDを確認。未知フィールドは無視する。workFile／planFileは全データの検証後に返し、不正設定は各既存エラーへ変換して編集状態を置き換えない。
+- 作業JSONの既存トップレベル構図情報は移動せず維持し、selectedOutputDayだけを追加（不正形式は拒否、該当日程なし／期間外はall）。計画JSONには任意のトップレベルannotationStyle・animationStartPointId／animationEndPointId・endpointMarkerPlacementsを追加。ポイントID参照、サイズ、配置を検証し、videoSettingsへ同じ値を二重保存しない。既存DAY情報・framePosition／placement・旧pauseSeconds処理は維持。
+- Appは確定した数値stateを保存し、復元時はapplyVideoSettingsで数値と文字列入力を同じバッチ内で同期。旧JSONの追加項目は省略可能のまま受理し、Appで欠落した動画設定を共通既定値へ戻す。旧作業JSONのannotationStyle等は保存値を維持し、旧計画JSONの未保存構図項目は既定サイズ／範囲なし／配置なしへ戻す。新規Timeline読込成功・新規計画開始も既定値へ戻し、同一作品の通常編集・期間再抽出では動画設定をリセットしない。ファイル形式確認前のモード／選択変更も撤去し、読込拒否時は元作品を保持する。
+- READMEと関連する共有ヘルプの保存説明を更新。Step 5-Aへ：保存対象は制作設定だけで、Undo履歴や生成MP4／プレビューセッション・派生カメラ計画は含まない。復元後の派生値は既存処理で再計算する。新UI・動画設定Undo／Redo・生成MP4鮮度管理・Step 5以降とStep 1〜3-Cの内部基盤は未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
 ## Preview request coordination and background reuse — v1.3 Step 3-C (2026-10-16)
 
 - Step 3-Bコミット `a8215a6` を基準に同じ `feature/video-editor-v13` で実装。`previewFrameRenderer.ts` のrenderFrame引数・framePlan／dispose入口は維持し、要求IDで最新要求を識別。処理中1件＋待機最新1件だけを保持し、中間要求は省略する。MapLibreの準備・カメラ変更・投影・背景取得・合成は同じ処理ループで直列実行。
