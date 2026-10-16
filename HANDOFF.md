@@ -1,5 +1,12 @@
 # HANDOFF
 
+## Shared Canvas drawing primitives — v1.3 Step 2-A (2026-10-16)
+
+- Step 1コミット `15e4764` を基準に、同じ `feature/video-editor-v13` ブランチで実装。`src/video/frameDrawing.ts` へ `drawDayMarker()` / `drawEndpointMarker()` / `isInVideoViewport()` と必要な `VideoDayMarker` 型を移動し、重複していた現在地描画を `drawCurrentPositionMarker()`、出典表示を `drawMapAttribution()` に集約。
+- `renderer.ts` の `drawFrame()` / `drawFollowFrame()` は、既存の描画位置・順序でこれらを呼び出す。開始時ZoomのFollow描画経路にも共通反映。DAYのlayout／色・START/GOALの配置・マーカー寸法・出典文字列は既存処理を再利用し、save/restoreの境界とCanvas状態の引き継ぎも維持する。
+- Step 2-Bへ：共通部品は1920×1080の画面座標を受け、投影・到達／表示条件・描画順序は呼び出し側が担当する。現在地と出典の関数はsave/restoreで状態を隔離しない。フレーム全体の構造、ルート描画、背景キャッシュ、時計／HUD計算とStep 1の計算は未変更。バルーン・距離HUDは既存の `annotationCanvas.ts` / `distanceHud.ts` を継続利用する。
+- `npm run build`（TypeScript／Vite）成功、既存のチャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。Step 2-B以降は未着手。
+
 ## Shared video frame timeline — v1.3 Step 1 (2026-10-16)
 
 - 作業ブランチ `feature/video-editor-v13`、取得した最新 `origin/main` とHEADが `c1eac72` で一致する状態から実装。
