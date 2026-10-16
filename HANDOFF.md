@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Canvas frame preview foundation — v1.3 Step 3-B (2026-10-16)
+
+- Step 3-Aコミット `3bd9d3f` を基準に同じ `feature/video-editor-v13` で実装。`createPreviewFrameRenderer(canvas, options)`（`src/video/previewFrameRenderer.ts`）が `framePlan` / `renderFrame(frameIndex)` / `dispose()` を公開。optionsはルート・動画／描画設定と任意のsignalを受け、WebCodecs・Mediabunny・Reactへ依存しない。
+- `renderFrame()` は番号を整数へ切り下げて `0..totalFrames-1` に収める（NaNは0）。共通 `sampleFrame()` → `frameScene.ts` の共通描画データ準備 → `drawVideoFrame()` で1920×1080 Canvasを描き、`{ canvas, state }` を返す。返却Canvasは次の要求で上書きされる同じ出力先であり、フレームのコピーではない。
+- `frameScene.ts` へ既存MP4のOverview事前投影・モード別scene準備・DAY地点索引・時計引数選択・旧バルーン位置解決を移動し、MP4とプレビュー双方で使用。元RoutePointは変更しない。Overview開始Zoomの時計は地点0、FollowのDAY切替時計は従来のfollowClockPointIndexを使用。MP4のループ・背景キャッシュ・エンコード／後始末とStep 1の計算式は維持。
+- プレビュー初回はMP4と同じ初期カメラで旧バルーン配置を解決し、途中フレームからでも同じ固定位置を使用。Overview通常は固定背景Bitmapと事前投影を保持し、Zoomへ戻っても再利用。FollowとOverview開始Zoomは指定FrameStateのカメラでprepareして既存Follow sceneを作る。Followは従来どおり走行済みルートを表示し、Overview開始ZoomだけrevealRoute設定を尊重する。
+- セッションが非表示1920×1080コンテナと独立した動画用MapLibreを所有。地図準備エラーはrejectし、準備前の画像を成功として返さない。dispose（外部signalのabort時も呼ぶ）は進行中の待機を中断し、Map・Bitmap・コンテナを解放する。Canvasは呼び出し側所有。利用中のルート／設定・Canvas寸法／描画状態は外部から変更せず、変更時はセッションを作り直す。
+- Step 3-Cへ：renderFrameは1件ずつawaitする契約。要求の競合／順序制御・最新要求優先・高速シーク・Follow背景キャッシュ最適化・再生スケジューラは未実装。UI接続やMP4との同時利用管理も後続Stepの対象で、今回は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
 ## Reusable video map session — v1.3 Step 3-A (2026-10-16)
 
 - Step 2-Bコミット `e491637` を基準に同じ `feature/video-editor-v13` で実装。`src/video/videoMapSession.ts` が `createVideoMapSession(container, signal?)` を公開し、返り値の `prepare(camera, move = true)` / `dispose()` / `hasError()` を従来どおり利用する。React・MP4エンコーダーへの依存はない。
