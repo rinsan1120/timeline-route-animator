@@ -13,14 +13,20 @@ interface MobileBottomSheetProps {
 
 export default function MobileBottomSheet({ children, steps, resetKey }: MobileBottomSheetProps) {
   const [state, setState] = useState<SheetState>('closed');
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const panelRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const focusedInputRef = useRef<HTMLElement | null>(null);
   const gestureRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const contentId = useId();
 
-  useEffect(() => { setState('closed'); }, [resetKey]);
+  useEffect(() => {
+    setState('closed');
+    setKeyboardOpen(false);
+    focusedInputRef.current = null;
+  }, [resetKey]);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
     const update = () => setMobile(media.matches);
@@ -41,13 +47,100 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
 
   useEffect(() => {
     const shell = panelRef.current?.closest<HTMLElement>('.app-shell');
+    const panel = panelRef.current;
+    const content = contentRef.current;
     const viewport = window.visualViewport;
-    if (!shell || !viewport || !mobile) return;
+    if (!shell || !panel || !content || !mobile) return;
+    let normalViewportHeight = viewport?.height ?? window.innerHeight;
+    let blurTimer: number | null = null;
+    let blurPending = false;
+    let frame = 0;
+
+    const scheduleCorrection = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const input = focusedInputRef.current;
+        if (!input || !content.isConnected) return;
+        const contentRect = content.getBoundingClientRect();
+        const visualTop = viewport?.offsetTop ?? 0;
+        const visualBottom = visualTop + (viewport?.height ?? window.innerHeight);
+        const visibleTop = Math.max(contentRect.top, visualTop);
+        const visibleBottom = Math.min(contentRect.bottom, visualBottom);
+        const inputRect = input.getBoundingClientRect();
+        let delta = 0;
+        if (inputRect.bottom > visibleBottom) delta = inputRect.bottom - visibleBottom + 8;
+        else if (inputRect.top < visibleTop) delta = inputRect.top - visibleTop - 8;
+        if (delta) content.scrollTop += delta;
+      });
+    };
+
+    const updateViewport = () => {
+      if (viewport) {
+        shell.style.setProperty('--mobile-viewport-height', `${viewport.height}px`);
+        shell.style.setProperty('--mobile-viewport-offset-top', `${viewport.offsetTop}px`);
+        if (focusedInputRef.current) {
+          // Keep the expanded sheet through the click that caused the input to blur.
+          if (!blurPending) setKeyboardOpen(viewport.height < normalViewportHeight - 1);
+        } else {
+          normalViewportHeight = viewport.height;
+        }
+      }
+      scheduleCorrection();
+    };
+    const isTextEntry = (target: HTMLElement) => target.matches(
+      'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"], [contenteditable="true"]',
+    );
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !content.contains(target) || !isTextEntry(target)) return;
+      if (blurTimer !== null) window.clearTimeout(blurTimer);
+      blurTimer = null;
+      blurPending = false;
+      focusedInputRef.current = target;
+      scheduleCorrection();
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      if (event.target !== focusedInputRef.current) return;
+      blurPending = true;
+      if (blurTimer !== null) window.clearTimeout(blurTimer);
+      // Let the pointer's click complete before restoring the previous sheet height.
+      blurTimer = window.setTimeout(() => {
+        blurTimer = null;
+        blurPending = false;
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && content.contains(active) && isTextEntry(active)) {
+          focusedInputRef.current = active;
+          scheduleCorrection();
+          return;
+        }
+        focusedInputRef.current = null;
+        setKeyboardOpen(false);
+      }, 350);
+    };
+
+    const observer = new ResizeObserver(scheduleCorrection);
+    observer.observe(panel);
+    observer.observe(content);
+    panel.addEventListener('focusin', onFocusIn);
+    panel.addEventListener('focusout', onFocusOut);
     // Also follow keyboards on browsers where dvh alone does not shrink.
-    const update = () => shell.style.setProperty('--mobile-viewport-height', `${viewport.height}px`);
-    update();
-    viewport.addEventListener('resize', update);
-    return () => { viewport.removeEventListener('resize', update); shell.style.removeProperty('--mobile-viewport-height'); };
+    updateViewport();
+    viewport?.addEventListener('resize', updateViewport);
+    viewport?.addEventListener('scroll', updateViewport);
+    return () => {
+      observer.disconnect();
+      panel.removeEventListener('focusin', onFocusIn);
+      panel.removeEventListener('focusout', onFocusOut);
+      viewport?.removeEventListener('resize', updateViewport);
+      viewport?.removeEventListener('scroll', updateViewport);
+      if (blurTimer !== null) window.clearTimeout(blurTimer);
+      if (frame) cancelAnimationFrame(frame);
+      focusedInputRef.current = null;
+      setKeyboardOpen(false);
+      shell.style.removeProperty('--mobile-viewport-height');
+      shell.style.removeProperty('--mobile-viewport-offset-top');
+    };
   }, [mobile]);
 
   const move = (direction: number) => setState((current) => STATES[Math.max(0, Math.min(2, STATES.indexOf(current) + direction))]);
@@ -62,7 +155,7 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  return <aside ref={panelRef} className="control-panel mobile-bottom-sheet" data-sheet-state={state}>
+  return <aside ref={panelRef} className="control-panel mobile-bottom-sheet" data-sheet-state={state} data-keyboard-open={keyboardOpen || undefined}>
     <div className="mobile-sheet-header">
       <button type="button" className="mobile-sheet-handle" aria-expanded={state !== 'closed'} aria-controls={contentId}
         aria-label={`設定パネル：${STATE_LABELS[state]}。タップで開閉、上下矢印キーで高さを変更`}

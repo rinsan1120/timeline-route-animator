@@ -1,5 +1,10 @@
 # HANDOFF
 
+## Android text input and mobile sheet (Issue #14)
+
+- MobileBottomSheet内の通常テキスト入力／textareaへフォーカスすると、visualViewportの高さ・offsetTop・resize／scrollとシート寸法を監視し、入力欄と内容領域の実測位置から必要な分だけ内部スクロールする。
+- キーボード表示中だけ通常stateとは別にシートを作業領域いっぱいへ一時拡大。入力をblurしてもクリック処理を待ってから元の高さへ戻し、キーボードを閉じても入力フォーカスが残る場合はviewport復帰を検知する。IME・入力値・カーソル・PCレイアウトは変更しない。
+
 ## Mobile header mode menu (Issue #3)
 
 - 760px以下では、Timelineモードかつ地点0件の初期案内を従来のロゴ／3モード案内で維持する。地点読み込み後と計画／スポット画像モードでは高さ56pxのテキストブランド＋現在モード名＋モードメニューへ切り替える。
