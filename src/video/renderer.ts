@@ -1,5 +1,4 @@
-import { sampleRecordedRouteTime, drawRouteClock, followClockPointIndex } from './routeClock';
-import { drawAnnotation } from '../route/annotationCanvas';
+import { sampleRecordedRouteTime, followClockPointIndex } from './routeClock';
 import { balloonReferenceCamera, resolveBalloonFramePositions } from '../route/balloonFrame';
 import { createBalloonReferenceProjector } from '../map/balloonProjection';
 import type { BalloonFramePosition } from '../popup/placement';
@@ -16,9 +15,10 @@ import { waitForExportViewportReady } from '../map/exportViewportReady';
 import type { FollowCameraPlan, FollowPlaybackState, FollowZoomPreset, FollowViewMode, VideoCameraMode } from './followCamera';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { routeDistanceProgress } from '../route/routeDistanceProgress';
-import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
+import type { DistanceHudOptions } from './distanceHud';
 import { buildFramePlan, sampleFrame } from './frameTimeline';
-import { drawCurrentPositionMarker, drawDayMarker, drawEndpointMarker, drawMapAttribution, isInVideoViewport, type VideoDayMarker } from './frameDrawing';
+import { isInVideoViewport, type VideoDayMarker } from './frameDrawing';
+import { drawVideoFrame, type VideoFrameScene } from './frameRenderer';
 export { outputVideoDuration, outputVideoFrameCount } from './outputTiming';
 import { buildRoutePointDayNumbers, colorRouteSegments } from '../route/dayRouteColor';
 
@@ -230,58 +230,47 @@ function drawFrame(
   pausePointIndex: number | null = null,
   clockText: string | null = null,
 ) {
-  context.drawImage(background, 0, 0);
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  context.lineWidth = 10;
-  context.shadowColor = 'rgba(0,0,0,.22)';
-  context.shadowBlur = 8;
   const position = interpolateTripRoute(points, progress)!;
   const markerStart = pixels[pausePointIndex ?? position.fromIndex];
   const markerEnd = pixels[pausePointIndex ?? position.toIndex];
   const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
   const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
+  const scene: VideoFrameScene = {
+    background, routeSegments: [], markerPosition: { x, y }, clockText,
+    annotations: [], annotationStyle, dayMarkers: [], dayRouteColorsEnabled, endpointMarkers: [],
+  };
   for (const segment of routeSegments) {
-    context.beginPath();
-    let started = false;
+    const routePixels = [];
     for (const routePoint of segment.points) {
       if (revealRoute && (pausePointIndex !== null ? routePoint.pointIndex > pausePointIndex : routePoint.arrivalProgress > progress)) break;
-      if (started) context.lineTo(routePoint.pixel.x, routePoint.pixel.y);
-      else context.moveTo(routePoint.pixel.x, routePoint.pixel.y);
-      started = true;
+      routePixels.push(routePoint.pixel);
     }
     const segmentStart = segment.points[0]?.pointIndex ?? -1;
     const segmentEnd = segment.points.at(-1)?.pointIndex ?? -1;
-    if (revealRoute && pausePointIndex === null && started && position.fromIndex !== position.toIndex
+    if (revealRoute && pausePointIndex === null && routePixels.length > 0 && position.fromIndex !== position.toIndex
       && position.fromIndex >= segmentStart && position.toIndex <= segmentEnd
       && segment.points.some((routePoint) => routePoint.pointIndex === position.toIndex && routePoint.arrivalProgress > progress)) {
-      context.lineTo(x, y);
+      routePixels.push({ x, y });
     }
-    context.strokeStyle = segment.color;
-    context.stroke();
+    scene.routeSegments.push({ color: segment.color, pixels: routePixels });
   }
-  context.shadowBlur = 0;
-
-  drawCurrentPositionMarker(context, x, y);
-
-  drawRouteClock(context, clockText, x, y);
 
   for (const annotation of annotations) {
-    if (pausePointIndex !== null ? annotation.pointIndex <= pausePointIndex : progress >= annotation.arrivalProgress) drawAnnotation(context, annotation, annotationStyle);
+    if (pausePointIndex !== null ? annotation.pointIndex <= pausePointIndex : progress >= annotation.arrivalProgress) scene.annotations.push(annotation);
   }
 
   if (routeMarkerMode === 'day') {
     for (const dayMarker of dayMarkers) {
-      if (pausePointIndex !== null ? dayMarker.pointIndex <= pausePointIndex : progress >= dayMarker.arrivalProgress) drawDayMarker(context, dayMarker, dayRouteColorsEnabled);
+      if (pausePointIndex !== null ? dayMarker.pointIndex <= pausePointIndex : progress >= dayMarker.arrivalProgress) scene.dayMarkers.push(dayMarker);
     }
   } else if (routeMarkerMode === 'start-goal') {
-    if (isInVideoViewport(pixels[0])) drawEndpointMarker(context, pixels[0], 'START', endpointMarkerPlacements.START);
+    if (isInVideoViewport(pixels[0])) scene.endpointMarkers.push({ pixel: pixels[0], label: 'START', placement: endpointMarkerPlacements.START });
     const goalPixel = pixels.at(-1);
-    if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
+    if (progress >= 1 && goalPixel && isInVideoViewport(goalPixel)) scene.endpointMarkers.push({ pixel: goalPixel, label: 'GOAL', placement: endpointMarkerPlacements.GOAL });
   }
 
-  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, progress, pausePointIndex ?? undefined), distanceHud);
-  drawMapAttribution(context);
+  if (distanceHud?.settings.enabled) scene.distanceHud = { progress: routeDistanceProgress(distanceHud.model, progress, pausePointIndex ?? undefined), options: distanceHud };
+  drawVideoFrame(context, scene);
 }
 
 interface VideoAnnotation {
@@ -389,40 +378,27 @@ function drawFollowFrame(
   dayRouteColorsEnabled = false,
   clockText: string | null = null,
 ) {
-  context.drawImage(background, 0, 0);
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  context.lineWidth = 10;
-  context.shadowColor = 'rgba(0,0,0,.22)';
-  context.shadowBlur = 8;
   const routeSegments = colorRouteSegments(
     revealRoute ? revealedTripRouteSegments(points, playback.routeProgress) : splitRouteByDay(points),
     dayNumberByPointId,
     dayRouteColorsEnabled,
   );
-  for (const segment of routeSegments) {
-    context.beginPath();
-    segment.points.forEach((point, index) => {
-      const pixel = map.project([point.longitude, point.latitude]);
-      if (index === 0) context.moveTo(pixel.x, pixel.y);
-      else context.lineTo(pixel.x, pixel.y);
-    });
-    context.strokeStyle = segment.color;
-    context.stroke();
-  }
-  context.shadowBlur = 0;
-
+  const projectedSegments = routeSegments.map((segment) => ({
+    color: segment.color,
+    pixels: segment.points.map((point) => map.project([point.longitude, point.latitude])),
+  }));
   const markerPixel = map.project([playback.markerPosition.longitude, playback.markerPosition.latitude]);
-  drawCurrentPositionMarker(context, markerPixel.x, markerPixel.y);
-
-  drawRouteClock(context, clockText, markerPixel.x, markerPixel.y);
+  const scene: VideoFrameScene = {
+    background, routeSegments: projectedSegments, markerPosition: markerPixel, clockText,
+    annotations: [], annotationStyle, dayMarkers: [], dayRouteColorsEnabled, endpointMarkers: [],
+  };
 
   for (let index = 0; index <= playback.reachedPointIndex; index += 1) {
     const point = points[index];
     if (!point.annotation?.label) continue;
     const pixel = map.project([point.longitude, point.latitude]);
     if (!isInVideoViewport(pixel)) continue;
-    drawAnnotation(context, { ...point.annotation, pixel }, annotationStyle);
+    scene.annotations.push({ ...point.annotation, pixel });
   }
 
   if (routeMarkerMode === 'day') {
@@ -431,20 +407,20 @@ function drawFollowFrame(
       const point = points[dayMarker.pointIndex];
       const pixel = map.project([point.longitude, point.latitude]);
       if (!isInVideoViewport(pixel)) continue;
-      drawDayMarker(context, { ...dayMarker, pixel, arrivalProgress: 0 }, dayRouteColorsEnabled);
+      scene.dayMarkers.push({ ...dayMarker, pixel, arrivalProgress: 0 });
     }
   } else if (routeMarkerMode === 'start-goal') {
     const startPixel = map.project([points[0].longitude, points[0].latitude]);
-    if (isInVideoViewport(startPixel)) drawEndpointMarker(context, startPixel, 'START', endpointMarkerPlacements.START);
+    if (isInVideoViewport(startPixel)) scene.endpointMarkers.push({ pixel: startPixel, label: 'START', placement: endpointMarkerPlacements.START });
     if (playback.reachedPointIndex >= points.length - 1) {
       const goal = points.at(-1)!;
       const goalPixel = map.project([goal.longitude, goal.latitude]);
-      if (isInVideoViewport(goalPixel)) drawEndpointMarker(context, goalPixel, 'GOAL', endpointMarkerPlacements.GOAL);
+      if (isInVideoViewport(goalPixel)) scene.endpointMarkers.push({ pixel: goalPixel, label: 'GOAL', placement: endpointMarkerPlacements.GOAL });
     }
   }
 
-  if (distanceHud?.settings.enabled) drawDistanceHud(context, routeDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), distanceHud);
-  drawMapAttribution(context);
+  if (distanceHud?.settings.enabled) scene.distanceHud = { progress: routeDistanceProgress(distanceHud.model, playback.routeProgress, playback.reachedPointIndex), options: distanceHud };
+  drawVideoFrame(context, scene);
 }
 
 interface FollowVideoDayMarker extends DayMarker {

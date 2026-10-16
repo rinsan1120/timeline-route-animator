@@ -1,5 +1,12 @@
 # HANDOFF
 
+## Shared frame composition — v1.3 Step 2-B (2026-10-16)
+
+- Step 1・2-Aコミット済みの `feature/video-editor-v13`（`e3a3ae6`）を基準に実装。新規 `src/video/frameRenderer.ts` の `drawVideoFrame(context, scene: VideoFrameScene)` が、背景→ルート→現在地→時計→バルーン→DAY／START・GOAL→HUD→出典のCanvas合成を担当。Step 2-Aと既存annotationCanvas／routeClock／distanceHudの描画を再利用する。
+- `renderer.ts` の `drawFrame()` / `drawFollowFrame()` はモード別に描画データを準備して共通入口を呼ぶ。Overviewは事前投影座標を再利用し、進捗／停止地点・線の末尾補間・表示条件を維持。Followは現在カメラでの投影、reachedPointIndex・画面内判定・ルート区間／DAY色の生成を維持。HUD進行計算も従来どおり各モードに残す。Overview開始時Zoomは既存Follow経路から同じ共通合成へ接続。
+- Step 3-Aへ：sceneは1920×1080動画座標と表示対象を確定済みの配列・算出済み時計文字列／HUDデータを受け取る。共通合成は投影・カメラ計画・表示判定・時刻／距離計算を行わない。空／1点のルート区間のbeginPath／strokeも保持し、save/restoreの追加やCanvas状態の初期化・隔離はしていない。背景の準備・キャッシュ・ImageBitmapの寿命管理とStep 1のフレームサンプリングは呼び出し側の責務。プレビュー接続とStep 3以降は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4の目視確認は未実施。
+
 ## Shared Canvas drawing primitives — v1.3 Step 2-A (2026-10-16)
 
 - Step 1コミット `15e4764` を基準に、同じ `feature/video-editor-v13` ブランチで実装。`src/video/frameDrawing.ts` へ `drawDayMarker()` / `drawEndpointMarker()` / `isInVideoViewport()` と必要な `VideoDayMarker` 型を移動し、重複していた現在地描画を `drawCurrentPositionMarker()`、出典表示を `drawMapAttribution()` に集約。
