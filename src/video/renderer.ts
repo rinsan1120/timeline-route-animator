@@ -1,6 +1,7 @@
 import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, getFirstEncodableVideoCodec } from 'mediabunny';
 import type { RoutePoint } from '../timeline/types';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
+import { loadDayMarkerFonts } from '../route/dayMarkerStyle';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { createVideoMapSession } from './videoMapSession';
 import type { FollowCameraPlan, FollowZoomPreset, FollowViewMode, VideoCameraMode } from './followCamera';
@@ -61,6 +62,7 @@ export async function renderRouteVideo(options: RenderVideoOptions): Promise<Blo
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
+  if (routeMarkerMode === 'day') await loadDayMarkerFonts(options.dayMarkers ?? [], options.annotationStyle);
   const customZoom = options.overviewZoomMode === 'custom' ? options.overviewCustomZoom ?? 10 : undefined;
   if (customZoom !== undefined && (!Number.isFinite(customZoom) || customZoom < 4 || customZoom > 16)) throw new Error('Zoomは4.0〜16.0で指定してください。');
   const camera = options.overviewCamera ?? createOverviewCamera(options.points, customZoom)!;
@@ -137,6 +139,7 @@ async function renderFollowRouteVideo(options: RenderVideoOptions): Promise<Blob
   const supportError = await checkVideoSupport();
   if (supportError) throw new Error(supportError);
   const routeMarkerMode = options.routeMarkerMode ?? 'day';
+  if (routeMarkerMode === 'day') await loadDayMarkerFonts(options.dayMarkers ?? [], options.annotationStyle);
   const framePlan = buildFramePlan({ ...options, cameraMode: 'follow' });
   const plan = framePlan.followCameraPlan;
   const initialPlayback = framePlan.initialPlayback;

@@ -32,6 +32,44 @@ export const DAY_MARKER_COLORS = {
 };
 export const DAY_MARKER_FONT_FAMILY = '"DM Sans", "Noto Sans JP", system-ui, sans-serif';
 
+function dayMarkerRows(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {
+  return [{ kind: 'day', text: `DAY ${marker.dayNumber}`, fontSize: style.dayFont, weight: 700, spacing: style.daySpacing, color: DAY_MARKER_COLORS.text },
+    ...(marker.date ? [{ kind: 'date', text: marker.date.replaceAll('-', '.'), fontSize: style.dateFont, weight: 600, spacing: style.dateSpacing, color: DAY_MARKER_COLORS.date }] : []),
+    ...(marker.note ? [{ kind: 'note', text: marker.note, fontSize: style.noteFont, weight: 400, spacing: 0, color: DAY_MARKER_COLORS.text }] : [])]
+    .map((row) => ({ ...row, font: `${row.weight} ${row.fontSize}px ${DAY_MARKER_FONT_FAMILY}` }));
+}
+
+export async function loadDayMarkerFonts(markers: readonly DayMarker[], annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
+  if (!markers.length || typeof document === 'undefined' || !document.fonts) return;
+  const fonts = document.fonts;
+  const texts = new Map<string, string>();
+  const style = dayMarkerStyle(annotationStyle);
+  for (const marker of markers) {
+    for (const row of dayMarkerRows(marker, style)) {
+      texts.set(row.font, (texts.get(row.font) ?? '') + row.text);
+    }
+  }
+  if (typeof fonts.load === 'function') {
+    await Promise.all([...texts].map(([font, text]) => fonts.load(font, text).catch(() => [])));
+  }
+  // Failed web fonts use the declared fallback after font loading has settled.
+  await fonts.ready;
+}
+
+function layoutDayMarkerText(context: CanvasRenderingContext2D, text: string, spacing: number) {
+  if (!spacing) return { textWidth: context.measureText(text).width, glyphs: [{ text, x: 0 }] };
+  let prefix = '';
+  let textWidth = 0;
+  const glyphs = Array.from(text).map((character, index) => {
+    const x = context.measureText(prefix).width + index * spacing;
+    // Include the same trailing spacing as the existing DAY width calculation.
+    textWidth = Math.max(textWidth, x + context.measureText(character).width + spacing);
+    prefix += character;
+    return { text: character, x };
+  });
+  return { textWidth, glyphs };
+}
+
 export function dayMarkerColors(dayNumber: number, dayRouteColorsEnabled: boolean): typeof DAY_MARKER_COLORS {
   if (!dayRouteColorsEnabled) return DAY_MARKER_COLORS;
   const accent = dayRouteColor(dayNumber);
@@ -60,7 +98,7 @@ export function dayMarkerEditingStyle(editingScale = 1) {
 
 // Video and preview always share this device-independent layout.
 export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
-  return layoutDayMarker(marker, context, VIDEO_VIEWPORT, dayMarkerStyle(annotationStyle));
+  return layoutDayMarker(marker, context, VIDEO_VIEWPORT, dayMarkerStyle(annotationStyle), true);
 }
 
 // Preserve readable, draggable CSS dimensions only outside video preview.
@@ -72,17 +110,16 @@ export function dayMarkerEditingLayout(marker: Pick<DayMarker, 'dayNumber' | 'da
   return layoutDayMarker(marker, context, reference, style);
 }
 
-function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }, style: Record<keyof typeof VIDEO_DAY_STYLE, number>) {
-  const rows = [{ kind: 'day', text: `DAY ${marker.dayNumber}`, fontSize: style.dayFont, weight: 700, spacing: style.daySpacing, color: DAY_MARKER_COLORS.text },
-    ...(marker.date ? [{ kind: 'date', text: marker.date.replaceAll('-', '.'), fontSize: style.dateFont, weight: 600, spacing: style.dateSpacing, color: DAY_MARKER_COLORS.date }] : []),
-    ...(marker.note ? [{ kind: 'note', text: marker.note, fontSize: style.noteFont, weight: 400, spacing: 0, color: DAY_MARKER_COLORS.text }] : [])];
-  const measure = (text: string, spacing: number) => context.measureText(text).width + Array.from(text).length * spacing;
+function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, reference: { width: number; height: number }, style: Record<keyof typeof VIDEO_DAY_STYLE, number>, video = false) {
+  const rows = dayMarkerRows(marker, style);
+  const measure = (text: string, spacing: number) => video ? layoutDayMarkerText(context, text, spacing).textWidth
+    : context.measureText(text).width + Array.from(text).length * spacing;
   const viewportWidth = reference.width / popupDisplayScale(reference.width, reference.height);
   const maxWidth = Math.min(POPUP_PLACEMENT_VIEWPORT.width, viewportWidth) - style.margin * 2;
   let contentWidth = 0;
   let y = style.border + style.paddingTop;
   const laidOutRows = rows.map((row) => {
-    context.font = `${row.weight} ${row.fontSize}px ${DAY_MARKER_FONT_FAMILY}`;
+    context.font = row.font;
     const available = Math.min(maxWidth - 2 * (style.border + style.paddingX), row.kind === 'note' ? style.noteMaxWidth : Infinity);
     let text = row.text;
     if (measure(text, row.spacing) > available) {
@@ -93,7 +130,7 @@ function layoutDayMarker(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>,
     const textWidth = measure(text, row.spacing);
     contentWidth = Math.max(contentWidth, textWidth);
     const height = row.fontSize * 1.25;
-    const result = { ...row, text, textWidth, height, y: y + height / 2 };
+    const result = { ...row, text, textWidth, glyphs: video ? layoutDayMarkerText(context, text, row.spacing).glyphs : [], height, y: y + height / 2 };
     y += height + style.rowGap;
     return result;
   });

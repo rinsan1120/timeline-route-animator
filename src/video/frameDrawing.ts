@@ -1,6 +1,6 @@
 import { GSI_ATTRIBUTION } from '../map/gsiStyle';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement } from '../popup/placement';
-import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
+import { dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import type { DayMarker } from '../route/tripRoute';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import { VIDEO_VIEWPORT } from './overviewCamera';
@@ -66,17 +66,9 @@ export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDa
   context.textBaseline = 'middle';
   for (const row of rows) {
     context.fillStyle = row.color;
-    context.font = `${row.weight} ${row.fontSize}px ${DAY_MARKER_FONT_FAMILY}`;
+    context.font = row.font;
     const x = left + (width - row.textWidth) / 2;
-    if (!row.spacing) {
-      context.fillText(row.text, x, top + row.y);
-    } else {
-      let prefix = '';
-      Array.from(row.text).forEach((character, index) => {
-        context.fillText(character, x + context.measureText(prefix).width + index * row.spacing, top + row.y);
-        prefix += character;
-      });
-    }
+    for (const glyph of row.glyphs) context.fillText(glyph.text, x + glyph.x, top + row.y);
   }
   context.restore();
 }

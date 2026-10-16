@@ -1,5 +1,6 @@
 import { LngLat, type Map as MapLibreMap, type Point } from 'maplibre-gl';
 import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
+import { loadDayMarkerFonts } from '../route/dayMarkerStyle';
 import { annotationLayout, isAnnotationAnchorVisible, type CanvasAnnotation } from '../route/annotationCanvas';
 import type { BalloonFramePosition } from '../popup/placement';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
@@ -81,6 +82,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   let dayMarkers = prepareVideoDayMarkers(options.dayMarkers ?? [], pointIndexById);
   let dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
   let drawingOptions: FrameDrawingOptions = options;
+  let dayFontsReady: Promise<void> | null = null;
   let balloonsResolved = false;
   let eventProjector: ReturnType<typeof createVideoEventProjector> | null = null;
   let events: VideoEvent[] | null = null;
@@ -162,6 +164,8 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   const applyOptions = (next: PreviewFrameOptions) => {
     if (next === options) return;
     validateOptions(next);
+    if (options.dayMarkers !== next.dayMarkers || options.routeMarkerMode !== next.routeMarkerMode
+      || options.annotationStyle?.fontScale !== next.annotationStyle?.fontScale) dayFontsReady = null;
     const geometryChanged = !sameRouteGeometry(options.points, next.points);
     const reuseFollow = !geometryChanged && framePlan.cameraMode === 'follow' && next.cameraMode === 'follow'
       && options.duration === next.duration && options.followZoomPreset === next.followZoomPreset
@@ -230,6 +234,10 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
 
   const drawRequestedFrame = async (request: FrameRequest) => {
     applyOptions(request.options);
+    dayFontsReady ??= (options.routeMarkerMode ?? 'day') === 'day'
+      ? loadDayMarkerFonts(options.dayMarkers ?? [], options.annotationStyle) : Promise.resolve();
+    await dayFontsReady;
+    if (!isCurrent(request)) return;
     if (videoMap.hasError()) invalidateBackgrounds();
     if (!balloonsResolved) {
       // Match MP4's migration camera even when the first request is mid-video.
