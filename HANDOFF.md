@@ -1,5 +1,13 @@
 # HANDOFF
 
+## Reusable video map session — v1.3 Step 3-A (2026-10-16)
+
+- Step 2-Bコミット `e491637` を基準に同じ `feature/video-editor-v13` で実装。`src/video/videoMapSession.ts` が `createVideoMapSession(container, signal?)` を公開し、返り値の `prepare(camera, move = true)` / `dispose()` / `hasError()` を従来どおり利用する。React・MP4エンコーダーへの依存はない。
+- セッションは必要時に最大1個のMapLibreを生成・再利用。既存GSI_STYLE・カメラ・pixelRatio等、地形色フォールバック、style待機と `waitForExportViewportReady()` の必須ソース／idle判定、20秒timeout、失敗地図を解放して1回再試行、AbortSignalと日本語エラーをそのまま移動。disposeはerror listener・Map・参照を解放してエラーを初期化し、再度呼んでも安全。
+- `renderer.ts` は独立モジュールをimportするだけで、Overviewの初期／開始Zoom／固定背景取得後の解放と、Followの初期／カメラ変更時準備・背景キー／lastIntroFrame判定、双方のfinallyを維持。Step 1・2-A・2-Bの計算／Canvas合成は未変更。
+- Step 3-Bへ：コンテナの作成・配置・寸法・削除、背景キャッシュとImageBitmapの寿命管理は呼び出し側の責務。prepareは逐次awaitし、返却された準備済みMapで投影・背景取得する。非同期シークの競合制御やキューは未実装（Step 3-Cの対象）。プレビューUI・新規DOM・Step 3-B以降は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
 ## Shared frame composition — v1.3 Step 2-B (2026-10-16)
 
 - Step 1・2-Aコミット済みの `feature/video-editor-v13`（`e3a3ae6`）を基準に実装。新規 `src/video/frameRenderer.ts` の `drawVideoFrame(context, scene: VideoFrameScene)` が、背景→ルート→現在地→時計→バルーン→DAY／START・GOAL→HUD→出典のCanvas合成を担当。Step 2-Aと既存annotationCanvas／routeClock／distanceHudの描画を再利用する。
