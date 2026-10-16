@@ -1,5 +1,5 @@
 import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
-import { ANNOTATION_BASE_METRICS, type AnnotationStyle } from './annotationStyle';
+import { ANNOTATION_BASE_METRICS, annotationMinimumWidth, type AnnotationStyle } from './annotationStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
 export interface CanvasAnnotation { pointId?: string; label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
@@ -12,8 +12,8 @@ export function annotationFramePosition(rect: { left: number; top: number; width
   return { x: (rect.left + rect.width / 2) / WIDTH, y: (rect.top + rect.height / 2) / HEIGHT };
 }
 
-export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true) {
-  const scale = style.balloonScale;
+export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true, purpose: 'video' | 'spot' = 'video') {
+  const scale = purpose === 'spot' ? style.balloonScale : 1;
   const fontSize = ANNOTATION_BASE_METRICS.fontSize * style.fontScale;
   const paddingX = ANNOTATION_BASE_METRICS.paddingX * scale;
   const paddingY = ANNOTATION_BASE_METRICS.paddingY * scale;
@@ -29,7 +29,10 @@ export function annotationLayout(context: CanvasRenderingContext2D, annotation: 
     while (characters.length && context.measureText(`${characters.join('')}…`).width > maxTextWidth) characters.pop();
     label = `${characters.join('')}…`;
   }
-  const width = context.measureText(label).width + paddingX * 2;
+  const textWidth = context.measureText(label).width;
+  const minimumWidth = purpose === 'spot' ? 0 : annotationMinimumWidth(style, 'balloon');
+  const autoWidth = textWidth + paddingX * 2;
+  const width = purpose === 'spot' ? autoWidth : Math.min(WIDTH - margin * 2, Math.max(autoWidth, minimumWidth));
   const radius = Math.min(10 * scale, width / 4);
   const pointerSize = Math.min(12 * scale, width / 8);
   const height = fontSize * 1.4 + paddingY * 2;
@@ -51,7 +54,8 @@ export function annotationLayout(context: CanvasRenderingContext2D, annotation: 
     ({ left, top } = placedPopupRect({ x: annotation.framePosition.x * WIDTH, y: annotation.framePosition.y * HEIGHT },
       { offsetX: 0, offsetY: 0 }, width, height, WIDTH, bottom, margin));
   }
-  return { scale, fontSize, paddingX, label, width, height, radius, pointerSize, left, top, below: clamp && !annotation.framePosition ? below : false };
+  return { scale, fontSize, paddingX: minimumWidth ? (width - textWidth) / 2 : paddingX, label, width, height, radius, pointerSize, left, top,
+    below: clamp && !annotation.framePosition ? below : false };
 }
 
 export function drawAnnotation(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, layout?: ReturnType<typeof annotationLayout>) {

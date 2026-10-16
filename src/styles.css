@@ -105,6 +105,9 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .annotation-style-controls .annotation-style-value { float: right; }
 .annotation-style-controls input { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--orange); }
 .annotation-style-item { display: grid; }
+.annotation-minimum-targets { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.annotation-minimum-targets label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 4px; }
+.annotation-minimum-targets input { width: 18px; height: 18px; min-height: 0; flex-shrink: 0; }
 .animation-range-actions { display: grid; gap: 6px; margin-top: 6px; }
 .animation-range-actions .secondary-button { padding: 0 8px; }
 .raw-detail > button { border: 0; background: none; position: absolute; right: 8px; top: 7px; color: #7b8795; cursor: pointer; }

@@ -76,7 +76,7 @@ export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy
       <section className="panel-section">
         <div className="section-heading"><span className="step">03</span><div><h2>画像設定</h2><p>PNG · 1920 × 1080</p></div></div>
         <div className="annotation-style-controls">{(['balloonScale', 'fontScale'] as const).map((key) => <div className="annotation-style-item" key={key}>
-          <div className="control-label-with-help"><label htmlFor={`spot-${key}`}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(style[key] * 100)}%</span></label><HelpTip helpKey={key === 'balloonScale' ? 'balloonScale' : 'balloonFontScale'} /></div>
+          <div className="control-label-with-help"><label htmlFor={`spot-${key}`}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(style[key] * 100)}%</span></label><HelpTip helpKey={key === 'balloonScale' ? 'spotBalloonScale' : 'balloonFontScale'} /></div>
           <input id={`spot-${key}`} type="range" min="50" max="200" step="10" value={style[key] * 100} disabled={busy} onChange={(event) => setStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
         </div>)}</div>
         <button disabled={!bounds || busy} onClick={() => setFitRequest((value) => value + 1)}>指定範囲に合わせる</button>

@@ -1,5 +1,5 @@
 import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
-import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
+import { DEFAULT_ANNOTATION_STYLE, annotationMinimumWidth, parseAnnotationStyle } from '../route/annotationStyle';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
 import type { RoutePoint } from '../timeline/types';
 import { balloonPauseSeconds } from './balloonPauses';
@@ -43,7 +43,9 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
     route: options.points.map(geometry),
     recordedTimes: options.recordedTimeClockEnabled ? options.points.map((point) => point.timestamp ?? null) : null,
     annotations,
-    annotationStyle: annotations.some(Boolean) || (mode === 'day' && markers.length > 0) ? [style.balloonScale, style.fontScale] : null,
+    annotationStyle: annotations.some(Boolean) || (mode === 'day' && markers.length > 0) ? [style.fontScale,
+      mode === 'day' && markers.length > 0 ? annotationMinimumWidth(style, 'day') : 0,
+      annotations.some(Boolean) ? annotationMinimumWidth(style, 'balloon') : 0] : null,
     pauses: balloonPauseSeconds(options.points, options.dayMarkers ?? [], mode, options.commonPauseSeconds ?? 0),
     duration: options.duration,
     preRoll, postRoll: normalizePauseSeconds(options.postRollSeconds ?? DEFAULT_POST_ROLL_SECONDS),
@@ -95,7 +97,7 @@ export function captureVideoOutputOptions(options: VideoOutputOptions): VideoOut
       })) : undefined,
     endpointMarkerPlacements: { START: copyPlacement(options.endpointMarkerPlacements?.START), GOAL: copyPlacement(options.endpointMarkerPlacements?.GOAL) },
     endpointMarkerFramePositions: { START: copyFramePosition(options.endpointMarkerFramePositions?.START), GOAL: copyFramePosition(options.endpointMarkerFramePositions?.GOAL) },
-    annotationStyle: options.annotationStyle ? { ...options.annotationStyle } : undefined,
+    annotationStyle: options.annotationStyle ? parseAnnotationStyle(options.annotationStyle) : undefined,
     overviewCamera: options.overviewCamera ? { ...options.overviewCamera } : undefined,
     followCameraPlan: undefined,
     distanceHud: hud && hudPoints ? {

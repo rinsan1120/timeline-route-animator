@@ -57,7 +57,7 @@ export async function renderSpotImage(points: RoutePoint[], bounds: ImageBounds,
     const annotations = () => targets.map((point) => {
       const annotation = { label: point.annotation?.label ?? '', placement: point.annotation?.placement,
         pixel: imageMap.project([longitudeInBounds(point.longitude, bounds), point.latitude]) };
-      return { annotation, layout: annotationLayout(context, annotation, style, false) };
+      return { annotation, layout: annotationLayout(context, annotation, style, false, 'spot') };
     });
     const fits = () => annotations().every(({ annotation, layout }) => {
       const { x, y } = annotation.pixel;

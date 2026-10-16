@@ -532,8 +532,10 @@ export default function App() {
     // Normal balloon coordinate initialization may replace the points array
     // while leaving every marker reference-frame input unchanged.
     const sameInputs = markerConversionTokenRef.current === markerConversionToken || sameFramePlanInputs(input, current)
-      && input.annotationStyle?.balloonScale === current.annotationStyle?.balloonScale
       && input.annotationStyle?.fontScale === current.annotationStyle?.fontScale
+      && input.annotationStyle?.minimumWidth === current.annotationStyle?.minimumWidth
+      && input.annotationStyle?.minimumWidthForDay === current.annotationStyle?.minimumWidthForDay
+      && input.annotationStyle?.minimumWidthForBalloon === current.annotationStyle?.minimumWidthForBalloon
       && (input.dayMarkers ?? []).every((marker, index) => {
         const next = current.dayMarkers?.[index];
         return next && marker.pointId === next.pointId && marker.date === next.date && marker.note === next.note
@@ -1538,16 +1540,28 @@ export default function App() {
             </div>
             <div className="annotation-style-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <h3>バルーン表示</h3>
-              {(['balloonScale', 'fontScale'] as const).map((key) => {
-                const inputId = key === 'balloonScale' ? 'annotation-balloon-scale' : 'annotation-font-scale';
-                return <div className="annotation-style-item" key={key}>
-                  <div className="control-label-with-help">
-                    <label htmlFor={inputId}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(annotationStyle[key] * 100)}%</span></label>
-                    <HelpTip helpKey={key === 'balloonScale' ? 'balloonScale' : 'balloonFontScale'} />
-                  </div>
-                  <input id={inputId} type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} disabled={busy || !!videoProgress} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
-                </div>;
-              })}
+              <div className="annotation-style-item">
+                <div className="control-label-with-help">
+                  <label htmlFor="annotation-font-scale">文字サイズ <span className="annotation-style-value">{Math.round(annotationStyle.fontScale * 100)}%</span></label>
+                  <HelpTip helpKey="balloonFontScale" />
+                </div>
+                <input id="annotation-font-scale" type="range" min="50" max="200" step="10" value={Math.round(annotationStyle.fontScale * 100)} disabled={busy || !!videoProgress}
+                  onChange={(event) => setAnnotationStyle((current) => ({ ...current, fontScale: Number(event.target.value) / 100 }))} />
+              </div>
+              <div className="annotation-style-item">
+                <div className="control-label-with-help">
+                  <label htmlFor="annotation-minimum-width">バルーンの最小幅 <span className="annotation-style-value">{annotationStyle.minimumWidth ?? DEFAULT_ANNOTATION_STYLE.minimumWidth}px</span></label>
+                  <HelpTip helpKey="balloonMinimumWidth" />
+                </div>
+                <input id="annotation-minimum-width" type="range" min="160" max="440" step="10" value={annotationStyle.minimumWidth ?? DEFAULT_ANNOTATION_STYLE.minimumWidth} disabled={busy || !!videoProgress}
+                  onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidth: Number(event.target.value) }))} />
+                <div className="annotation-minimum-targets" role="group" aria-label="最小幅の適用対象">
+                  <label><input type="checkbox" checked={annotationStyle.minimumWidthForDay ?? false} disabled={busy || !!videoProgress}
+                    onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidthForDay: event.target.checked }))} />DAYマーカー</label>
+                  <label><input type="checkbox" checked={annotationStyle.minimumWidthForBalloon ?? false} disabled={busy || !!videoProgress}
+                    onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidthForBalloon: event.target.checked }))} />通常バルーン</label>
+                </div>
+              </div>
             </div>
             <button className="preview-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId || animationPoints.length < 2} onClick={openVideoWorkspace}>映像で確認</button>
             <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={() => void generateVideo()}>{videoNeedsRegeneration ? 'MP4を再生成' : 'MP4を生成'}</button>

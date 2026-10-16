@@ -1,7 +1,7 @@
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 import { nearestPointOnRect, POPUP_PLACEMENT_VIEWPORT, popupDisplayScale } from '../popup/placement';
 import { dayRouteColor } from './dayRouteColor';
-import { ANNOTATION_BASE_METRICS, DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './annotationStyle';
+import { ANNOTATION_BASE_METRICS, DEFAULT_ANNOTATION_STYLE, annotationMinimumWidth, type AnnotationStyle } from './annotationStyle';
 import type { DayMarker } from './tripRoute';
 
 // Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
@@ -80,11 +80,10 @@ export function dayMarkerColors(dayNumber: number, dayRouteColorsEnabled: boolea
 export function dayMarkerStyle(annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
   const style = { ...VIDEO_DAY_STYLE } as Record<keyof typeof VIDEO_DAY_STYLE, number>;
   for (const key of Object.keys(style) as (keyof typeof style)[]) {
-    // Viewport limits stay fixed; text and balloon geometry use independent scales.
-    if (key === 'margin' || key === 'bottomMargin') continue;
     const text = key === 'dayFont' || key === 'dateFont' || key === 'noteFont' || key === 'daySpacing' || key === 'dateSpacing';
-    style[key] *= text ? annotationStyle.fontScale : annotationStyle.balloonScale;
+    if (text) style[key] *= annotationStyle.fontScale;
   }
+  style.minWidth = annotationMinimumWidth(annotationStyle, 'day');
   return style;
 }
 

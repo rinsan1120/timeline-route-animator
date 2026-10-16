@@ -1,7 +1,7 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
 import { isBalloonFramePosition, parseMarkerFramePositions } from '../popup/placement';
 import type { BalloonFramePosition, EndpointMarkerFramePositions, EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
-import type { AnnotationStyle } from '../route/annotationStyle';
+import { parseAnnotationStyle, type AnnotationStyle } from '../route/annotationStyle';
 import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
 import type { RoutePoint } from '../timeline/types';
 
@@ -39,7 +39,7 @@ export function serializePlanFile(state: PlanState, savedAt = new Date()): strin
     planDayNotes: state.planDayNotes,
     dayMarkerPlacements: state.dayMarkerPlacements,
     ...(state.videoSettings !== undefined ? { videoSettings: parseVideoSettings(state.videoSettings) } : {}),
-    ...(state.annotationStyle !== undefined ? { annotationStyle: state.annotationStyle } : {}),
+    ...(state.annotationStyle !== undefined ? { annotationStyle: parseAnnotationStyle(state.annotationStyle) } : {}),
     ...(state.animationStartPointId !== undefined ? { animationStartPointId: state.animationStartPointId } : {}),
     ...(state.animationEndPointId !== undefined ? { animationEndPointId: state.animationEndPointId } : {}),
     ...(state.endpointMarkerPlacements !== undefined ? { endpointMarkerPlacements: state.endpointMarkerPlacements } : {}),
@@ -136,10 +136,8 @@ export function parsePlanFile(text: string): PlanState {
     catch { throw new Error(PLAN_FILE_ERROR); }
   }
   if (data.annotationStyle !== undefined) {
-    if (!isRecord(data.annotationStyle)
-      || !isFiniteNumber(data.annotationStyle.balloonScale) || data.annotationStyle.balloonScale < 0.5 || data.annotationStyle.balloonScale > 2
-      || !isFiniteNumber(data.annotationStyle.fontScale) || data.annotationStyle.fontScale < 0.5 || data.annotationStyle.fontScale > 2) throw new Error(PLAN_FILE_ERROR);
-    state.annotationStyle = { balloonScale: data.annotationStyle.balloonScale, fontScale: data.annotationStyle.fontScale };
+    try { state.annotationStyle = parseAnnotationStyle(data.annotationStyle); }
+    catch { throw new Error(PLAN_FILE_ERROR); }
   }
   const ids = new Set(points.map((point) => point.id));
   for (const key of ['animationStartPointId', 'animationEndPointId'] as const) {

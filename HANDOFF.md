@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Balloon minimum width / fixed decoration size
+
+- 動画の「バルーンサイズ」を削除し、装飾寸法を従来100%へ固定。fontScaleは50〜200%・10%刻み・初期100%とDOM id annotation-font-scaleを維持。既存領域内へ「バルーンの最小幅」（160〜440px・10px刻み・初期280px）、DAY／通常バルーンの独立した適用チェック（初期は両方OFF）を追加。チェックのタップ領域を44px以上とし、狭い幅では折り返す。
+- annotationStyleにminimumWidth／minimumWidthForDay／minimumWidthForBalloonを追加。型の追加項目は既存の呼出し元との互換のため任意とし、DEFAULTと共通parseAnnotationStyleでは全項目を確定する。作業／計画JSONとも既存の有効なballoonScaleを受理して1へ正規化し、新項目がなければ280／false／false。新項目は有限数と範囲／boolean型を検証。保存時も正規化し、format／version:1は維持。読込基準は正規化後の値なので、この自動移行だけでは未保存警告を出さない。旧倍率が100%以外の動画作品は意図的に外観が変わる。
+- 動画DAYは現行の実測最大行幅＋余白と指定最小幅の大きい方を採用し、既存フレーム上限を優先。補足1行・文字階層・中央配置と地図編集用DAYの寸法は維持。通常バルーンも共通annotationLayoutで同じ下限を適用し、増えた左右余白を均等に配分する。適用OFFは自動幅。fontScale以外の余白／装飾倍率は常に1。プレビュー／MP4／ドラッグの実矩形は既存共通経路を使い、保存済み固定中心や地理地点、履歴を再計算・上書きしない。
+- MP4鮮度比較は可変balloonScaleを除外し、fontScaleと出力対象に適用ONの最小幅だけを含める。対象のない種類と適用OFFの幅変更は比較へ入れない。生成時コピーも共通正規化を使う。未保存比較は適用OFFも含む全設定を保存基準と比較し、表示設定をUndo／Redoへ追加しない。幅変更では既存FramePlan／背景キャッシュを再利用する。
+- 対象外のSTART／GOAL・HUD・時計・地図編集用DAY・スポット画像は維持。スポットの既存バルーンサイズ操作とPNGは専用purposeで旧寸法倍率を使い、新最小幅を適用しない。廃止した動画サイズヘルプを最小幅ヘルプへ置換し、スポット既存サイズには専用ヘルプキーを使用。READMEは保存項目と旧倍率移行の説明だけ更新。
+- 第2回の旧DAYレイアウト記録・markerFramePositionsの互換計算、第3回の共通履歴、第4回のドラフト／確定／キャンセル処理は変更しない。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
 ## Direct frame marker editing — V1.3 第4回
 
 - 映像タブの編集ガイドON・停止中・描画完了時に、通常バルーンに加えDAY、表示中のSTART／GOAL、ONの距離HUDを直接配置できる。VideoMarkerOverlayは公開済みsceneだけから透明ボタンを作り、未到達GOAL等を追加しない。DOM順をCanvasの通常バルーン→DAY→端点→HUDと合わせ、重なった部分は後に描画する対象を優先。重なったDAYは手前を動かして露出させるか、Tabで各対象にフォーカスして方向キーで調整できる。
