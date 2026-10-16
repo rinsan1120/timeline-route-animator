@@ -1,19 +1,22 @@
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 import { nearestPointOnRect, POPUP_PLACEMENT_VIEWPORT, popupDisplayScale } from '../popup/placement';
 import { dayRouteColor } from './dayRouteColor';
+import { ANNOTATION_BASE_METRICS, DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './annotationStyle';
 import type { DayMarker } from './tripRoute';
 
 // Logical pixels in the 1920 x 1080 video. Editing alone may preserve CSS sizes.
 const VIDEO_DAY_STYLE = {
-  minWidth: 230, noteMaxWidth: 370, paddingX: 24, paddingTop: 17, paddingBottom: 15,
-  dayFont: 24, dateFont: 17, noteFont: 19, daySpacing: 1.9, dateSpacing: 0.85,
+  minWidth: 0, noteMaxWidth: 370,
+  paddingX: ANNOTATION_BASE_METRICS.paddingX, paddingTop: ANNOTATION_BASE_METRICS.paddingY, paddingBottom: ANNOTATION_BASE_METRICS.paddingY,
+  dayFont: ANNOTATION_BASE_METRICS.fontSize, dateFont: ANNOTATION_BASE_METRICS.fontSize * 17 / 24,
+  noteFont: ANNOTATION_BASE_METRICS.fontSize * 19 / 24, daySpacing: 1.9, dateSpacing: 0.85,
   border: 3.4, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
   connectorWidth: 3.4, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
   manualConnectorWidth: 6.8, manualAnchorRadius: 8.5, anchorBorder: 3.4,
   shadowBlur: 24, shadowOffsetY: 6.8, margin: 8, bottomMargin: 54,
 } as const;
 
-// Editing CSS dimensions are independent of the fixed video design.
+// Editing CSS dimensions are independent of video output scales.
 const EDITING_DAY_STYLE = {
   minWidth: 138, noteMaxWidth: 220, paddingX: 14, paddingTop: 10, paddingBottom: 9,
   dayFont: 14, dateFont: 10, noteFont: 11, daySpacing: 1.12, dateSpacing: 0.5,
@@ -35,8 +38,15 @@ export function dayMarkerColors(dayNumber: number, dayRouteColorsEnabled: boolea
   return { ...DAY_MARKER_COLORS, outline: accent, anchor: accent };
 }
 
-export function dayMarkerStyle() {
-  return { ...VIDEO_DAY_STYLE };
+export function dayMarkerStyle(annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
+  const style = { ...VIDEO_DAY_STYLE } as Record<keyof typeof VIDEO_DAY_STYLE, number>;
+  for (const key of Object.keys(style) as (keyof typeof style)[]) {
+    // Viewport limits stay fixed; text and balloon geometry use independent scales.
+    if (key === 'margin' || key === 'bottomMargin') continue;
+    const text = key === 'dayFont' || key === 'dateFont' || key === 'noteFont' || key === 'daySpacing' || key === 'dateSpacing';
+    style[key] *= text ? annotationStyle.fontScale : annotationStyle.balloonScale;
+  }
+  return style;
 }
 
 export function dayMarkerEditingStyle(editingScale = 1) {
@@ -49,8 +59,8 @@ export function dayMarkerEditingStyle(editingScale = 1) {
 }
 
 // Video and preview always share this device-independent layout.
-export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D) {
-  return layoutDayMarker(marker, context, VIDEO_VIEWPORT, dayMarkerStyle());
+export function dayMarkerLayout(marker: Pick<DayMarker, 'dayNumber' | 'date' | 'note'>, context: CanvasRenderingContext2D, annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
+  return layoutDayMarker(marker, context, VIDEO_VIEWPORT, dayMarkerStyle(annotationStyle));
 }
 
 // Preserve readable, draggable CSS dimensions only outside video preview.

@@ -42,7 +42,7 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
     route: options.points.map(geometry),
     recordedTimes: options.recordedTimeClockEnabled ? options.points.map((point) => point.timestamp ?? null) : null,
     annotations,
-    annotationStyle: annotations.some(Boolean) ? [style.balloonScale, style.fontScale] : null,
+    annotationStyle: annotations.some(Boolean) || (mode === 'day' && markers.length > 0) ? [style.balloonScale, style.fontScale] : null,
     pauses: balloonPauseSeconds(options.points, options.dayMarkers ?? [], mode, options.commonPauseSeconds ?? 0),
     duration: options.duration,
     preRoll, postRoll: normalizePauseSeconds(options.postRollSeconds ?? DEFAULT_POST_ROLL_SECONDS),

@@ -1,5 +1,5 @@
 import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
-import type { AnnotationStyle } from './annotationStyle';
+import { ANNOTATION_BASE_METRICS, type AnnotationStyle } from './annotationStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
 export interface CanvasAnnotation { pointId?: string; label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
@@ -14,9 +14,9 @@ export function annotationFramePosition(rect: { left: number; top: number; width
 
 export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true) {
   const scale = style.balloonScale;
-  const fontSize = 28 * style.fontScale;
-  const paddingX = 20 * scale;
-  const paddingY = 16 * scale;
+  const fontSize = ANNOTATION_BASE_METRICS.fontSize * style.fontScale;
+  const paddingX = ANNOTATION_BASE_METRICS.paddingX * scale;
+  const paddingY = ANNOTATION_BASE_METRICS.paddingY * scale;
   const gap = 40 * scale;
   const margin = 24;
   // Reserve the bottom strip for attribution, which is drawn last.

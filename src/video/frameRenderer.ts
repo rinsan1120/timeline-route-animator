@@ -44,7 +44,7 @@ export function drawVideoFrame(context: CanvasRenderingContext2D, scene: VideoFr
   drawCurrentPositionMarker(context, x, y);
   drawRouteClock(context, scene.clockText, x, y);
   for (const annotation of scene.annotations) drawAnnotation(context, annotation, scene.annotationStyle);
-  for (const dayMarker of scene.dayMarkers) drawDayMarker(context, dayMarker, scene.dayRouteColorsEnabled);
+  for (const dayMarker of scene.dayMarkers) drawDayMarker(context, dayMarker, scene.dayRouteColorsEnabled, scene.annotationStyle);
   for (const endpoint of scene.endpointMarkers) drawEndpointMarker(context, endpoint.pixel, endpoint.label, endpoint.placement);
   if (scene.distanceHud) drawDistanceHud(context, scene.distanceHud.progress, scene.distanceHud.options);
   // Intentionally keep the existing Canvas state inheritance and draw this last.

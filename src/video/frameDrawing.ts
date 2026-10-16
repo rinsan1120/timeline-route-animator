@@ -2,6 +2,7 @@ import { GSI_ATTRIBUTION } from '../map/gsiStyle';
 import { nearestPointOnRect, placedPopupRect, type PopupPlacement } from '../popup/placement';
 import { DAY_MARKER_FONT_FAMILY, dayMarkerColors, dayMarkerConnector, dayMarkerLayout } from '../route/dayMarkerStyle';
 import type { DayMarker } from '../route/tripRoute';
+import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from '../route/annotationStyle';
 import { VIDEO_VIEWPORT } from './overviewCamera';
 
 const WIDTH = VIDEO_VIEWPORT.width;
@@ -15,9 +16,9 @@ export interface VideoDayMarker extends DayMarker {
 }
 
 
-export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, dayRouteColorsEnabled: boolean) {
+export function drawDayMarker(context: CanvasRenderingContext2D, marker: VideoDayMarker, dayRouteColorsEnabled: boolean, annotationStyle: AnnotationStyle = DEFAULT_ANNOTATION_STYLE) {
   context.save();
-  const { width, height, style, rows } = dayMarkerLayout(marker, context);
+  const { width, height, style, rows } = dayMarkerLayout(marker, context, annotationStyle);
   const colors = dayMarkerColors(marker.dayNumber, dayRouteColorsEnabled);
   const margin = style.margin;
   const bottom = HEIGHT - style.bottomMargin;

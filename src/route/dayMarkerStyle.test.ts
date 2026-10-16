@@ -50,16 +50,16 @@ describe('DAY marker video coordinates', () => {
       vi.stubGlobal('window', { innerWidth: width, innerHeight: height, devicePixelRatio });
       const layout = dayMarkerLayout(marker, measureContext());
       expect(layout).toEqual(expected);
-      expect(layout.width).toBe(230);
-      expect(layout.height).toBe(121);
-      expect(layout.rows.map(row => row.fontSize)).toEqual([24, 17, 19]);
+      expect(layout.width).toBe(155);
+      expect(layout.height).toBe(134);
+      expect(layout.rows.map(row => row.fontSize)).toEqual([28, 28 * 17 / 24, 28 * 19 / 24]);
       expect(layout.style).toMatchObject({ border: 3.4, connectorWidth: 3.4, connectorLength: 30,
         anchorRadius: 5, anchorBorder: 3.4, manualConnectorWidth: 6.8, manualAnchorRadius: 8.5,
         shadowBlur: 24, shadowOffsetY: 6.8 });
       const rect = { left: 100, top: 100, width: layout.width, height: layout.height };
       const connector = dayMarkerConnector(rect, { x: 150, y: 220 }, false, false, layout.style);
-      expect(connector).toMatchObject({ start: { x: 150, y: 221 }, end: { x: 150, y: 251 },
-        dot: { x: 150, y: 255 }, width: 3.4, radius: 5 });
+      expect(connector).toMatchObject({ start: { x: 150, y: 234 }, end: { x: 150, y: 264 },
+        dot: { x: 150, y: 268 }, width: 3.4, radius: 5 });
     },
   );
 
@@ -81,7 +81,7 @@ describe('DAY marker video coordinates', () => {
     const layout = dayMarkerLayout({ ...marker, note: '長い補足文'.repeat(40) }, measureContext());
     expect(layout.rows[2].text.endsWith('…')).toBe(true);
     expect(layout.rows[2].textWidth).toBeLessThanOrEqual(dayMarkerStyle().noteMaxWidth);
-    expect(dayMarkerLayout({ dayNumber: 1 }, measureContext()).height).toBe(69);
+    expect(dayMarkerLayout({ dayNumber: 1 }, measureContext()).height).toBe(74);
   });
 });
 

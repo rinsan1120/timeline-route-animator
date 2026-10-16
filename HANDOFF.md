@@ -1,5 +1,34 @@
 # HANDOFF
 
+## Shared DAY / balloon video sizing — V1.3 第1回
+
+- 通常バルーン基準の文字28px・左右余白20px・上下余白16pxをannotationStyle.tsで共通化。DAY動画の固定最小幅230pxを廃止し、文字実測から幅・行数から高さを計算する。日付／補足の文字サイズ比率は見出しの17/24・19/24を維持。
+- 共通balloonScaleでDAYの余白・枠・角丸・行間・接続線・影・補足幅上限等を、fontScaleで文字と字間を倍率計算する。画面端margin／bottomMarginは固定。drawVideoFrameのscene.annotationStyleをDAYまで渡すため、全体表示・追従・開始時Zoomとプレビュー／MP4は同じ計算を使う。地図編集用DAY寸法・編集表示倍率は独立のまま。
+- MP4鮮度比較は、出力ルート内にDAYがありrouteMarkerModeがdayの場合も共通倍率を含める。通常バルーンも出力対象DAYもなければ倍率を比較しない。保存形式・位置情報・カメラ・投影・時間軸・背景キャッシュは変更しない。
+- テスト追加・実行、ビルド、ブラウザ／実機確認は依頼に沿い未実施。既存DAYレイアウトテストの旧寸法期待値のみ新しい既定寸法に更新。
+
+### 第2回の旧JSON座標変換用：変更前のDAY動画レイアウト
+
+以下は今回の共通倍率適用前の定数（参照：commit 6531dbaのdayMarkerStyle.ts／frameDrawing.ts／popup/placement.ts）。旧動画の矩形を再現する際は新しいdayMarkerLayoutをそのまま使わず、この旧値と旧ルールを使うこと。旧DAY動画寸法はannotationStyleの倍率を受けていなかった。地図編集用寸法や端末CSS寸法を変換基準にしない。文字実測には旧動画と同じフォントの読み込み状態も必要。
+
+```ts
+const LEGACY_VIDEO_DAY_STYLE = {
+  minWidth: 230, noteMaxWidth: 370, paddingX: 24, paddingTop: 17, paddingBottom: 15,
+  dayFont: 24, dateFont: 17, noteFont: 19, daySpacing: 1.9, dateSpacing: 0.85,
+  border: 3.4, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
+  connectorWidth: 3.4, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
+  manualConnectorWidth: 6.8, manualAnchorRadius: 8.5, anchorBorder: 3.4,
+  shadowBlur: 24, shadowOffsetY: 6.8, margin: 8, bottomMargin: 54,
+};
+```
+
+- 基準は1920×1080、popupDisplayScaleは1。フォントは`"DM Sans", "Noto Sans JP", system-ui, sans-serif`。行順は`DAY ${dayNumber}`（weight 700、24px、字間1.9）、存在する日付（ハイフンをドットへ置換、weight 600、17px、字間0.85）、存在する補足（weight 400、19px、字間0）。各行高はfontSize×1.25。
+- 文字実測幅は`context.measureText(text).width + Array.from(text).length * spacing`（末尾分の字間も含む）。全体幅上限は1904。行の利用可能幅は`1904 - 2 * (3.4 + 24)`、補足のみさらに370で制限。超過時は末尾の文字を削り「…」付きで収まるまで省略する。
+- 幅は`ceil(min(1904, max(230, 最大行実測幅 + 2 * (3.4 + 24))))`。高さは`ceil(17 + 15 + 2 * 3.4 + 各行高の合計 + (行数 - 1) * 3.4)`。各行の中心Yはborder＋paddingTopから行高の半分を足し、次行へ行高＋rowGapを進める。
+- 投影地点を`(x,y)`、旧矩形を`(w,h)`とする。自動配置のleftは`clamp(x - w/2, 8, 1920 - 8 - w)`。`y - h - 40 < 8`なら下側、そうでなければ上側。topは`clamp(下側 ? y + 40 : y - h - 40, 8, 1026 - h)`。
+- 旧placementがある場合は自動配置を上書きし、leftは`clamp(x + offsetX - w/2, 8, 1920 - w - 8)`、topは`clamp(y + offsetY - h/2, 8, 1026 - h)`。clampは現行placedPopupRect同様の`max(minimum, min(maximum, value))`。画面固定座標へ変換する場合は、この旧矩形の中心を基準フレーム内で算出する必要がある。
+- 自動接続線のXは地点Xを矩形の左右20px内側へ制限。上配置なら矩形下辺から下へ30px（丸印中心は34px）、下配置なら矩形上辺から上へ同量。手動placementでは矩形上の地点に最も近い点から投影地点まで接続し、丸印も投影地点。旧JSONの変換と新しい配置情報の追加は今回未実装。
+
 ## Independent STEP panels (Issue #15)
 
 - MobileBottomSheetのsteps定義をPC／スマホ共通のSTEP切替に使用。選択中のSTEPだけを表示し、上部の直接選択と下部の戻る／次へを追加。初期・resetKey切替時はSTEP 01へ戻す。
