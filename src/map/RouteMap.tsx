@@ -57,6 +57,7 @@ interface RouteMapProps {
   mobileDayMarkerEditingScale: number;
   distanceHud?: DistanceHudOptions;
   distanceHudDraggable?: boolean;
+  distanceHudDragResetKey?: unknown;
   onDistanceHudPlacement?: (placement: DistanceHudPlacement) => void;
   endpointMarkerPlacements: EndpointMarkerPlacements;
   onAnnotationPlacement: (id: string, placement: PopupPlacement) => void;
@@ -453,7 +454,7 @@ export default function RouteMap(props: RouteMapProps) {
     </div>}
     {props.distanceHud?.settings.enabled && <DistanceHudOverlay hud={{ ...props.distanceHud, dayColorsEnabled }} viewport={videoViewport}
       routeProgress={null}
-      draggable={!!props.distanceHudDraggable} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
+      draggable={!!props.distanceHudDraggable} dragResetKey={props.distanceHudDragResetKey} onPlacement={(placement) => props.onDistanceHudPlacement?.(placement)} />}
     <div className="map-zoom" aria-hidden="true">Zoom {mapZoom.toFixed(1)}</div>
     {mapStatus !== 'ready' && <div className={`map-status ${mapStatus === 'error' ? 'map-status--error' : ''}`}>
       {mapStatus === 'loading' ? <><span className="spinner" />地図を読み込んでいます…</> : <>地図を表示できません。ネットワーク接続を確認してください。</>}

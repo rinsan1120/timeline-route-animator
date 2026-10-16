@@ -1,5 +1,15 @@
 # HANDOFF
 
+## Shared edit Undo / Redo — V1.3 第3回
+
+- Appはhistory.tsのEditSnapshot（points、DAY／端点の旧placementと動画固定座標、HUDのx/y、セッション内の旧DAY互換キー）を単一Reducerのpast／present／futureで管理する。地図・映像の既存ボタンとCtrl／Cmd+Z・Shift+Zは同じ履歴を操作する。スポット編集等の従来の配列形式APIは同じReducerコアのラッパーとして維持し、スポットの仕様は変更しない。
+- 地点と通常バルーンは従来のcommit経路、DAY／START・GOALの地図移動・位置リセットはplacement変更と対象固定座標の無効化を1件でcommitする。無関係な位置は維持。内容が同じcommitは履歴やRedoを変更しない。地図ポップアップのドラッグが開始位置へ戻った場合も確定しない。
+- DistanceHudOverlayはローカルのドラフトだけをPointerMoveで動かし、正常PointerUpの実移動を1回だけ親へ通知する。キャンセル・キャプチャ喪失・非活性化・作品／履歴／レイアウト変更・画面離脱でドラフトとキャプチャを破棄する。HUD位置リセットも1件のcommit。enabled／scaleはAppの別stateで管理し、Undoで巻き戻さない。モデル・サイズ由来の自動clampは履歴を増やさない専用更新。
+- 新規作品・JSON復元は配置と地点をloadでまとめて設定し、過去／未来をクリアする。時間範囲再抽出は従来どおり配置を保持して履歴をクリア。「初期状態」はpointsだけを初期値へ戻すUndo可能な操作であり、DAY／端点／HUDの位置や動画設定をリセットしない。
+- 通常バルーンの自動補完は過去／現在／未来／初期へ従来どおり反映し、共有していた地点配列の参照を維持する。DAY／端点の自動解決も履歴を増やさず、同じルート形状・停止条件・対象placement・旧DAY互換区分の未設定座標だけを補完する。既存固定座標は上書きしない。Undo／Redoを含む確定操作でrevisionを進め、元snapshot照合と既存token／AbortSignalで古い結果を遮断する。第2回の旧寸法・投影・基準フレーム計算は変更しない。
+- 保存は現在の確定値だけを従来のJSONフィールドへ渡す。HUDドラフトと履歴、互換キーは保存しない。既存の未保存比較・MP4鮮度比較・生成時コピーはReducerの現在値を参照する。format／version:1と既存フィールドは変更しない。
+- 第4回の映像上DAY／START・GOAL／HUD直接ドラッグは未実装。実装時もドラフトを保存状態から分離し、PointerUpで対象の固定座標だけを同じcommitへ渡すこと。HUDの履歴位置（x/y）と非履歴設定（enabled／scale）を再統合しないこと。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
 ## DAY / START / GOAL frame positions — V1.3 第2回
 
 - 作業JSON／計画JSONともトップレベルの任意フィールドdayMarkerFramePositionsとendpointMarkerFramePositionsを追加。値は通常バルーンと同じ{x,y}（1920×1080矩形中心の0〜1正規化座標）。DAYキーはTimelineの日付／計画DAY開始地点ID、端点はSTART／GOAL。有限数・範囲と日付／空でないID／端点ラベルを検証する。format／version:1、旧placement、videoSettingsは維持。削除中・出力範囲外のDAY情報も既存メタデータと同様に保持する。

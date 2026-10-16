@@ -44,7 +44,8 @@ export function bindPopupDrag(element: HTMLDivElement, container: HTMLDivElement
     if (!drag || event.pointerId !== drag.id) return;
     if (event.type === 'pointerup') move(event);
     stop(event);
-    const moved = drag.moved;
+    const moved = drag.moved && (element.offsetLeft + element.offsetWidth / 2 !== drag.centerX
+      || element.offsetTop + element.offsetHeight / 2 !== drag.centerY);
     const id = drag.id;
     drag = null;
     element.dataset.dragging = 'false';
