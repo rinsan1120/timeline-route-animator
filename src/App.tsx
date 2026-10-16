@@ -242,6 +242,8 @@ export default function App() {
     setSelectedPointId(id);
   };
   const setBalloonFramePosition = useCallback((id: string, framePosition: BalloonFramePosition) => {
+    const target = points.find((point) => point.id === id)?.annotation;
+    if (!target || target.framePosition && Math.abs(target.framePosition.x - framePosition.x) < 1e-9 && Math.abs(target.framePosition.y - framePosition.y) < 1e-9) return;
     dispatch({ type: 'commit', points: points.map((point) => point.id === id && point.annotation
       ? { ...point, annotation: { ...point.annotation, framePosition } } : point) });
     if (!balloonFrameEditing) setSelectedPointId(id);
@@ -423,6 +425,21 @@ export default function App() {
     setPreviewProgress(null);
     setWorkspaceView('video');
   };
+  const selectVideoBalloon = (id: string) => {
+    setSelectedPointId(id);
+    setSelectedRaw(null);
+    setSelectionCandidateIds([]);
+  };
+  const openSelectedBalloonInVideo = () => {
+    if (!selectedPoint?.annotation?.label || busy || videoProgress || videoPlayer.isEditingBalloon()) return;
+    if (!animationPoints.some((point) => point.id === selectedPoint.id)) {
+      setNotice('この地点はアニメーション対象範囲外です。アニメーション範囲を調整してください。');
+      return;
+    }
+    if (!canShowVideo) { setNotice('動画生成には2点以上のルートが必要です。'); return; }
+    videoPlayer.requestBalloonEvent(selectedPoint.id);
+    openVideoWorkspace();
+  };
   useEffect(() => {
     if (!distanceHudModel) return;
     setDistanceHudSettings((current) => {
@@ -531,7 +548,9 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (workspaceMode === 'spot' || busy || videoProgress) return;
+      if (workspaceMode === 'spot' || busy || videoProgress || videoPlayer.isEditingBalloon()) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
       event.preventDefault();
       dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
@@ -539,7 +558,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [workspaceMode, busy, videoProgress]);
+  }, [workspaceMode, busy, videoProgress, videoPlayer.editingBalloonId]);
 
   useEffect(() => () => {
     abortRef.current?.abort();
@@ -931,7 +950,7 @@ export default function App() {
   };
 
   const generateVideo = async () => {
-    if (busy || videoProgress || abortRef.current) return;
+    if (busy || videoProgress || abortRef.current || videoPlayer.isEditingBalloon()) return;
     setError('');
     let output: VideoOutputOptions;
     let snapshot: string;
@@ -970,7 +989,7 @@ export default function App() {
 
   const saveVideo = async () => {
     const blob = videoBlobRef.current;
-    if (busy || videoProgress) return;
+    if (busy || videoProgress || videoPlayer.isEditingBalloon()) return;
     if (!blob || blob.size === 0 || blob.type !== 'video/mp4') {
       setError('保存できるMP4データがありません。MP4を生成し直してください。');
       return;
@@ -1074,18 +1093,6 @@ export default function App() {
               </div>
               <HelpTip helpKey="mapMode" />
             </div>
-            <div className="control-label-with-help balloon-frame-control">
-              <button className="secondary-button" aria-pressed={balloonFrameEditing}
-                disabled={busy || !!videoProgress || previewProgress !== null || !dayFilteredPoints.some((point) => point.annotation?.label)}
-                onClick={toggleBalloonFrameEditing}>{balloonFrameEditing ? '配置編集を終了' : '動画構図で配置'}</button>
-              <HelpTip helpKey="balloonFramePlacement" />
-            </div>
-            {balloonFrameEditing && <div className="balloon-frame-selection">
-              <label htmlFor="balloon-frame-point">構図を確認する地点</label>
-              <select id="balloon-frame-point" value={selectedPointId ?? ''} onChange={(event) => setSelectedPointId(event.currentTarget.value)}>
-                {dayFilteredPoints.filter((point) => point.annotation?.label).map((point) => <option key={point.id} value={point.id}>{point.annotation!.label}</option>)}
-              </select>
-            </div>}
             {planDistances && <div className="detail-card">
               <strong>概算距離</strong>
               {planDistances.days.map((day) => <span key={day.pointId}>DAY {day.dayNumber}　約 {formatDistance(day.distanceMeters)}</span>)}
@@ -1105,6 +1112,10 @@ export default function App() {
                 {selectedPoint.id === animationPoints[0]?.id && endpointMarkerPlacements.START && <button className="secondary-button" onClick={() => setEndpointPlacement('START')}>START位置をリセット</button>}
                 {selectedPoint.id === animationPoints.at(-1)?.id && endpointMarkerPlacements.GOAL && <button className="secondary-button" onClick={() => setEndpointPlacement('GOAL')}>GOAL位置をリセット</button>}
               </>}
+              {selectedPoint.annotation?.label && <div className="control-label-with-help">
+                <button type="button" className="secondary-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={openSelectedBalloonInVideo}>映像で確認</button>
+                <HelpTip helpKey="videoBalloonEditing" />
+              </div>}
               {editMode && <div className="annotation-editor">
                 <div className="control-label-with-help"><label htmlFor="annotation-label">地点ラベル（最大30文字）</label><HelpTip helpKey="pointLabel" /></div>
                 <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
@@ -1154,7 +1165,7 @@ export default function App() {
             onFocusCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}
             onPointerDownCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}>
             <div className="section-heading"><span className="step">03</span><div><h2>動画を確認・出力する</h2><p>地図からそのままMP4を生成できます。FHD · 30fps · MP4（H.264）</p></div></div>
-            <div className="video-camera-controls" inert={busy || !!videoProgress}>
+            <div className="video-camera-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help"><label>動画のカメラ</label><HelpTip helpKey="cameraMode" /></div>
               <div className="video-mode-options">
                 <button className={cameraMode === 'overview' ? 'active' : ''} aria-pressed={cameraMode === 'overview'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('overview')}>全体表示</button>
@@ -1215,12 +1226,12 @@ export default function App() {
                 <HelpTip helpKey="dayRouteColors" />
               </div>
             </div>
-            {recordedTimeAvailable && <div className="control-label-with-help control-label-with-help--toggle" inert={busy || !!videoProgress}>
+            {recordedTimeAvailable && <div className="control-label-with-help control-label-with-help--toggle" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <label className="toggle-row"><span><strong>実績時刻を表示</strong></span><input type="checkbox" checked={recordedTimeClockEnabled}
                 disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setRecordedTimeClockEnabled(event.target.checked)} /><i /></label>
               <HelpTip helpKey="recordedTimeClock" />
             </div>}
-            <div className="duration-controls" inert={busy || !!videoProgress}>
+            <div className="duration-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help"><label htmlFor="video-duration-range">移動時間</label><HelpTip helpKey="movementDuration" /></div>
               <input id="video-duration-range" type="range" min="5" max="120" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
                 const value = Number(event.currentTarget.value);
@@ -1281,7 +1292,7 @@ export default function App() {
                 <span>※ 出力時間には、移動時間に加えて地点停止・開始前・到着後の時間が含まれます。</span>
               </div>
             </div>
-            <div className="distance-hud-controls" inert={busy || !!videoProgress}>
+            <div className="distance-hud-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help control-label-with-help--toggle">
                 <label className="toggle-row"><span><strong>走行距離表示</strong></span><input type="checkbox" checked={distanceHudSettings.enabled}
                   disabled={previewProgress !== null || !!videoProgress}
@@ -1300,7 +1311,7 @@ export default function App() {
                 <p className="range-note">地図上のHUDをドラッグして位置を変更できます。</p>
               </>}
             </div>
-            <div className="annotation-style-controls" inert={busy || !!videoProgress}>
+            <div className="annotation-style-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <h3>バルーン表示</h3>
               {(['balloonScale', 'fontScale'] as const).map((key) => {
                 const inputId = key === 'balloonScale' ? 'annotation-balloon-scale' : 'annotation-font-scale';
@@ -1313,11 +1324,11 @@ export default function App() {
                 </div>;
               })}
             </div>
-            <button className="preview-button" disabled={busy || !!videoProgress || animationPoints.length < 2} onClick={openVideoWorkspace}>映像で確認</button>
-            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>{videoNeedsRegeneration ? 'MP4を再生成' : 'MP4を生成'}</button>
+            <button className="preview-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId || animationPoints.length < 2} onClick={openVideoWorkspace}>映像で確認</button>
+            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={() => void generateVideo()}>{videoNeedsRegeneration ? 'MP4を再生成' : 'MP4を生成'}</button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
             {videoNeedsRegeneration && <p className="range-note" role="status"><strong>再生成が必要</strong><br />制作内容が変更されました。MP4を再生成してください。</p>}
-            {videoUrl && <button className="download-button" disabled={busy || !!videoProgress || videoNeedsRegeneration} onClick={() => void saveVideo()}>MP4を保存</button>}
+            {videoUrl && <button className="download-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId || videoNeedsRegeneration} onClick={() => void saveVideo()}>MP4を保存</button>}
           </section>
         </MobileBottomSheet>
 
@@ -1341,11 +1352,6 @@ export default function App() {
   <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
   <small>{WORKSPACE_MODE_COPY.timeline.description}</small>
 </button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small></button><button className="plan-button" onClick={startSpotMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small></button></div></div>}
-          {balloonFrameEditing && <nav className="edit-toolbar" aria-label="バルーン配置編集">
-            <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo' })}>元に戻す</button>
-            <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo' })}>やり直す</button>
-            <button onClick={() => setBalloonFrameEditing(false)}>配置編集を終了</button>
-          </nav>}
           {editMode && !balloonFrameEditing && <nav className="edit-toolbar" aria-label="ルート編集">
             <span className="edit-toolbar-item"><button className={!addMode && !insertMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>{workspaceMode === 'plan' && <HelpTip helpKey="planSelect" variant="toolbar" open={openToolbarHelpKey === 'planSelect'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planSelect' : null)} />}</span>
             <span className="edit-toolbar-item"><button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>{workspaceMode === 'plan' && <HelpTip helpKey="planAppend" variant="toolbar" open={openToolbarHelpKey === 'planAppend'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planAppend' : null)} />}</span>
@@ -1360,7 +1366,10 @@ export default function App() {
           </nav>}
         </section>
         </div>
-        {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} />}
+        {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} editingDisabled={busy || !!videoProgress}
+          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon} onCommitBalloon={setBalloonFramePosition}
+          canUndo={!!history.past.length} canRedo={!!history.future.length}
+          onUndo={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }} onRedo={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }} />}
         {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
         {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
         </div>

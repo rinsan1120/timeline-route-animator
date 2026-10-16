@@ -1,10 +1,23 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import HelpTip from '../help/HelpTip';
 import type { VideoPlayer } from './useVideoPlayer';
+import type { BalloonFramePosition } from '../popup/placement';
+import type { AnnotationStyle } from '../route/annotationStyle';
+import { VIDEO_VIEWPORT } from './overviewCamera';
+import VideoBalloonOverlay from './VideoBalloonOverlay';
 
 interface VideoWorkspaceProps {
   player: VideoPlayer;
   suspended: boolean;
+  editingDisabled: boolean;
+  selectedPointId: string | null;
+  annotationStyle: AnnotationStyle;
+  onSelectBalloon: (pointId: string) => void;
+  onCommitBalloon: (pointId: string, position: BalloonFramePosition) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 function formatVideoTime(seconds: number) {
@@ -12,7 +25,8 @@ function formatVideoTime(seconds: number) {
   return `${String(Math.floor(tenths / 600)).padStart(2, '0')}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`;
 }
 
-export default function VideoWorkspace({ player, suspended }: VideoWorkspaceProps) {
+export default function VideoWorkspace({ player, suspended, editingDisabled, selectedPointId, annotationStyle,
+  onSelectBalloon, onCommitBalloon, canUndo, canRedo, onUndo, onRedo }: VideoWorkspaceProps) {
   const { canvasRef, status, error, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId } = player;
   const holderRef = useRef<HTMLDivElement>(null);
   const [frameWidth, setFrameWidth] = useState(0);
@@ -28,7 +42,7 @@ export default function VideoWorkspace({ player, suspended }: VideoWorkspaceProp
     for (const event of events) if (event.frameIndex !== null) groups.set(event.frameIndex, [...(groups.get(event.frameIndex) ?? []), event.name]);
     return [...groups];
   }, [events]);
-  const disabled = suspended || status !== 'ready' || !framePlan;
+  const disabled = suspended || editingDisabled || status !== 'ready' || !framePlan || !!player.editingBalloonId;
   const fps = framePlan?.fps ?? 30;
   const lastFrame = (framePlan?.totalFrames ?? 1) - 1;
   useEffect(() => {
@@ -41,11 +55,22 @@ export default function VideoWorkspace({ player, suspended }: VideoWorkspaceProp
     return () => observer.disconnect();
   }, []);
   return <section className="video-workspace" aria-label="映像画面" aria-busy={!suspended && status === 'preparing'}>
-    <p className="video-workspace-caption">{playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
+    <p className="video-workspace-caption">{player.editingBalloonId ? 'バルーンを配置中（未確定）' : playbackStatus === 'playing' ? '再生中' : '一時停止'}{pendingFrame && player.hasDisplayed ? ` · ${formatVideoTime(playheadFrame / fps)}を準備中` : ''}</p>
     <div className="video-frame-holder" ref={holderRef}>
-      <div className="video-frame" style={{ width: frameWidth }}>
+      <div className="video-frame" style={{ width: frameWidth }} onPointerDown={(event) => {
+        if (editingDisabled || suspended || !player.guidesVisible || playbackStatus !== 'playing' || !player.hasDisplayed || status !== 'ready') return;
+        event.preventDefault();
+        const box = event.currentTarget.getBoundingClientRect();
+        const x = (event.clientX - box.left) / box.width * VIDEO_VIEWPORT.width;
+        const y = (event.clientY - box.top) / box.height * VIDEO_VIEWPORT.height;
+        const target = [...player.pauseForSelection()].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+        if (target) onSelectBalloon(target.pointId);
+      }}>
         <canvas ref={canvasRef} width="1920" height="1080" role="img" aria-label={`動画映像 ${formatVideoTime(displayedFrame / fps)}`}
           style={{ visibility: player.hasDisplayed && !suspended ? 'visible' : 'hidden' }} />
+        <VideoBalloonOverlay player={player} selectedPointId={selectedPointId} annotationStyle={annotationStyle}
+          onSelect={onSelectBalloon} onCommit={onCommitBalloon}
+          enabled={!editingDisabled && !suspended && status === 'ready' && !pendingFrame && player.guidesVisible && playbackStatus === 'paused'} />
       </div>
       {(suspended || status !== 'ready') && <div className="video-frame-status" role={status === 'error' && !suspended ? 'alert' : 'status'}>
         {suspended ? <p>MP4生成中は映像確認を休止しています。</p>
@@ -75,6 +100,13 @@ export default function VideoWorkspace({ player, suspended }: VideoWorkspaceProp
         <button type="button" aria-expanded={listOpen} aria-controls={listId} onClick={() => setListOpen(!listOpen)}>一覧{listOpen ? 'を閉じる' : 'を開く'}</button>
       </div>
       <p className="video-selected-event" aria-live="polite">{selected ? `${selected.kind === 'balloon' ? 'バルーン：' : ''}${selected.name}` : 'イベント未選択'}</p>
+      {player.eventJumpNotice && <p className="video-edit-hint" role="status">{player.eventJumpNotice}</p>}
+      <div className="video-edit-actions">
+        <button type="button" disabled={editingDisabled || suspended} onClick={player.toggleGuides}>{player.guidesVisible ? '編集ガイドを隠す' : '編集ガイドを表示'}</button>
+        <button type="button" disabled={disabled || !canUndo} onClick={onUndo}>元に戻す</button>
+        <button type="button" disabled={disabled || !canRedo} onClick={onRedo}>やり直す</button>
+        <HelpTip helpKey="videoBalloonEditing" variant="toolbar" />
+      </div>
       <div id={listId} className="video-event-list" hidden={!listOpen} role="region" aria-label="動画のイベント一覧">
         {events.map((event) => <div key={event.id} className="video-event-entry">
           <button type="button" disabled={disabled || event.frameIndex === null} aria-pressed={event.id === selectedEventId} onClick={() => player.jumpToEvent(event)}>

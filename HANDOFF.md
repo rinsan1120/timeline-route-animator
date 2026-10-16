@@ -1,5 +1,16 @@
 # HANDOFF
 
+## Direct video balloon editing — v1.3 Step 7 (2026-10-16)
+
+- 共有sceneのバルーンへpointIdを付与し、previewFrameRendererが実際に公開したsceneとFrameStateを保持する。getDisplayedBalloonsはそのsceneの実表示対象とannotationLayoutから1920×1080の矩形を取得。VideoBalloonOverlayは矩形を表示倍率で配置した透明buttonと選択枠のみを持ち、バルーン本体を二重描画しない。選択はAppのselectedPointIdと共有し、DAY／START・GOAL／HUD等は編集しない。再生中の映像タップは公開済みフレームで停止してヒット判定する。
+- popup/frameDragの既存Pointer Capture・位置変換・5px／Shift20pxキー操作を小さく拡張。映像側だけ画面6px閾値、開始／終了通知、実質同位置の除外、確定時のドラフト維持を使用する。旧地図側の既定操作は維持。位置はannotationLayout＋annotationFramePositionで24px／下70pxの既存制限を再利用し、保存は従来のannotation.framePosition。新オーバーレイはMapLibre投影に依存しない。
+- ドラッグ中は公開sceneの背景・ルート・地点投影・カメラ・フレームを固定し、renderer.previewBalloonPositionで対象1件だけframePositionを上書きしたsceneを共有drawVideoFrameへ渡す。履歴・FramePlan・カメラ計画・投影・タイルを更新しない。最後の表示sceneの背景Bitmapは、未完了要求やキャッシュ失効で早期closeされないよう次の正常公開／破棄まで保持する。
+- 正常pointerupで位置が変わった場合だけ既存setBalloonFramePosition→historyReducer commitを1回実行。キャンセル／capture喪失／画面終了／ガイド非表示／対象や設定の変更・表示サイズ変更ではドラフトを戻して履歴を追加しない。通常release前にdragをnullにしてlostpointercaptureの二重終了を防ぐ。確定後・Undo／RedoはStep 6-Aの同フレーム再合成へ接続。入力欄の標準Undo／Redoを奪わず、映像側のボタンも既存のpast／futureへ接続する。
+- ガイド表示はuseVideoPlayerの非保存状態。停止・描画完了時だけ選択枠とヒット領域を表示し、再生中／ガイド非表示／排他処理中は編集不可。ドラッグ中は再生・シーク・イベント移動・動画設定・MP4生成保存をUIと実処理で制限する。ガイドや選択・未確定位置は出力スナップショットへ入れず、確定したRoutePoint更新でStep 6-Bの再生成判定が自然に更新される。
+- 地点詳細の「映像で確認」は既存balloon:pointIdイベントを強制アンカーとして同じプレイヤーへ要求し、最初の実表示フレームへ停止移動、地点選択とガイド表示を維持する。範囲外は地図側で案内、表示不可は指定文で案内し別イベントやカメラを選ばない。Step 02の旧専用配置入口・構図セレクター・専用終了toolbarは撤去。FrameAnnotationOverlay、旧JSON補完、通常地図のバルーン操作、旧内部互換コードは維持する。
+- Step 8へ：旧previewProgressやballoonFrameEditingの内部状態・未使用入口関数と関連ヘルプ／CSSは今回全面削除していない。共有frameDrag、描画済みsceneのバルーンID／矩形、正規化座標・補完処理、生成Blobとの鮮度比較を保ちながら整理すること。MP4描画・エンコードとJSON format／versionは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
 ## Generated MP4 freshness — v1.3 Step 6-B (2026-10-16)
 
 - `video/videoOutputSnapshot.ts`のcreateVideoOutputSnapshotが、renderRouteVideoへ渡す出力入力を固定順のJSON文字列へ正規化。対象ルートの順序・座標・DAY分割用日付、実績時計有効時の時刻、バルーン、実際の共通停止配列、時間・有効カメラ・開始Zoom、マーカー／配置・DAY色分け、HUDの実表示寸法／配置・距離モデルの必要値を比較する。非表示HUDの位置・サイズ、無効なカメラ設定、マーカー非表示時の配置、ラベルなしのバルーン寸法、互換用pauseSeconds等は除外。Mapは対象地点順の値配列へ変換し、参照・UI状態・進捗・Signal・FramePlan／地図／画像／Blobは比較しない。比較値はブラウザの制作セッション内だけに保持し、ログ・外部通信・JSON保存へ出さない。

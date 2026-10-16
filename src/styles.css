@@ -362,7 +362,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .video-workspace { position: absolute; z-index: 1; inset: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px; color: #edf1f4; background: var(--navy); }
 .video-workspace-caption { flex: 0 0 auto; margin: 0; font-size: 11px; line-height: 1.5; }
 .video-frame-holder { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.video-frame { flex: 0 0 auto; aspect-ratio: 16 / 9; max-width: 100%; background: #07111f; }
+.video-frame { position: relative; flex: 0 0 auto; aspect-ratio: 16 / 9; max-width: 100%; background: #07111f; }
 .video-frame canvas { display: block; width: 100%; height: auto; }
 .video-frame-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; overflow-y: auto; text-align: center; background: #0a1c31; font-size: 12px; overflow-wrap: anywhere; }
 .video-frame-status p { margin: 0; }
@@ -389,6 +389,16 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .video-event-entry button span { min-width: 0; overflow-wrap: anywhere; }
 .video-event-entry button small { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .video-event-entry p { margin: 4px 6px; font-size: 11px; color: #e4c8b4; }
+.video-balloon-overlay { position: absolute; inset: 0; pointer-events: none; }
+.video-balloon-hit { position: absolute; display: block; margin: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; pointer-events: auto; touch-action: none; user-select: none; cursor: grab; }
+.video-balloon-hit[aria-pressed='true'], .video-balloon-hit:focus-visible { outline: 2px solid #ffd077; outline-offset: 1px; }
+/* The rectangle follows Canvas exactly; the selected handle adds a touch target. */
+.video-balloon-hit[aria-pressed='true']::after { content: ''; position: absolute; right: -22px; bottom: -22px; width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle, #ffd077 0 7px, #112942 8px 10px, transparent 11px); cursor: grab; }
+.video-balloon-hit[data-dragging='true'] { cursor: grabbing; }
+.video-edit-actions { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr)) 36px; gap: 5px; align-items: center; margin-top: 4px; }
+.video-edit-actions button { min-width: 0; padding-inline: 3px; font-size: 10px; }
+.video-edit-actions .help-tip-button { margin: 0; padding: 0; }
+.video-edit-hint { margin: 4px 0; font-size: 11px; line-height: 1.5; }
 @media (max-width: 760px) {
   .workspace-view-bar { gap: 6px; padding: 4px 8px; }
   .workspace-view-buttons button { min-width: 52px; }

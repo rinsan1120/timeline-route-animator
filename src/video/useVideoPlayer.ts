@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { getFrameIndexAtTime, type FramePlan } from './frameTimeline';
-import { createPreviewFrameRenderer, type PreviewFrameOptions } from './previewFrameRenderer';
+import { getFrameIndexAtTime, type FramePlan, type FrameState } from './frameTimeline';
+import { createPreviewFrameRenderer, type PreviewBalloon, type PreviewFrameOptions } from './previewFrameRenderer';
+import type { BalloonFramePosition } from '../popup/placement';
 import type { VideoEvent } from './videoEvents';
 
 // UI playback state is deliberately separate from legacy previewProgress and JSON.
@@ -23,6 +24,8 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const retainedTimeRef = useRef(0);
   const eventAnchorRef = useRef<string | null>(null);
   const updatingRef = useRef(false);
+  const balloonEditRef = useRef<{ pointId: string; state: FrameState } | null>(null);
+  const pendingEventRef = useRef<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [framePlan, setFramePlan] = useState<FramePlan | null>(null);
   const [playbackStatus, setPlaybackStatus] = useState<'playing' | 'paused'>('paused');
@@ -31,11 +34,25 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   const [pendingFrame, setPendingFrame] = useState(false);
   const [events, setEvents] = useState<VideoEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [balloons, setBalloons] = useState<PreviewBalloon[]>([]);
+  const [editingBalloonId, setEditingBalloonId] = useState<string | null>(null);
+  const [guidesVisible, setGuidesVisible] = useState(true);
+  const [eventJumpNotice, setEventJumpNotice] = useState('');
   const [frame, setFrame] = useState<{ options: PreviewFrameOptions; status: 'preparing' | 'ready' | 'error'; error: string; hasDisplayed: boolean }>({ options, status: 'preparing', error: '', hasDisplayed: false });
 
   const selectEvent = useCallback((id: string | null) => {
     eventAnchorRef.current = id;
     setSelectedEventId(id);
+  }, []);
+
+  const finishBalloonEdit = useCallback((committed: boolean) => {
+    const edit = balloonEditRef.current;
+    balloonEditRef.current = null;
+    setEditingBalloonId(null);
+    const renderer = rendererRef.current;
+    if (!committed && edit && renderer?.getDisplayedState() === edit.state) {
+      renderer.previewBalloonPosition(edit.pointId, null);
+    }
   }, []);
 
   const pausePlayback = useCallback((preserveAnchor: boolean) => {
@@ -55,11 +72,13 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       setDisplayedFrame(state.frameIndex);
       setPlayheadFrame(state.frameIndex);
       setPendingFrame(false);
+      setBalloons(renderer.getDisplayedBalloons());
     }
   }, [selectEvent]);
-  const pause = useCallback(() => { if (!updatingRef.current) pausePlayback(false); }, [pausePlayback]);
+  const pause = useCallback(() => { if (!updatingRef.current && !balloonEditRef.current) pausePlayback(false); }, [pausePlayback]);
 
   const stop = useCallback(() => {
+    finishBalloonEdit(false);
     pausePlayback(false);
     generationRef.current += 1;
     const renderer = rendererRef.current;
@@ -68,7 +87,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setFrame((current) => ({ ...current, status: 'preparing', hasDisplayed: false }));
     if (renderer) releaseRef.current = Promise.all([releaseRef.current, renderer.dispose()]).then(() => {});
     return releaseRef.current;
-  }, [pausePlayback]);
+  }, [pausePlayback, finishBalloonEdit]);
 
   const requestFrame = useCallback(async (index: number) => {
     const renderer = rendererRef.current;
@@ -87,6 +106,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       retainedPlanRef.current = result.framePlan;
       retainedTimeRef.current = result.state.outputTimeSeconds;
       setDisplayedFrame(result.state.frameIndex);
+      if (!playingRef.current) setBalloons(renderer.getDisplayedBalloons());
       setFrame({ options: currentOptions, status: 'ready', error: '', hasDisplayed: true });
       if (requestedFrameRef.current === target) setPendingFrame(false);
       if (playingRef.current && result.state.frameIndex === renderer.framePlan.totalFrames - 1) pause();
@@ -100,6 +120,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
   }, [pause]);
 
   const updatePreview = useCallback(async (renderer: ReturnType<typeof createPreviewFrameRenderer>, next: PreviewFrameOptions) => {
+    finishBalloonEdit(false);
     // Keep the event anchor even if an earlier settings update is still pending.
     pausePlayback(true);
     const epoch = ++requestEpochRef.current;
@@ -108,10 +129,11 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     updatingRef.current = true;
     setPendingFrame(true);
     setFrame({ options: next, status: 'preparing', error: '', hasDisplayed: false });
+    const eventJump = pendingEventRef.current;
     try {
       const result = await renderer.updateOptions(next, {
         timeSeconds: retainedTimeRef.current, frameIndex: retainedFrameRef.current,
-        eventAnchorId: eventAnchorRef.current, framePlan: retainedPlanRef.current,
+        eventAnchorId: eventJump ?? eventAnchorRef.current, framePlan: retainedPlanRef.current, forceEvent: !!eventJump,
       });
       if (generation !== generationRef.current || epoch !== requestEpochRef.current || result.status !== 'rendered') return;
       appliedOptionsRef.current = next;
@@ -121,6 +143,11 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       requestedFrameRef.current = result.state.frameIndex;
       setFramePlan(result.framePlan);
       setEvents(result.events ?? []);
+      setBalloons(renderer.getDisplayedBalloons());
+      if (eventJump) {
+        pendingEventRef.current = null;
+        setEventJumpNotice(result.eventAnchorId ? '' : 'このバルーンは動画内には表示されません。');
+      }
       selectEvent(result.eventAnchorId ?? null);
       setPlayheadFrame(result.state.frameIndex);
       setDisplayedFrame(result.state.frameIndex);
@@ -133,10 +160,11 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
       setPendingFrame(false);
       setFrame({ options: next, status: 'error', error: reason instanceof Error ? reason.message : '映像を準備できませんでした。もう一度お試しください。', hasDisplayed: false });
     }
-  }, [pausePlayback, selectEvent]);
+  }, [pausePlayback, selectEvent, finishBalloonEdit]);
 
   useEffect(() => {
-    if (!enabled || suspended || !canvasRef.current) return;
+    if (!enabled) { pendingEventRef.current = null; return; }
+    if (suspended || !canvasRef.current) return;
     let cancelled = false;
     const generation = ++generationRef.current;
     const canvas = canvasRef.current;
@@ -181,7 +209,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
 
   const play = () => {
     const renderer = rendererRef.current;
-    if (!renderer || frame.status !== 'ready' || document.hidden) return;
+    if (!renderer || frame.status !== 'ready' || document.hidden || balloonEditRef.current) return;
     pause();
     selectEvent(null);
     const plan = renderer.framePlan;
@@ -202,6 +230,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     rafRef.current = requestAnimationFrame(tick);
   };
   const seek = (index: number, eventId: string | null = null) => {
+    if (balloonEditRef.current) return;
     pause();
     selectEvent(eventId);
     void requestFrame(index);
@@ -221,7 +250,46 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     setDisplayedFrame(0);
     selectEvent(null);
     setEvents([]);
+    setBalloons([]);
+    pendingEventRef.current = null;
+    setEventJumpNotice('');
+    setGuidesVisible(true);
   }, [stop, selectEvent]);
+
+  const beginBalloonEdit = useCallback((pointId: string) => {
+    const renderer = rendererRef.current;
+    const state = renderer?.getDisplayedState();
+    if (!renderer || !state || playingRef.current || updatingRef.current || balloonEditRef.current
+      || optionsRef.current !== appliedOptionsRef.current || requestedFrameRef.current !== state.frameIndex) return false;
+    if (!renderer.getDisplayedBalloons().some((balloon) => balloon.pointId === pointId)) return false;
+    requestEpochRef.current += 1;
+    renderer.cancelPendingFrames();
+    balloonEditRef.current = { pointId, state };
+    setEditingBalloonId(pointId);
+    return true;
+  }, []);
+  const previewBalloon = useCallback((position: BalloonFramePosition | null) => {
+    const edit = balloonEditRef.current;
+    const renderer = rendererRef.current;
+    if (!edit || renderer?.getDisplayedState() !== edit.state) return [];
+    return renderer.previewBalloonPosition(edit.pointId, position);
+  }, []);
+  const pauseForSelection = useCallback(() => {
+    if (updatingRef.current || balloonEditRef.current) return [];
+    pausePlayback(true);
+    return rendererRef.current?.getDisplayedBalloons() ?? [];
+  }, [pausePlayback]);
+  const requestBalloonEvent = (pointId: string) => {
+    if (balloonEditRef.current) return;
+    pendingEventRef.current = `balloon:${pointId}`;
+    setEventJumpNotice('');
+    setGuidesVisible(true);
+    if (enabled && !suspended && rendererRef.current) void updatePreview(rendererRef.current, optionsRef.current);
+  };
+  const toggleGuides = () => {
+    finishBalloonEdit(false);
+    setGuidesVisible((visible) => !visible);
+  };
 
   return {
     canvasRef, framePlan, playbackStatus, playheadFrame, displayedFrame, pendingFrame, events, selectedEventId,
@@ -229,6 +297,8 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     error: frame.options === options ? frame.error : '',
     hasDisplayed: frame.options === options && frame.hasDisplayed,
     updating: retainedPlanRef.current !== null && (frame.options !== options || frame.status === 'preparing'),
+    balloons, editingBalloonId, guidesVisible, eventJumpNotice, beginBalloonEdit, finishBalloonEdit, previewBalloon,
+    pauseForSelection, requestBalloonEvent, toggleGuides, isEditingBalloon: () => balloonEditRef.current !== null,
     play, pause, seek, jumpToEvent, stop, reset, retry: () => setRetry((value) => value + 1),
   };
 }

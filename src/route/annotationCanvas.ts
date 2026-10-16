@@ -2,7 +2,7 @@ import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type Po
 import type { AnnotationStyle } from './annotationStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
-export interface CanvasAnnotation { label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
+export interface CanvasAnnotation { pointId?: string; label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
 
 export function isAnnotationAnchorVisible(pixel: { x: number; y: number }) {
   return Number.isFinite(pixel.x) && Number.isFinite(pixel.y) && pixel.x >= 0 && pixel.x <= WIDTH && pixel.y >= 0 && pixel.y <= HEIGHT;

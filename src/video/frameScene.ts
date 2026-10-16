@@ -53,7 +53,7 @@ export function prepareOverviewFrameData(options: FrameDrawingOptions, map: Pick
   const pixels = projectedPixels ?? options.points.map((point) => map.project([point.longitude, point.latitude]));
   const arrivals = tripRoutePointProgresses(options.points);
   const annotations = options.points.flatMap((point, index) => point.annotation?.label
-    ? [{ ...point.annotation, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
+    ? [{ ...point.annotation, pointId: point.id, pixel: pixels[index], pointIndex: index, arrivalProgress: arrivals[index] }] : []);
   const dayMarkers = (options.dayMarkers ?? []).flatMap((marker) => {
     const pointIndex = pointIndexById.get(marker.pointId);
     return pointIndex === undefined ? [] : [{ ...marker, pixel: pixels[pointIndex], pointIndex, arrivalProgress: arrivals[pointIndex] }];
@@ -129,6 +129,7 @@ export function prepareOverviewFrameScene(
 }
 
 interface VideoAnnotation {
+  pointId?: string;
   framePosition?: BalloonFramePosition;
   placement?: PopupPlacement;
   label: string;
@@ -182,7 +183,7 @@ export function prepareFollowFrameScene(
     if (!point.annotation?.label) continue;
     const pixel = map.project([point.longitude, point.latitude]);
     if (!isInVideoViewport(pixel)) continue;
-    scene.annotations.push({ ...point.annotation, pixel });
+    scene.annotations.push({ ...point.annotation, pointId: point.id, pixel });
   }
 
   if (routeMarkerMode === 'day') {
