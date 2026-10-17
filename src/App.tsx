@@ -1313,9 +1313,9 @@ export default function App() {
             <div className="section-heading"><span className="step">02</span><div><h2>ルートや地点を編集する</h2><p>必要に応じて修正できます。{dayFilteredPoints.length ? `${dayFilteredPoints.length}ポイント · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="control-label-with-help control-with-help">
               <div className="mode-switch">
-                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
-                <button className={editMode ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('edit'); }}>編集</button>
-                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+                <button className={mapMode === 'display' ? 'active' : ''} disabled={!!videoPlayer.editingBalloonId} onClick={() => { if (videoPlayer.isEditingBalloon()) return; setWorkspaceView('map'); setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
+                <button className={editMode ? 'active' : ''} disabled={!!videoPlayer.editingBalloonId} onClick={() => { if (videoPlayer.isEditingBalloon()) return; setWorkspaceView('map'); setMapMode('edit'); }}>編集</button>
+                <button className={animationRangeMode ? 'active' : ''} disabled={!!videoPlayer.editingBalloonId} onClick={() => { if (videoPlayer.isEditingBalloon()) return; setWorkspaceView('map'); setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
               </div>
               <HelpTip helpKey="mapMode" />
             </div>
@@ -1574,10 +1574,10 @@ export default function App() {
         <div className="map-area">
         {canShowVideo && <div className="workspace-view-bar">
           <div className="workspace-view-buttons" role="group" aria-label="作業画面">
-            <button type="button" aria-pressed={!showingVideo} disabled={busy || !!videoProgress}
-              onClick={() => { if (showingVideo) { void stopVideoPreview(); setWorkspaceView('map'); } }}>地図</button>
-            <button type="button" aria-pressed={showingVideo} disabled={busy || !!videoProgress}
-              onClick={() => { if (!showingVideo) openVideoWorkspace(); }}>映像</button>
+            <button type="button" aria-pressed={!showingVideo} disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId}
+              onClick={() => { if (videoPlayer.isEditingBalloon()) return; if (showingVideo) { void stopVideoPreview(); setWorkspaceView('map'); } }}>地図</button>
+            <button type="button" aria-pressed={showingVideo} disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId}
+              onClick={() => { if (videoPlayer.isEditingBalloon()) return; if (!showingVideo) openVideoWorkspace(); }}>映像</button>
           </div>
           <span className="workspace-view-role">{showingVideo ? '完成映像を確認・調整' : 'ルートと地点を編集'}</span>
           <HelpTip helpKey="workspaceView" />
