@@ -5,9 +5,9 @@
 - **Current source of truth:** `main` in `rinsan1120/timeline-route-animator`; V1.3 is merged via [PR #28](https://github.com/rinsan1120/timeline-route-animator/pull/28), merge commit `b91055b`. The associated [main GitHub Pages deployment](https://github.com/rinsan1120/timeline-route-animator/actions/runs/38998626252) succeeded, including its existing tests and build.
 - **Before work:** read the current target branch's `AGENTS.md`, this `HANDOFF.md`, and `docs/v13-improvements/JourneyMapStudio_Development_Lessons.md`. Check the latest implementation and the user's latest decisions; historical notes below refer to the feature-branch development stages, not necessarily the current behavior or backlog.
 - **Branch/deployment:** ordinary code and documentation edits target `main`, unless the user explicitly selects another branch. Confirm the branch and changed paths before GitHub writes. The workflow currently deploys GitHub Pages on `main` pushes, including documentation-only edits; avoid accidental public-version changes.
-- **Open issues:** track priorities and status through [`docs/v13-improvements/ISSUE_TRACKER.md`](docs/v13-improvements/ISSUE_TRACKER.md) and the [live GitHub Issues](https://github.com/rinsan1120/timeline-route-animator/issues). At the 2026-10-17 check, 27 issues (#1–#27) were Open, including issues with implementation commits merged into `main`. Do not equate merged code with confirmed resolution or close issues without user direction.
+- **Issues (2026-10-18 JST):** 17 Open and 10 Closed / completed after the product owner's issue audit. Consult [`docs/v13-improvements/ISSUE_TRACKER.md`](docs/v13-improvements/ISSUE_TRACKER.md) and [live GitHub Issues](https://github.com/rinsan1120/timeline-route-animator/issues) for current priorities and statuses. Close requires the user's direction; implementation and code merge alone do not prove device-level resolution.
 - **Working agreement:** protect existing editing, JSON compatibility, Undo/Redo, responsive UI, and perceptual agreement between preview and MP4. Avoid unnecessary tests or unrelated investigation; Codex commits locally and does not push. GitHub direct updates are remote commits and should be followed by Fetch/Pull when continuing locally.
-- **History below:** feature-branch names, step numbers, old "not yet implemented" statements, and earlier test statuses document the state *at that time*. Resolve any apparent contradictions against current `main` code and the latest explicit product-owner decision.
+- **History below:** feature-branch names, step numbers, old "not yet implemented" statements, old "Current Status" headings, "uncommitted" notes and earlier test statuses describe that point in history. They do not describe the current `main` state. Resolve discrepancies against the latest `main` code and the owner's approved decisions.
 
 ## Compact mobile video controls / automatic editing targets
 
@@ -439,9 +439,11 @@ Last updated: 2026-09-27
 - `npm run build` 成功（チャンクサイズ警告あり）。`git diff --check` 問題なし。
 - 人間側で元Timeline抽出→編集→保存→ページ再読込→作業再開→再編集／再保存、および計画モード、PC／Android表示、プレビュー／MP4を確認する。
 
-## Current Status
+## Historical Current Status (2026-09-11; not the current main)
 
-最新GitHub `origin/main` とローカルHEADが `f0c8e0c3769218093404a5ed7883dc2ca9e8572a` で一致することを確認し、固定動画サイズの適正化とスマホ編集表示倍率を実装。今回の変更は未コミット。
+以下は当時の開発作業記録であり、現在のブランチ・コミット状態を示すものではありません。
+
+2026-09-11当時、GitHub `origin/main` とローカルHEADが `f0c8e0c3769218093404a5ed7883dc2ca9e8572a` で一致することを確認し、固定動画サイズの適正化とスマホ編集表示倍率を実装。その作業時点では未コミットでした。
 
 ## DAY marker fixed size and mobile editing scale (2026-09-11)
 
