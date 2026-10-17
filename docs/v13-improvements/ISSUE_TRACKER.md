@@ -4,9 +4,9 @@
 
 - 対象リポジトリ：[`rinsan1120/timeline-route-animator`](https://github.com/rinsan1120/timeline-route-animator)
 - 管理表作成日：2026-10-16（日本時間）
-- 参照状態：2026-10-17にGitHubのOpen Issue **27件（#1〜#27）** を再照合。V1.3は同日 `main` に統合・Pages公開済み。以後の通常開発・仕様書管理は `main` を基準とする。最新状態はGitHubで再確認する。
+- 参照状態：**2026-10-18（JST）時点でOpen 17件・Closed 10件（いずれもcompleted）、合計27件**。GitHub Issuesの最新状態と照合済み。V1.3は2026-10-17に`main`へ統合・Pages公開済み。以後の通常開発・仕様書管理は`main`を基準とする。
 - 決定者：プロダクトオーナー。優先順位は対話で合意したもので、必要に応じて変更する。
-- **最優先5件（合意済み）**：[#13](https://github.com/rinsan1120/timeline-route-animator/issues/13) → [#14](https://github.com/rinsan1120/timeline-route-animator/issues/14) → [#1](https://github.com/rinsan1120/timeline-route-animator/issues/1) → [#3](https://github.com/rinsan1120/timeline-route-animator/issues/3) → [#17](https://github.com/rinsan1120/timeline-route-animator/issues/17)。
+- **過去のP0最優先5件（#13・#14・#1・#3・#17）**：2026-10-18に全件Closed（completed）。当時の優先順位と対応方針は下記履歴に保存する。現時点でOpenのP0は0件。
 
 ## 優先度の考え方
 
@@ -16,45 +16,55 @@
 | **P1：高** | 制作・検証体験の構造改善 | 主要な操作導線、画面情報設計、スマホ操作性、開発文書の整合 |
 | **P2：中** | 局所的な問題と重要な懸念の整理 | 原因の絞られた不具合、編集・保存の未確認リスク、既存設定の改善 |
 | **P3：低／後続** | 影響範囲が限定的・未計測・将来向け | 表示文言、性能・互換性の未確認リスク、追加機能候補 |
-| **反映照合** | 実装済み候補の管理上の整理 | `main`への反映状況を確認して既存IssueをCloseするか決める。未完了の開発タスクと区別 |
 
 優先度は**ユーザー影響、発生確度、検証効率、データ保護、修正範囲・デグレリスク、関連Issueの依存関係**から決める。未確認リスクを、実機再現済みの不具合として扱わない。
 
-## 全Issue優先順位（作成時採録27件）
+## 未完了Issue優先順位（2026-10-18時点・Open 17件）
+
+**優先順位は棚卸し前の相対順位を維持し、Close済みIssueを除いて採番し直したもの。** 新たな優先順位変更は行っていない。表内の「Open」はこの棚卸し時点の状態を示す。
 
 | 順位 | 優先度 | Issue | 対応内容 | 根拠・状況 | 方針・判断理由 | 関連 |
 | ---: | :---: | :--- | --- | --- | --- | --- |
-| 01 | **P0** | [#13](https://github.com/rinsan1120/timeline-route-animator/issues/13) | 映像画面への地図側DAYマーカー混入 | 実機報告／Open | 映像表示と操作を妨害。地図側と映像側の表示分離を修正 | #12 |
-| 02 | **P0** | [#14](https://github.com/rinsan1120/timeline-route-animator/issues/14) | Androidの文字入力欄がキーボードで隠れる | 実機報告／Open | バルーン入力が困難。VisualViewport・シート・フォーカス領域を調整 | #12・#16 |
-| 03 | **P0** | [#1](https://github.com/rinsan1120/timeline-route-animator/issues/1) | モード切替・別ファイル読込時の未保存編集保護 | 予防的改善／Open | 検証・編集成果の意図しない消失を防ぐ。破棄前確認を追加 | #20・#24・#25 |
-| 04 | **P0** | [#3](https://github.com/rinsan1120/timeline-route-animator/issues/3) | スマホのヘッダー省スペース化 | 実機UX改善／Open | 地図・映像の表示領域を拡大し、以後の検証効率を上げる | #12・#17 |
-| 05 | **P0** | [#17](https://github.com/rinsan1120/timeline-route-animator/issues/17) | スマホ編集時の地図場所検索欄の非表示 | 実機UX改善／Open | 不要な常設領域を取り除き、地図・映像の可視領域を確保 | #3・#12 |
-| 06 | **P1** | [#6](https://github.com/rinsan1120/timeline-route-animator/issues/6) | AGENTS.md・READMEの旧V1記述の整理 | 保守／Open | 実装済み機能を旧V1制約として誤認しないようにする | — |
-| 07 | **P1** | [#15](https://github.com/rinsan1120/timeline-route-animator/issues/15) | STEP 1〜3の表示・スクロールを独立化 | 実機UX課題／Open | 設定の誤認を減らし、作業手順を明確化 | #12 |
-| 08 | **P1** | [#12](https://github.com/rinsan1120/timeline-route-animator/issues/12) | スマホ映像画面の全体レイアウト再設計 | 実機UX課題／Open | 映像が小さい・導線が分かりにくい問題を体系的に改善 | #3・#15・#17 |
-| 09 | **P1** | [#9](https://github.com/rinsan1120/timeline-route-animator/issues/9) | スマホでのバルーン編集タッチ領域拡張 | 静的レビュー／Open | 映像を縮小表示しても選択・ドラッグしやすいようにする | #12・#23 |
-| 10 | **P1** | [#16](https://github.com/rinsan1120/timeline-route-animator/issues/16) | ボトムシートの指追従と自然な開閉 | 実機UX報告／Open | スワイプ操作のぎこちなさを改善 | #12・#14・#15 |
-| 11 | **P2** | [#19](https://github.com/rinsan1120/timeline-route-animator/issues/19) | 映像の空白タップで再生が停止する | コード上の問題／Open | ヒット判定前の一時停止副作用を修正 | #9 |
-| 12 | **P2** | [#8](https://github.com/rinsan1120/timeline-route-animator/issues/8) | イベントジャンプの初回可視フレーム判定 | 未再現リスク／Open | 追従時のイベント移動位置の正確さを改善 | #26 |
-| 13 | **P2** | [#24](https://github.com/rinsan1120/timeline-route-animator/issues/24) | バルーン編集中のJSON保存・読込の状態競合 | 未確認リスク／Open | 編集確定性とファイル操作のガード条件を統一するか判断 | #1・#20・#25 |
-| 14 | **P2** | [#25](https://github.com/rinsan1120/timeline-route-animator/issues/25) | バルーン編集中の画面・編集モード切替の競合 | 未確認リスク／Open | 編集中断と画面遷移のガード条件を整理 | #1・#20・#24 |
-| 15 | **P2** | [#18](https://github.com/rinsan1120/timeline-route-animator/issues/18) | バルーンサイズ・文字サイズ設定の統合 | 機能改善／Open | 設定操作を簡素化。既存JSONの後方互換に注意 | #12 |
-| 16 | **P2** | [#21](https://github.com/rinsan1120/timeline-route-animator/issues/21) | 地図・映像往復時のバルーン位置の整合性 | 未確認リスク／Open | 位置保持機構は存在。問題がある場合のみ修正 | #20・#24 |
-| 17 | **P2** | [#20](https://github.com/rinsan1120/timeline-route-animator/issues/20) | ドラッグ中断時の確定・キャンセルとUndo整合性 | 未確認リスク／Open | 既存キャンセル処理を踏まえ境界条件を確認 | #21・#24・#25 |
-| 18 | **P2** | [#22](https://github.com/rinsan1120/timeline-route-animator/issues/22) | MP4生成中止後のプレビュー状態復帰 | 未確認リスク／Open | 既存の復帰処理を精査し、実害があれば修正 | — |
-| 19 | **P3** | [#23](https://github.com/rinsan1120/timeline-route-animator/issues/23) | モバイルのシークバーPointer Capture競合 | 未確認リスク／Open | 標準range操作との競合が未再現 | #9 |
-| 20 | **P3** | [#10](https://github.com/rinsan1120/timeline-route-animator/issues/10) | 再生中のReact再描画負荷 | 未計測リスク／Open | 実測根拠のない大規模最適化を避ける | — |
-| 21 | **P3** | [#26](https://github.com/rinsan1120/timeline-route-animator/issues/26) | イベント投影のMapLibre内部API依存 | 将来互換性リスク／Open | 現行障害なし。更新時の互換性を管理 | #8 |
-| 22 | **P3** | [#11](https://github.com/rinsan1120/timeline-route-animator/issues/11) | プレビュー読込失敗時の案内文 | コード上の問題／Open | MP4生成向け文言をプレビュー向けに整理 | #27 |
-| 23 | **P3** | [#27](https://github.com/rinsan1120/timeline-route-animator/issues/27) | MP4非対応環境への案内文 | コード上の問題／Open | Android Chrome限定の案内を環境非依存に修正 | #11 |
-| 24 | **P3** | [#7](https://github.com/rinsan1120/timeline-route-animator/issues/7) | 動画演出プリセットの追加 | 新機能候補／Open | 既存の主要編集体験が安定してから検討 | — |
-| 25 | **反映照合** | [#2](https://github.com/rinsan1120/timeline-route-animator/issues/2) | スマホ設定ボトムシート導入 | mainに実装あり／Open | 解消判定は未確定。Closeはユーザー判断 | #12・#16 |
-| 26 | **反映照合** | [#4](https://github.com/rinsan1120/timeline-route-animator/issues/4) | 動画制作設定のJSON保存・復元 | mainにV1.3実装が統合済み／Open | 解消判定は未確定。Closeはユーザー判断 | #1 |
-| 27 | **反映照合** | [#5](https://github.com/rinsan1120/timeline-route-animator/issues/5) | 再生・一時停止・シークの追加 | mainにV1.3実装が統合済み／Open | 解消判定は未確定。Closeはユーザー判断 | #8・#12 |
+| 01 | **P1** | [#6](https://github.com/rinsan1120/timeline-route-animator/issues/6) | AGENTS.md・READMEの旧V1記述の整理 | 保守／Open | 実装済み機能を旧V1制約として誤認しないようにする | — |
+| 02 | **P1** | [#12](https://github.com/rinsan1120/timeline-route-animator/issues/12) | スマホ映像画面の全体レイアウト再設計 | 実機UX課題／Open | 映像が小さい・導線が分かりにくい問題を体系的に改善 | #3・#15・#17 |
+| 03 | **P1** | [#9](https://github.com/rinsan1120/timeline-route-animator/issues/9) | スマホでのバルーン編集タッチ領域拡張 | 静的レビュー／Open | 映像を縮小表示しても選択・ドラッグしやすいようにする | #12・#23 |
+| 04 | **P1** | [#16](https://github.com/rinsan1120/timeline-route-animator/issues/16) | ボトムシートの指追従と自然な開閉 | 実機UX報告／Open | スワイプ操作のぎこちなさを改善 | #12・#14・#15 |
+| 05 | **P2** | [#19](https://github.com/rinsan1120/timeline-route-animator/issues/19) | 映像の空白タップで再生が停止する | コード上の問題／Open | ヒット判定前の一時停止副作用を修正 | #9 |
+| 06 | **P2** | [#8](https://github.com/rinsan1120/timeline-route-animator/issues/8) | イベントジャンプの初回可視フレーム判定 | 未再現リスク／Open | 追従時のイベント移動位置の正確さを改善 | #26 |
+| 07 | **P2** | [#25](https://github.com/rinsan1120/timeline-route-animator/issues/25) | バルーン編集中の画面・編集モード切替の競合 | 未確認リスク／Open | 編集中断と画面遷移のガード条件を整理 | #1・#20・#24 |
+| 08 | **P2** | [#18](https://github.com/rinsan1120/timeline-route-animator/issues/18) | バルーンサイズ・文字サイズ設定の統合 | 機能改善／Open | 設定操作を簡素化。既存JSONの後方互換に注意 | #12 |
+| 09 | **P2** | [#21](https://github.com/rinsan1120/timeline-route-animator/issues/21) | 地図・映像往復時のバルーン位置の整合性 | 未確認リスク／Open | 位置保持機構は存在。問題がある場合のみ修正 | #20・#24 |
+| 10 | **P2** | [#20](https://github.com/rinsan1120/timeline-route-animator/issues/20) | ドラッグ中断時の確定・キャンセルとUndo整合性 | 未確認リスク／Open | 既存キャンセル処理を踏まえ境界条件を確認 | #21・#24・#25 |
+| 11 | **P2** | [#22](https://github.com/rinsan1120/timeline-route-animator/issues/22) | MP4生成中止後のプレビュー状態復帰 | 未確認リスク／Open | 既存の復帰処理を精査し、実害があれば修正 | — |
+| 12 | **P3** | [#23](https://github.com/rinsan1120/timeline-route-animator/issues/23) | モバイルのシークバーPointer Capture競合 | 未確認リスク／Open | 標準range操作との競合が未再現 | #9 |
+| 13 | **P3** | [#10](https://github.com/rinsan1120/timeline-route-animator/issues/10) | 再生中のReact再描画負荷 | 未計測リスク／Open | 実測根拠のない大規模最適化を避ける | — |
+| 14 | **P3** | [#26](https://github.com/rinsan1120/timeline-route-animator/issues/26) | イベント投影のMapLibre内部API依存 | 将来互換性リスク／Open | 現行障害なし。更新時の互換性を管理 | #8 |
+| 15 | **P3** | [#11](https://github.com/rinsan1120/timeline-route-animator/issues/11) | プレビュー読込失敗時の案内文 | コード上の問題／Open | MP4生成向け文言をプレビュー向けに整理 | #27 |
+| 16 | **P3** | [#27](https://github.com/rinsan1120/timeline-route-animator/issues/27) | MP4非対応環境への案内文 | コード上の問題／Open | Android Chrome限定の案内を環境非依存に修正 | #11 |
+| 17 | **P3** | [#7](https://github.com/rinsan1120/timeline-route-animator/issues/7) | 動画演出プリセットの追加 | 新機能候補／Open | 既存の主要編集体験が安定してから検討 | — |
 
-**注意**：表中の「Open」は2026-10-17の再照合時点のGitHub Issue状態であり、リアルタイム自動同期ではない。実装コミットが `main` にあっても、実機での解消やIssueの完了を意味しない。着手・完了・Close状況は必ずGitHubの最新Issueを参照する。
+**注意**：実機報告・コード上の問題・未再現リスクは区別する。#12は映像画面の部分的な改善後も全体UX課題としてOpen。#18は設定構成に既存変更があるが、Issueが求める一元化仕様との差分があるため引き続きOpen。#20・#21・#22・#23・#25・#26などの未確認リスクは、発生を確定した不具合として扱わない。最新状態は[GitHub Issues](https://github.com/rinsan1120/timeline-route-animator/issues)を参照する。
 
-## P0：最優先5件の対応方針（プロダクトオーナー決定）
+## 完了Issue（2026-10-18にClosed / completed・10件）
+
+2026-10-18のプロダクトオーナー承認に基づき、実装・main反映状況を確認して10件を`completed`でCloseした。各Issueのコメントに実装根拠と独立して残る課題を記録済み。**Closeは修正後の実機動作保証を意味しない。** 追加不具合が判明した場合は、原則として別Issueで扱う。
+
+| Issue | 対応内容 | main反映の根拠 | Close時の扱い |
+| --- | --- | --- | --- |
+| [#1](https://github.com/rinsan1120/timeline-route-animator/issues/1) | モード切替・読込時の未保存編集保護 | `[8a87cf36f](https://github.com/rinsan1120/timeline-route-animator/commit/8a87cf36f)` | 確認処理・キャンセル経路を実装 |
+| [#2](https://github.com/rinsan1120/timeline-route-animator/issues/2) | スマホ設定ボトムシート導入 | [V1.3 main統合](https://github.com/rinsan1120/timeline-route-animator/commit/b91055b487b389af21c9ec1813ecedf3758bd15d) | 閉／半開／全開を実装。滑らかな指追従は#16で継続 |
+| [#3](https://github.com/rinsan1120/timeline-route-animator/issues/3) | スマホヘッダー省スペース化 | `[4c129cd11](https://github.com/rinsan1120/timeline-route-animator/commit/4c129cd11)` | 編集時のコンパクト表示・モードメニューを実装 |
+| [#4](https://github.com/rinsan1120/timeline-route-animator/issues/4) | 動画制作設定のJSON保存・復元 | [V1.3 main統合](https://github.com/rinsan1120/timeline-route-animator/commit/b91055b487b389af21c9ec1813ecedf3758bd15d) | 作業・計画JSONにvideoSettingsを保存・復元 |
+| [#5](https://github.com/rinsan1120/timeline-route-animator/issues/5) | 映像プレビューの再生・一時停止・シーク | [V1.3 main統合](https://github.com/rinsan1120/timeline-route-animator/commit/b91055b487b389af21c9ec1813ecedf3758bd15d) | 映像画面に再生・シーク操作を実装 |
+| [#13](https://github.com/rinsan1120/timeline-route-animator/issues/13) | 映像画面への地図側DAY混入対策 | `[3d8401b11](https://github.com/rinsan1120/timeline-route-animator/commit/3d8401b11)` | 地図側オーバーレイの隠蔽対策を反映。修正後の実機解消は未確認 |
+| [#14](https://github.com/rinsan1120/timeline-route-animator/issues/14) | Androidキーボード入力欄隠れ対策 | `[4ab7c7505](https://github.com/rinsan1120/timeline-route-animator/commit/4ab7c7505)` | VisualViewport／シート・スクロール追従を反映。修正後の実機解消は未確認 |
+| [#15](https://github.com/rinsan1120/timeline-route-animator/issues/15) | STEP 1～3の独立表示・スクロール | `[644ff6348](https://github.com/rinsan1120/timeline-route-animator/commit/644ff6348)` | 直接切替・前後移動・個別スクロール位置の保持を実装 |
+| [#17](https://github.com/rinsan1120/timeline-route-animator/issues/17) | スマホでの場所検索ボックス非表示 | `[eb14d9f7e](https://github.com/rinsan1120/timeline-route-animator/commit/eb14d9f7e)` | モバイル幅の検索UI非表示を実装 |
+| [#24](https://github.com/rinsan1120/timeline-route-animator/issues/24) | 映像編集中のJSON保存・読込の競合対策 | `[8a87cf36f](https://github.com/rinsan1120/timeline-route-animator/commit/8a87cf36f)` | #1のcanReplaceSessionガードで対象操作を保護。#25の画面切替問題は継続 |
+
+## 過去のP0：最優先5件の対応方針（決定・実装履歴）
+
+この5件は**2026-10-18にすべてClosed / completed**。以下は当時の重要度順位・要求範囲を保存する履歴であり、未完了タスク一覧ではない。
 
 | 順位 | Issue | AS-IS／問題 | TO-BE／対応範囲 | 保護する仕様 |
 | ---: | --- | --- | --- | --- |
@@ -68,7 +78,7 @@
 
 ## V1.3開発ブランチ時代の実装記録（履歴／2026-10-16）
 
-重要度の順位と**実際の実装順**は分けて管理する。以下は当時 `feature/video-editor-v13` 上で確認したコミットの履歴であり、2026-10-17のPR #28によって **`main` へ統合済み**。ただし、**実機で問題が解消したことの確認やIssueのCloseを意味しない**。
+重要度の順位と**実際の実装順**は分けて管理する。以下は当時 `feature/video-editor-v13` 上で確認したコミットの履歴であり、2026-10-17のPR #28によって **`main` へ統合済み**。この表は当時の実装・統合記録であり、それだけで実機解消を保証するものではない。2026-10-18に関連Issueは別途completedでCloseした。
 
 | 実装順 | Issue | ブランチ上のコミット | 状況 |
 | ---: | --- | --- | --- |
@@ -83,18 +93,19 @@
 - 関連設計：[V1.3スマホヘッダー・キーボード連携設計](MOBILE_HEADER_KEYBOARD_DESIGN.md)。#3・#14の実装方針と確定仕様を記録し、最終挙動は現在のソースコードを正とする。
 - **現在の公開運用**：V1.3は `main` に統合済みで、`.github/workflows/deploy.yml` は `main` へのPushでPagesを自動デプロイする。以前のfeature公開とmain公開の競合は過去の教訓としてLessons第11章に記録されている。
 
-## 関連Issueの取り扱い
+## 関連Issueの取り扱い（Open／Closedを区別）
 
-- **#3・#17 と #12**：小さな表示領域改善を先に行い、#12のスマホ映像UI再設計で同じヘッダー／検索欄を二重実装しない。
-- **#14 と #16**：キーボード時の高さ・フォーカス制御を優先。シートのスワイプアニメーションは別問題として扱い、同一箇所の手戻りを減らす。
-- **#1 と #20・#24・#25**：保存前確認と、バルーン編集中のファイル読込／画面切替ガードを設計上突き合わせる。ただし未確認リスクの全部を不具合と断定して一括改修しない。
-- **#15 と #12**：STEP別情報設計を整理してから映像画面の主要操作導線を調整する。
-- **#8 と #26**：イベントの可視フレーム探索とMapLibre内部API依存は別課題。互換性維持を優先する。
-- **#2・#4・#5**：実装コードは `main` に存在するが、IssueはOpenのまま。統合と解消確認を混同せず、Closeの判断はユーザーに委ねる。GitHubに直接コミットした変更に追加Pushは不要。
+- **完了 #3・#17 → 継続 #12**：ヘッダー・検索欄の局所改善はmainに反映済み。スマホ映像UI全体の再設計では同じ変更を二重実装しない。
+- **完了 #14 → 継続 #16**：キーボード時の可視領域・入力欄追従は対応済み。ボトムシートを指へ連続追従させる開閉アニメーションは別問題。
+- **完了 #1・#24 → 継続 #20・#25**：未保存編集保護・JSON操作の編集中ガードを実装。ドラッグ中断・Undoと画面／編集モード切替の境界リスクは独立して残す。
+- **完了 #15 → 継続 #12**：STEP別の表示・スクロール独立化を前提に、映像画面全体の導線を整理する。
+- **継続 #8・#26**：イベント初回可視フレーム探索とMapLibre内部API依存は別課題。投影精度とプレビュー／MP4の整合を維持する。
+- **完了 #2・#4・#5**：導入・保存・再生操作の基本機能は実装済み。ボトムシート操作感（#16）、イベント精度（#8）、画面全体UX（#12）を基本機能と混同しない。
+- **継続 #9・#23**：スマホの編集ヒット領域とシーク操作のPointer Captureは別観点。実機未再現リスクを確定不具合とみなさない。
 
 ## 運用ルール
 
-1. **全体の順位・判断理由**はこのファイル、**個別の課題・実装詳細・進捗**は各Issueに記録する。同一仕様の二重管理を避ける。
+1. **Open Issueの順位・判断理由および完了履歴**はこのファイル、**個別の課題・実装詳細・進捗・現在のOpen/Closed状態**はGitHub Issuesに記録する。同一仕様の二重管理を避ける。
 2. 優先順位が変わったら、ユーザーの決定に合わせてこの表を更新する。Issue番号やリンクは変えない。
 3. 確認済み事実、ユーザーの実機報告、コード上の懸念、未確認事項を明確に分ける。未確認リスクに問題がない場合は根拠を残してCloseを検討する。
 4. V1.3統合後は `main` の最新コードを実装・検討の正本とする。別の開発ブランチを明示的に使う場合は、その対象ブランチを確認する。既存コードと矛盾する古い文書だけを根拠に判断しない。
@@ -102,6 +113,9 @@
 6. この管理表の更新先は **`main`** とする。GitHubに直接コミットした変更をローカルで使用する際はFetch／Pullし、Codexと同じファイルの並行編集を避ける。GitHub Pagesのデプロイ対象ブランチと公開への影響も更新前に確認する。
 
 ## メンテナンス記録
+
+- 2026-10-18：プロダクトオーナーの指示で #1・#2・#3・#4・#5・#13・#14・#15・#17・#24 を`Closed / completed`へ変更。GitHubで**Open 17件・Closed 10件**を再照合。管理表を未完了17件の現行優先順位と完了10件の履歴に分割し、既存の相対順位は据え置き。旧P0最優先5件の決定内容とV1.3開発ブランチ実装記録は履歴として維持。#13・#14の実機解消は本棚卸しでは未検証。
+
 
 - 2026-10-17：GitHub Issues #1〜#27がすべてOpenであることを確認。V1.3のPR #28によるmain統合とPages成功を踏まえ、過去のfeature基準・未統合表現を履歴として明確化。順位は変更せず、IssueのClose・再分類は行っていない。
 
