@@ -7,7 +7,31 @@ export function isBalloonFramePosition(value: unknown): value is BalloonFramePos
 }
 export type EndpointMarkerLabel = 'START' | 'GOAL';
 export type EndpointMarkerPlacements = Partial<Record<EndpointMarkerLabel, PopupPlacement>>;
+export type EndpointMarkerFramePositions = Partial<Record<EndpointMarkerLabel, BalloonFramePosition>>;
+
+export function parseMarkerFramePositions(value: unknown, validKey: (key: string) => boolean): Record<string, BalloonFramePosition> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('マーカーの固定位置が不正です。');
+  return Object.fromEntries(Object.entries(value).map(([key, position]) => {
+    if (!validKey(key) || !isBalloonFramePosition(position)) throw new Error('マーカーの固定位置が不正です。');
+    return [key, { x: position.x, y: position.y }];
+  }));
+}
 export const POPUP_PLACEMENT_VIEWPORT = { width: 1920, height: 1080 };
+
+export function videoMarkerRect(anchor: { x: number; y: number }, width: number, height: number,
+  margin: number, bottomMargin: number, gap: number, placement?: PopupPlacement, framePosition?: BalloonFramePosition) {
+  const { width: viewportWidth, height: viewportHeight } = POPUP_PLACEMENT_VIEWPORT;
+  const bottom = viewportHeight - bottomMargin;
+  const below = anchor.y - height - gap < margin;
+  if (framePosition) return { ...placedPopupRect({ x: framePosition.x * viewportWidth, y: framePosition.y * viewportHeight },
+    { offsetX: 0, offsetY: 0 }, width, height, viewportWidth, bottom, margin), below: false };
+  if (placement) return { ...placedPopupRect(anchor, placement, width, height, viewportWidth, bottom, margin), below };
+  return {
+    left: Math.max(margin, Math.min(viewportWidth - margin - width, anchor.x - width / 2)),
+    top: Math.max(margin, Math.min(bottom - height, below ? anchor.y + gap : anchor.y - height - gap)),
+    width, height, below,
+  };
+}
 export function popupDisplayScale(width: number, height: number): number {
   const scale = Math.min(width / POPUP_PLACEMENT_VIEWPORT.width, height / POPUP_PLACEMENT_VIEWPORT.height);
   return Number.isFinite(scale) && scale > 0 ? scale : 1;

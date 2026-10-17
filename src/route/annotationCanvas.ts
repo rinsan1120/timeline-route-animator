@@ -1,8 +1,9 @@
 import { nearestPointOnRect, placedPopupRect, type BalloonFramePosition, type PopupPlacement } from '../popup/placement';
-import type { AnnotationStyle } from './annotationStyle';
+import { ANNOTATION_BASE_METRICS, annotationMinimumWidth, type AnnotationStyle } from './annotationStyle';
+import { VIDEO_BALLOON_STROKE_WIDTH } from './dayMarkerStyle';
 import { VIDEO_VIEWPORT } from '../video/overviewCamera';
 const { width: WIDTH, height: HEIGHT } = VIDEO_VIEWPORT;
-export interface CanvasAnnotation { label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
+export interface CanvasAnnotation { pointId?: string; label: string; pixel: { x: number; y: number }; placement?: PopupPlacement; framePosition?: BalloonFramePosition }
 
 export function isAnnotationAnchorVisible(pixel: { x: number; y: number }) {
   return Number.isFinite(pixel.x) && Number.isFinite(pixel.y) && pixel.x >= 0 && pixel.x <= WIDTH && pixel.y >= 0 && pixel.y <= HEIGHT;
@@ -12,11 +13,11 @@ export function annotationFramePosition(rect: { left: number; top: number; width
   return { x: (rect.left + rect.width / 2) / WIDTH, y: (rect.top + rect.height / 2) / HEIGHT };
 }
 
-export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true) {
-  const scale = style.balloonScale;
-  const fontSize = 28 * style.fontScale;
-  const paddingX = 20 * scale;
-  const paddingY = 16 * scale;
+export function annotationLayout(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, clamp = true, purpose: 'video' | 'spot' = 'video') {
+  const scale = purpose === 'spot' ? style.balloonScale : 1;
+  const fontSize = ANNOTATION_BASE_METRICS.fontSize * style.fontScale;
+  const paddingX = ANNOTATION_BASE_METRICS.paddingX * scale;
+  const paddingY = ANNOTATION_BASE_METRICS.paddingY * scale;
   const gap = 40 * scale;
   const margin = 24;
   // Reserve the bottom strip for attribution, which is drawn last.
@@ -29,7 +30,10 @@ export function annotationLayout(context: CanvasRenderingContext2D, annotation: 
     while (characters.length && context.measureText(`${characters.join('')}…`).width > maxTextWidth) characters.pop();
     label = `${characters.join('')}…`;
   }
-  const width = context.measureText(label).width + paddingX * 2;
+  const textWidth = context.measureText(label).width;
+  const minimumWidth = purpose === 'spot' ? 0 : annotationMinimumWidth(style, 'balloon');
+  const autoWidth = textWidth + paddingX * 2;
+  const width = purpose === 'spot' ? autoWidth : Math.min(WIDTH - margin * 2, Math.max(autoWidth, minimumWidth));
   const radius = Math.min(10 * scale, width / 4);
   const pointerSize = Math.min(12 * scale, width / 8);
   const height = fontSize * 1.4 + paddingY * 2;
@@ -51,7 +55,8 @@ export function annotationLayout(context: CanvasRenderingContext2D, annotation: 
     ({ left, top } = placedPopupRect({ x: annotation.framePosition.x * WIDTH, y: annotation.framePosition.y * HEIGHT },
       { offsetX: 0, offsetY: 0 }, width, height, WIDTH, bottom, margin));
   }
-  return { scale, fontSize, paddingX, label, width, height, radius, pointerSize, left, top, below: clamp && !annotation.framePosition ? below : false };
+  return { scale, fontSize, paddingX: minimumWidth ? (width - textWidth) / 2 : paddingX, label, width, height, radius, pointerSize, left, top,
+    below: clamp && !annotation.framePosition ? below : false };
 }
 
 export function drawAnnotation(context: CanvasRenderingContext2D, annotation: CanvasAnnotation, style: AnnotationStyle, layout?: ReturnType<typeof annotationLayout>) {
@@ -63,7 +68,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   if (annotation.placement || annotation.framePosition) {
     const edge = nearestPointOnRect({ left, top, width, height }, annotation.pixel);
     context.strokeStyle = '#ff8b68';
-    context.lineWidth = 2 * scale;
+    context.lineWidth = VIDEO_BALLOON_STROKE_WIDTH;
     context.beginPath();
     context.moveTo(edge.x, edge.y);
     context.lineTo(annotation.pixel.x, annotation.pixel.y);
@@ -72,7 +77,7 @@ export function drawAnnotation(context: CanvasRenderingContext2D, annotation: Ca
   // Match the browser note balloon: lighter navy than DAY / START / GOAL.
   context.fillStyle = '#2d4f73';
   context.strokeStyle = '#ff8b68';
-  context.lineWidth = 2 * scale;
+  context.lineWidth = VIDEO_BALLOON_STROKE_WIDTH;
   context.shadowColor = 'rgba(7,17,31,.28)';
   context.shadowBlur = 28 * scale;
   context.shadowOffsetY = 8 * scale;

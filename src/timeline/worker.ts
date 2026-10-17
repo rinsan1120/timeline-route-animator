@@ -4,6 +4,7 @@ import type { WorkerRequest, WorkerResponse } from './types';
 import { processTimelineBuffer } from './workerProcessor';
 
 let index: TimelineIndex | null = null;
+let pendingIndex: TimelineIndex | null = null;
 const send = (message: WorkerResponse) => self.postMessage(message);
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
@@ -11,11 +12,13 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   try {
     if (message.type === 'load') {
       const result = processTimelineBuffer(message.buffer);
-      index = result.index;
+      pendingIndex = result.index;
       send({ type: 'loaded', dates: result.dates, fileName: message.fileName });
     } else if (message.type === 'extract') {
-      if (!index) throw new Error('先にTimeline JSONを読み込んでください。');
-      const result = extractTimelineRange(index, message.date, message.from, message.to);
+      const source = pendingIndex ?? index;
+      if (!source) throw new Error('先にTimeline JSONを読み込んでください。');
+      const result = extractTimelineRange(source, message.date, message.from, message.to);
+      if (pendingIndex) { index = pendingIndex; pendingIndex = null; }
       send({ type: 'extracted', ...result });
     } else if (message.type === 'extract-range') {
       if (!index) throw new Error('先にTimeline JSONを読み込んでください。');
@@ -23,6 +26,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       send({ type: 'extracted', ...result });
     }
   } catch (error) {
+    if (message.type === 'extract') pendingIndex = null;
     send({ type: 'error', message: error instanceof Error ? error.message : 'JSON処理中にエラーが発生しました。' });
   }
 };

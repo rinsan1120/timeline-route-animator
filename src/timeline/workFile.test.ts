@@ -19,12 +19,17 @@ const state: TimelineWorkState = {
   animationStartPointId: 'manual-added', animationEndPointId: 'timeline-4',
 };
 
+const normalizedAnnotationStyle = {
+  balloonScale: 1, fontScale: 1.5,
+  minimumWidth: 280, minimumWidthForDay: false, minimumWidthForBalloon: false,
+};
+
 describe('Timeline work file', () => {
   it('round-trips optional fixed coordinates alongside unchanged legacy placement and unknown fields', () => {
     const edited = { ...state, points: state.points.map((point) => point.annotation ? { ...point, annotation: { ...point.annotation, framePosition: { x: 0.8, y: 0.2 } } } : point) };
     const data = JSON.parse(serializeWorkFile(edited));
     data.points[0].annotation.futureProperty = true;
-    expect(parseWorkFile(JSON.stringify(data))).toEqual(edited);
+    expect(parseWorkFile(JSON.stringify(data))).toEqual({ ...edited, annotationStyle: normalizedAnnotationStyle });
     expect(data.version).toBe(1);
   });
   it.each([{ x: -0.1, y: 0 }, { x: 1.1, y: 0 }, { x: 0, y: 2 }, { x: '0.5', y: 0 }, { x: null, y: 0 }, {}])('rejects invalid framePosition %j', (framePosition) => {
@@ -34,7 +39,7 @@ describe('Timeline work file', () => {
   });
   it('round-trips edited points, annotations, DAY metadata, placements and range without source JSON', () => {
     const saved = parseWorkFile(serializeWorkFile(state));
-    expect(saved).toEqual(state);
+    expect(saved).toEqual({ ...state, annotationStyle: normalizedAnnotationStyle });
     expect(deriveDayMarkers(saved.points, saved.dayMarkerNotes, saved.startDate)).toEqual(
       deriveDayMarkers(state.points, state.dayMarkerNotes, state.startDate));
     expect(deriveDayMarkers(saved.points, saved.dayMarkerNotes, saved.startDate).map((marker) => marker.dayNumber)).toEqual([2, 4]);

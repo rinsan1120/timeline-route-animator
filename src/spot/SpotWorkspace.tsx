@@ -10,7 +10,7 @@ import { spotsInBounds, type ImageBounds } from './imageBounds';
 import { renderSpotImage } from './renderSpotImage';
 import type { RoutePoint } from '../timeline/types';
 
-export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => void }) {
+export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy: boolean) => void; onDirtyChange: (dirty: boolean) => void }) {
   const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<SpotTool>('add');
@@ -25,6 +25,10 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
   const selected = points.find((point) => point.id === selectedId);
   const targetCount = bounds ? spotsInBounds(points, bounds).length : 0;
   useEffect(() => { setLabel(selected?.annotation?.label ?? ''); }, [selected?.id, selected?.annotation?.label]);
+  useEffect(() => {
+    onDirtyChange(points.length > 0 || bounds !== null || label.length > 0
+      || style.balloonScale !== DEFAULT_ANNOTATION_STYLE.balloonScale || style.fontScale !== DEFAULT_ANNOTATION_STYLE.fontScale);
+  }, [onDirtyChange, points.length, bounds, label, style.balloonScale, style.fontScale]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (busy || (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable]'))) return;
@@ -72,7 +76,7 @@ export default function SpotWorkspace({ onBusy }: { onBusy: (busy: boolean) => v
       <section className="panel-section">
         <div className="section-heading"><span className="step">03</span><div><h2>画像設定</h2><p>PNG · 1920 × 1080</p></div></div>
         <div className="annotation-style-controls">{(['balloonScale', 'fontScale'] as const).map((key) => <div className="annotation-style-item" key={key}>
-          <div className="control-label-with-help"><label htmlFor={`spot-${key}`}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(style[key] * 100)}%</span></label><HelpTip helpKey={key === 'balloonScale' ? 'balloonScale' : 'balloonFontScale'} /></div>
+          <div className="control-label-with-help"><label htmlFor={`spot-${key}`}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(style[key] * 100)}%</span></label><HelpTip helpKey={key === 'balloonScale' ? 'spotBalloonScale' : 'balloonFontScale'} /></div>
           <input id={`spot-${key}`} type="range" min="50" max="200" step="10" value={style[key] * 100} disabled={busy} onChange={(event) => setStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
         </div>)}</div>
         <button disabled={!bounds || busy} onClick={() => setFitRequest((value) => value + 1)}>指定範囲に合わせる</button>

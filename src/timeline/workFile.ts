@@ -1,8 +1,9 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
-import { isBalloonFramePosition } from '../popup/placement';
-import type { EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
-import type { AnnotationStyle } from '../route/annotationStyle';
+import { isBalloonFramePosition, parseMarkerFramePositions } from '../popup/placement';
+import type { BalloonFramePosition, EndpointMarkerFramePositions, EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
+import { parseAnnotationStyle, type AnnotationStyle } from '../route/annotationStyle';
 import type { RoutePoint } from './types';
+import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
 
 export const WORK_FILE_FORMAT = 'timeline-route-animator-work';
 export const WORK_FILE_VERSION = 1;
@@ -17,9 +18,13 @@ export interface TimelineWorkState {
   dayMarkerNotes: Record<string, string>;
   dayMarkerPlacements: Record<string, PopupPlacement>;
   endpointMarkerPlacements: EndpointMarkerPlacements;
+  dayMarkerFramePositions?: Record<string, BalloonFramePosition>;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
   annotationStyle: AnnotationStyle;
   animationStartPointId: string | null;
   animationEndPointId: string | null;
+  videoSettings?: VideoSettings;
+  selectedOutputDay?: string;
 }
 
 export interface TimelineWorkFile extends TimelineWorkState {
@@ -41,9 +46,13 @@ export function serializeWorkFile(state: TimelineWorkState, savedAt = new Date()
     dayMarkerNotes: state.dayMarkerNotes,
     dayMarkerPlacements: state.dayMarkerPlacements,
     endpointMarkerPlacements: state.endpointMarkerPlacements,
-    annotationStyle: state.annotationStyle,
+    ...(state.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: state.dayMarkerFramePositions } : {}),
+    ...(state.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: state.endpointMarkerFramePositions } : {}),
+    annotationStyle: parseAnnotationStyle(state.annotationStyle),
     animationStartPointId: state.animationStartPointId,
     animationEndPointId: state.animationEndPointId,
+    ...(state.videoSettings !== undefined ? { videoSettings: parseVideoSettings(state.videoSettings) } : {}),
+    ...(state.selectedOutputDay !== undefined ? { selectedOutputDay: state.selectedOutputDay } : {}),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -120,9 +129,8 @@ export function parseWorkFile(text: string): TimelineWorkState {
       || !(data.startDate === '' || isDate(data.startDate)) || !(data.endDate === '' || isDate(data.endDate))
       || !isTime(data.from) || !isTime(data.to)
       || !isRecord(data.dayMarkerNotes) || !isRecord(data.dayMarkerPlacements)
-      || !isRecord(data.endpointMarkerPlacements) || !isRecord(data.annotationStyle)
-      || !isFiniteNumber(data.annotationStyle.balloonScale) || data.annotationStyle.balloonScale < 0.5 || data.annotationStyle.balloonScale > 2
-      || !isFiniteNumber(data.annotationStyle.fontScale) || data.annotationStyle.fontScale < 0.5 || data.annotationStyle.fontScale > 2) throw new Error(WORK_FILE_ERROR);
+      || !isRecord(data.endpointMarkerPlacements)) throw new Error(WORK_FILE_ERROR);
+    const annotationStyle = parseAnnotationStyle(data.annotationStyle);
     const points = data.points.map(parsePoint);
     const ids = new Set(points.map((point) => point.id));
     if (ids.size !== points.length) throw new Error(WORK_FILE_ERROR);
@@ -143,12 +151,21 @@ export function parseWorkFile(text: string): TimelineWorkState {
       if (label !== 'START' && label !== 'GOAL') throw new Error(WORK_FILE_ERROR);
       return [label, parsePlacement(placement)];
     }));
+    if (data.selectedOutputDay !== undefined && data.selectedOutputDay !== 'all' && !isDate(data.selectedOutputDay)) throw new Error(WORK_FILE_ERROR);
+    const selectedOutputDay = typeof data.selectedOutputDay === 'string' && data.selectedOutputDay !== 'all'
+      && points.some((point) => point.timestamp?.slice(0, 10) === data.selectedOutputDay)
+      && (!data.startDate || data.selectedOutputDay >= data.startDate) && (!data.endDate || data.selectedOutputDay <= data.endDate)
+      ? data.selectedOutputDay : 'all';
     return {
       points, startDate: data.startDate, endDate: data.endDate, from: data.from, to: data.to,
       dayMarkerNotes, dayMarkerPlacements, endpointMarkerPlacements,
-      annotationStyle: { balloonScale: data.annotationStyle.balloonScale, fontScale: data.annotationStyle.fontScale },
+      ...(data.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: parseMarkerFramePositions(data.dayMarkerFramePositions, isDate) } : {}),
+      ...(data.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: parseMarkerFramePositions(data.endpointMarkerFramePositions, (key) => key === 'START' || key === 'GOAL') } : {}),
+      annotationStyle,
       animationStartPointId: parseRangeId(data.animationStartPointId),
       animationEndPointId: parseRangeId(data.animationEndPointId),
+      ...(data.videoSettings !== undefined ? { videoSettings: parseVideoSettings(data.videoSettings) } : {}),
+      ...(data.selectedOutputDay !== undefined ? { selectedOutputDay } : {}),
     };
   } catch {
     throw new Error(WORK_FILE_ERROR);

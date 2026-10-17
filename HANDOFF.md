@@ -1,5 +1,255 @@
 # HANDOFF
 
+## Compact mobile video controls / automatic editing targets
+
+- PC・スマホとも編集ガイド切替ボタンとguidesVisible／toggleGuidesを廃止。停止中・描画完了時は既存の通常バルーン／DAY／START・GOAL／HUDの透明な編集対象を有効にし、再生中は枠と対象を無効化する。編集中の排他・Pointer Capture・ドラフト・キャンセル世代・共通Undo／Redoの処理は維持。
+- 停止中の映像の空白部分への短いタップで、Appの地点選択と映像内マーカー選択を解除する。対象へのタップ／ドラッグを横取りせず、再生位置・イベント選択アンカーを変更しない。再生中の対象タップで停止して選択する既存操作は維持。
+- 幅760px以下、または映像領域の実幅584px未満では、再生／時刻／Undo／Redo、シークバー、前へ／次へ／一覧／統合ヘルプの構成へ切替。44pxの操作領域、日本語のアクセシビリティ名、時刻とイベント位置マーカーを保持する。選択イベントは1行省略、一覧は開いた場合だけ既存のスクロール領域を表示する。
+- コンパクト表示は横幅優先の16:9とし、フレーム保持領域の伸長・中央配置を解除。高さ不足時は映像と操作群をスクロールでき、スマホのボトムシート高さ・Safe Area余白を維持する。PC通常幅のフレームサイズ計算、1920×1080論理座標・ドラッグ変換・Canvas描画・MP4・保存形式は変更しない。
+- 動画操作内だけヘルプアイコンの文字／背景／枠線色を明示。HelpTipの任意fitViewport指定で可視領域に合わせて上下と最大高さを選び、動画のヘルプだけに適用する。スマホは再生・イベント・配置の説明を右端1箇所へ統合し、READMEの廃止操作への言及も更新。下記の旧実装記録にあるガイドON／OFFの記述は今回より前の仕様。
+- 依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## Balloon minimum width / fixed decoration size
+
+- 動画の「バルーンサイズ」を削除し、装飾寸法を従来100%へ固定。fontScaleは50〜200%・10%刻み・初期100%とDOM id annotation-font-scaleを維持。既存領域内へ「バルーンの最小幅」（160〜440px・10px刻み・初期280px）、DAY／通常バルーンの独立した適用チェック（初期は両方OFF）を追加。チェックのタップ領域を44px以上とし、狭い幅では折り返す。
+- annotationStyleにminimumWidth／minimumWidthForDay／minimumWidthForBalloonを追加。型の追加項目は既存の呼出し元との互換のため任意とし、DEFAULTと共通parseAnnotationStyleでは全項目を確定する。作業／計画JSONとも既存の有効なballoonScaleを受理して1へ正規化し、新項目がなければ280／false／false。新項目は有限数と範囲／boolean型を検証。保存時も正規化し、format／version:1は維持。読込基準は正規化後の値なので、この自動移行だけでは未保存警告を出さない。旧倍率が100%以外の動画作品は意図的に外観が変わる。
+- 動画DAYは現行の実測最大行幅＋余白と指定最小幅の大きい方を採用し、既存フレーム上限を優先。補足1行・文字階層・中央配置と地図編集用DAYの寸法は維持。通常バルーンも共通annotationLayoutで同じ下限を適用し、増えた左右余白を均等に配分する。適用OFFは自動幅。fontScale以外の余白／装飾倍率は常に1。プレビュー／MP4／ドラッグの実矩形は既存共通経路を使い、保存済み固定中心や地理地点、履歴を再計算・上書きしない。
+- MP4鮮度比較は可変balloonScaleを除外し、fontScaleと出力対象に適用ONの最小幅だけを含める。対象のない種類と適用OFFの幅変更は比較へ入れない。生成時コピーも共通正規化を使う。未保存比較は適用OFFも含む全設定を保存基準と比較し、表示設定をUndo／Redoへ追加しない。幅変更では既存FramePlan／背景キャッシュを再利用する。
+- 対象外のSTART／GOAL・HUD・時計・地図編集用DAY・スポット画像は維持。スポットの既存バルーンサイズ操作とPNGは専用purposeで旧寸法倍率を使い、新最小幅を適用しない。廃止した動画サイズヘルプを最小幅ヘルプへ置換し、スポット既存サイズには専用ヘルプキーを使用。READMEは保存項目と旧倍率移行の説明だけ更新。
+- 第2回の旧DAYレイアウト記録・markerFramePositionsの互換計算、第3回の共通履歴、第4回のドラフト／確定／キャンセル処理は変更しない。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## Direct frame marker editing — V1.3 第4回
+
+- 映像タブの編集ガイドON・停止中・描画完了時に、通常バルーンに加えDAY、表示中のSTART／GOAL、ONの距離HUDを直接配置できる。VideoMarkerOverlayは公開済みsceneだけから透明ボタンを作り、未到達GOAL等を追加しない。DOM順をCanvasの通常バルーン→DAY→端点→HUDと合わせ、重なった部分は後に描画する対象を優先。重なったDAYは手前を動かして露出させるか、Tabで各対象にフォーカスして方向キーで調整できる。
+- DAY／端点は描画側も使うdayMarkerFrameLayout／endpointMarkerFrameLayoutから実矩形を取得。DAYは日付・補足を含む現行文字実測と共通倍率を維持。DAY／端点はclamp後の矩形中心を0〜1に正規化し、HUDはdistanceHudLayoutの実倍率込み矩形とclampDistanceHudPlacementを使い、既存のピクセル単位左上x/yを保持する。編集ガイドは既存の選択枠を再利用し、Canvas／MP4へ描画しない。
+- frameDragの既存6px閾値、Pointer Events／Capture、方向キー5px・Shift併用20pxを再利用。ドラフトは1対象だけのsceneコピーをdrawVideoFrameで再合成し、公開済み背景・投影・ルート・時計・FrameStateを固定する。ドラッグ中のMapLibre操作・カメラ／時間計算・タイル取得・App保存状態更新はない。二重描画用Canvasや背景Bitmapの追加保持もない。
+- useVideoPlayerの既存isEditingBalloon／editingBalloonIdガードは全対象を含む互換APIとして維持。再生・シーク・イベントジャンプ・保存・読込・作品切替・MP4生成と排他し、開始時に古い要求を無効化する。設定変更・ガイドOFF・画面離脱・破棄・別対象へのフォーカスでドラフトを破棄し、キャンセル世代で透明ターゲットのPointer Captureも解除。新対象のサイズ／画面回転・フレーム領域移動・スクロール・非表示化・フォーカス離脱にも安全にキャンセルする。
+- 正常PointerUpで実移動したときだけ、Appから既存editHistoryReducerへ対象の固定位置またはHUD位置を1件commitする。開始位置へ戻る操作、キャンセル、Capture喪失は履歴を増やさない。DAYキーはTimelineの日付／計画DAY開始ID、端点はラベル。動画上の確定では旧placementを変更・削除せず、第2回の固定位置を優先する。地図編集と共通Undo／Redo、未保存比較、MP4鮮度比較と生成時コピー、既存JSONフィールド／version:1を維持する。確定後の再描画も直前の再生位置を使う。
+- 動画編集ヘルプを更新。第2回の旧JSON寸法・投影・基準フレーム、第3回の履歴と非履歴設定の分離、MP4専用開始時ズーム、出力／エンコード・地図側編集は変更しない。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## Shared edit Undo / Redo — V1.3 第3回
+
+- Appはhistory.tsのEditSnapshot（points、DAY／端点の旧placementと動画固定座標、HUDのx/y、セッション内の旧DAY互換キー）を単一Reducerのpast／present／futureで管理する。地図・映像の既存ボタンとCtrl／Cmd+Z・Shift+Zは同じ履歴を操作する。スポット編集等の従来の配列形式APIは同じReducerコアのラッパーとして維持し、スポットの仕様は変更しない。
+- 地点と通常バルーンは従来のcommit経路、DAY／START・GOALの地図移動・位置リセットはplacement変更と対象固定座標の無効化を1件でcommitする。無関係な位置は維持。内容が同じcommitは履歴やRedoを変更しない。地図ポップアップのドラッグが開始位置へ戻った場合も確定しない。
+- DistanceHudOverlayはローカルのドラフトだけをPointerMoveで動かし、正常PointerUpの実移動を1回だけ親へ通知する。キャンセル・キャプチャ喪失・非活性化・作品／履歴／レイアウト変更・画面離脱でドラフトとキャプチャを破棄する。HUD位置リセットも1件のcommit。enabled／scaleはAppの別stateで管理し、Undoで巻き戻さない。モデル・サイズ由来の自動clampは履歴を増やさない専用更新。
+- 新規作品・JSON復元は配置と地点をloadでまとめて設定し、過去／未来をクリアする。時間範囲再抽出は従来どおり配置を保持して履歴をクリア。「初期状態」はpointsだけを初期値へ戻すUndo可能な操作であり、DAY／端点／HUDの位置や動画設定をリセットしない。
+- 通常バルーンの自動補完は過去／現在／未来／初期へ従来どおり反映し、共有していた地点配列の参照を維持する。DAY／端点の自動解決も履歴を増やさず、同じルート形状・停止条件・対象placement・旧DAY互換区分の未設定座標だけを補完する。既存固定座標は上書きしない。Undo／Redoを含む確定操作でrevisionを進め、元snapshot照合と既存token／AbortSignalで古い結果を遮断する。第2回の旧寸法・投影・基準フレーム計算は変更しない。
+- 保存は現在の確定値だけを従来のJSONフィールドへ渡す。HUDドラフトと履歴、互換キーは保存しない。既存の未保存比較・MP4鮮度比較・生成時コピーはReducerの現在値を参照する。format／version:1と既存フィールドは変更しない。
+- 第4回の映像上DAY／START・GOAL／HUD直接ドラッグは未実装。実装時もドラフトを保存状態から分離し、PointerUpで対象の固定座標だけを同じcommitへ渡すこと。HUDの履歴位置（x/y）と非履歴設定（enabled／scale）を再統合しないこと。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## DAY / START / GOAL frame positions — V1.3 第2回
+
+- 作業JSON／計画JSONともトップレベルの任意フィールドdayMarkerFramePositionsとendpointMarkerFramePositionsを追加。値は通常バルーンと同じ{x,y}（1920×1080矩形中心の0〜1正規化座標）。DAYキーはTimelineの日付／計画DAY開始地点ID、端点はSTART／GOAL。有限数・範囲と日付／空でないID／端点ラベルを検証する。format／version:1、旧placement、videoSettingsは維持。削除中・出力範囲外のDAY情報も既存メタデータと同様に保持する。
+- markerFramePositions.tsが実MP4のbuildFramePlan／sampleFrameを使い、到達条件と従来の画角内判定を満たす最初のフレームを探索する。STARTイベントのpreFramesを変換基準と決め打ちせず、実描画の開始条件を使う。開始時ズームもMP4の中間カメラで評価する。編集地図のtransformを1920×1080・動画FOV・動画の制約で複製した参照投影を使い、地図の移動やタイル取得は行わない。長い探索は128サンプルごとにUIへ制御を戻す。
+- 旧JSONの未設定DAYは、下記に保存した旧寸法・旧省略処理・clampから旧矩形中心を算出する。新規DAYと地図で変更したDAYは現行寸法を使う。端点は旧／現行とも230×78と従来の余白・gapを使用。互換矩形は変換専用に閉じ込め、旧レイアウト記録は変更しない。
+- Appで結果を編集状態へ確定し、以後はカメラ・文字サイズ変更やシークで再変換しない。表示対象でない／有効フレームのないマーカーには座標を捏造せず、旧情報を残し出力範囲等の変更で再試行する。自動解決完了までプレビューを準備状態とし、保存・生成の入口でも同じ解決処理を待つ。入力トークン・編集世代・AbortSignalで古い結果を遮断する。
+- 地図のドラッグ／リセットは従来のplacementを更新し、対応する固定座標だけを無効化して再解決する。他の固定位置を巻き込まない。描画は共通videoMarkerRectで固定中心と現在寸法からclampし、地理アンカー／接続線は各フレームの投影に追従する。通常バルーン・HUDの描画、地図編集用DAYレイアウトと操作、プレビューのみ開始時ズームを省略する仕様は維持。
+- 新座標は未保存比較へ含め、自動解決は履歴へ積まず、保存成功時のみ既存の保存基準を更新する。MP4鮮度比較では現在出力するマーカーモードの新座標を優先し、生成開始時に座標をコピーする。計算済みフレーム・カメラ・互換判定フラグ・地図オブジェクトは保存しない。
+- 第3回ではこの独立した配置stateと地図更新の履歴統合を扱うこと。第4回の映像上ドラッグは未実装。旧情報を残した未解決対象を一括で中央配置したり、保存済み固定位置をカメラ変更で再初期化しないこと。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## Preview omits intro zoom; MP4 keeps it
+
+- オーナー決定により開始時ズームはMP4出力だけに適用。映像タブではON／OFFに関係なく、Pre-rollの全フレームをズーム完了後の画角で静止表示する。Pre-roll 0秒は停止区間なし。Follow本編のカメラ追従・Zoom変化とOverviewの設定Zoomは維持。
+- previewFrameRenderer内で元のFramePlanを時間軸・イベント番号・既存JSONバルーン位置補完用として保持し、描画のsampleFrameだけintroZoomEnabled:falseのコピーを使う。preFrames／FPS／総フレーム数・再生時刻は元のまま。イベント探索は従来の計画と地図を動かさない参照投影を使い、イベントのフレーム番号を維持する。
+- OverviewのPre-rollは本編と同じ静的背景キャッシュを使う。元設定ON時は従来の冒頭のreachedPointIndex=0によるバルーン・DAY等の表示条件と時計／HUDを保持し、カメラだけ完成画角にする。Followは同じ初期画角の背景・投影・prepareCameraを再利用し、Pre-roll終了時も既存の連続したカメラ計算へつなぐ。描画用にズーム途中のカメラは生成しない。
+- 不要になったズーム専用先行準備・順序再生・buffering状態を撤去。通常の最新要求優先再生、epoch／request IDによる中断、描画済みCanvas保持、直接編集保護は維持。下記「Intro zoom preview playback waits for rendering」は今回より前の実装記録。
+- App設定にMP4専用の説明と常時表示の注意を追加し、introZoom／videoPlayer等のヘルプを更新。MP4生成処理・共通FramePlan／sampleFrame・補間・保存値・JSON形式・鮮度比較は変更しない。プレビュー専用の計画コピーを出力オプションへ戻さないこと。
+- 依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## DAY note width — V1.3 第1回追加修正②
+
+- 動画用DAYのnoteMaxWidthを370px（balloonScale連動）から独立上限なしへ変更。補足を1行で実測し、見出し・日付・補足の最大行幅＋共通余白・枠から横幅を決定する。プレビュー／MP4、Overview／Follow／開始時Zoomは既存の同じレイアウトと矩形配置・接続線計算を使う。
+- 動画フレーム1920×1080と画面端余白を含む幅制限は維持。文字がその内側に収まる限り省略せず、収まらない場合だけ既存の「…」処理を使う。自動改行・縮小等の新しい表示方式は追加しない。地図編集用noteMaxWidth 220pxと編集倍率・表示寸法は変更しない。
+- 第2回の旧JSON座標変換では、旧動画を再現するため下記記録のnoteMaxWidth 370pxと旧省略後の矩形を使うこと。今回の拡張後の矩形を旧位置の算出に使わない。旧レイアウト記録は変更していない。
+- 既存テストの幅上限期待値だけをフレーム内の利用可能幅へ更新。依頼に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## Intro zoom preview playback waits for rendering
+
+- 従来は実時間から要求フレームを進め、rendererが最新要求を優先するため、毎フレーム地図カメラが変わる開始時ズームで未表示フレームを破棄していた。
+- useVideoPlayerの開始時ズーム連続再生だけを、公開済みフレーム＋1の準備・公開へ同期。1/fps刻みの次の予定時刻以降に、準備完了したフレームだけを公開する。描画待ちやブラウザの長い停止後は公開時刻から進行を再開し、待機時間を進行へ加算しない。最終イントロフレーム公開後に通常の実時間再生へ戻す。FramePlan／sampleFrame／MP4処理・補間・設定上の時間とフレーム数は未変更。
+- 先行完成フレームの上限は1枚。既存1920×1080の作業Canvas（RGBA換算約7.9MiB）を再利用し、先行フレーム用Canvas／ImageBitmap配列は追加しない。表示Canvasと既存背景キャッシュを維持し、先行準備中は表示を上書きしない。
+- rendererのprepareFrameとpublishPreparedFrameを分離。新しい要求・一時停止・シーク・設定更新・disposeで先行フレームを無効化し、公開時もrequest IDを照合する。フック側は既存epoch／renderer同一性を照合し、停止・再生再開後に古い非同期処理が進行しないようにする。画面切替・生成移行・バックグラウンド化の既存停止処理もこの経路を使う。
+- 描画が予定時刻に間に合わなければ「映像を準備しています…」を表示。操作を無効化せず、一時停止・シーク等を継続可能。低性能端末やタイル取得待ちでは実際のプレビュー所要時間が設定時間より長くなる。ユーザー指示に沿いテスト・ビルド・ブラウザ／実機確認は未実施。
+
+## DAY text clipping follow-up — V1.3 第1回追加修正①
+
+- コード上、地図DAYはfonts.ready後に再配置するが、映像プレビュー／MP4はフォント準備待ちがなかった。DAY見出し・日付の幅も文字列全体で実測する一方、描画は字間付きの1文字単位で行い、カーニングによる実幅の差が生じ得た。報告端末での原因の独立再現は未実施。
+- DAYの行定義・フォント文字列を共通化し、使用文字・weight・サイズを指定してFontFaceSet.loadとreadyを待ってから描画する。Webフォント失敗時は宣言済みフォールバックを使用。プレビューではDAY情報／文字倍率変更時に準備を更新し、待機中に古くなった要求は既存request IDで破棄する。背景・カメラ・投影は再生成しない。
+- 映像用DAYは実際の文字ごとの描画位置から行幅を計算し、その位置を描画でも使用する。補足は文字列全体を同一フォントで実測・描画。地図編集用の既存実測・配置、共通基本寸法／倍率、補足幅上限と省略処理、旧JSON変換用の旧レイアウト記録は維持。
+- テスト・ビルド・ブラウザ／実機確認は依頼に沿い未実施。差分の確認のみ。
+
+## Shared DAY / balloon video sizing — V1.3 第1回
+
+- 通常バルーン基準の文字28px・左右余白20px・上下余白16pxをannotationStyle.tsで共通化。DAY動画の固定最小幅230pxを廃止し、文字実測から幅・行数から高さを計算する。日付／補足の文字サイズ比率は見出しの17/24・19/24を維持。
+- 共通balloonScaleでDAYの余白・枠・角丸・行間・接続線・影・補足幅上限等を、fontScaleで文字と字間を倍率計算する。画面端margin／bottomMarginは固定。drawVideoFrameのscene.annotationStyleをDAYまで渡すため、全体表示・追従・開始時Zoomとプレビュー／MP4は同じ計算を使う。地図編集用DAY寸法・編集表示倍率は独立のまま。
+- MP4鮮度比較は、出力ルート内にDAYがありrouteMarkerModeがdayの場合も共通倍率を含める。通常バルーンも出力対象DAYもなければ倍率を比較しない。保存形式・位置情報・カメラ・投影・時間軸・背景キャッシュは変更しない。
+- テスト追加・実行、ビルド、ブラウザ／実機確認は依頼に沿い未実施。既存DAYレイアウトテストの旧寸法期待値のみ新しい既定寸法に更新。
+
+### 第2回の旧JSON座標変換用：変更前のDAY動画レイアウト
+
+以下は今回の共通倍率適用前の定数（参照：commit 6531dbaのdayMarkerStyle.ts／frameDrawing.ts／popup/placement.ts）。旧動画の矩形を再現する際は新しいdayMarkerLayoutをそのまま使わず、この旧値と旧ルールを使うこと。旧DAY動画寸法はannotationStyleの倍率を受けていなかった。地図編集用寸法や端末CSS寸法を変換基準にしない。文字実測には旧動画と同じフォントの読み込み状態も必要。
+
+```ts
+const LEGACY_VIDEO_DAY_STYLE = {
+  minWidth: 230, noteMaxWidth: 370, paddingX: 24, paddingTop: 17, paddingBottom: 15,
+  dayFont: 24, dateFont: 17, noteFont: 19, daySpacing: 1.9, dateSpacing: 0.85,
+  border: 3.4, radius: 8.5, rowGap: 3.4, anchorGap: 40, anchorInset: 20,
+  connectorWidth: 3.4, connectorLength: 30, anchorOffset: 34, anchorRadius: 5,
+  manualConnectorWidth: 6.8, manualAnchorRadius: 8.5, anchorBorder: 3.4,
+  shadowBlur: 24, shadowOffsetY: 6.8, margin: 8, bottomMargin: 54,
+};
+```
+
+- 基準は1920×1080、popupDisplayScaleは1。フォントは`"DM Sans", "Noto Sans JP", system-ui, sans-serif`。行順は`DAY ${dayNumber}`（weight 700、24px、字間1.9）、存在する日付（ハイフンをドットへ置換、weight 600、17px、字間0.85）、存在する補足（weight 400、19px、字間0）。各行高はfontSize×1.25。
+- 文字実測幅は`context.measureText(text).width + Array.from(text).length * spacing`（末尾分の字間も含む）。全体幅上限は1904。行の利用可能幅は`1904 - 2 * (3.4 + 24)`、補足のみさらに370で制限。超過時は末尾の文字を削り「…」付きで収まるまで省略する。
+- 幅は`ceil(min(1904, max(230, 最大行実測幅 + 2 * (3.4 + 24))))`。高さは`ceil(17 + 15 + 2 * 3.4 + 各行高の合計 + (行数 - 1) * 3.4)`。各行の中心Yはborder＋paddingTopから行高の半分を足し、次行へ行高＋rowGapを進める。
+- 投影地点を`(x,y)`、旧矩形を`(w,h)`とする。自動配置のleftは`clamp(x - w/2, 8, 1920 - 8 - w)`。`y - h - 40 < 8`なら下側、そうでなければ上側。topは`clamp(下側 ? y + 40 : y - h - 40, 8, 1026 - h)`。
+- 旧placementがある場合は自動配置を上書きし、leftは`clamp(x + offsetX - w/2, 8, 1920 - w - 8)`、topは`clamp(y + offsetY - h/2, 8, 1026 - h)`。clampは現行placedPopupRect同様の`max(minimum, min(maximum, value))`。画面固定座標へ変換する場合は、この旧矩形の中心を基準フレーム内で算出する必要がある。
+- 自動接続線のXは地点Xを矩形の左右20px内側へ制限。上配置なら矩形下辺から下へ30px（丸印中心は34px）、下配置なら矩形上辺から上へ同量。手動placementでは矩形上の地点に最も近い点から投影地点まで接続し、丸印も投影地点。旧JSONの変換と新しい配置情報の追加は今回未実装。
+
+## Independent STEP panels (Issue #15)
+
+- MobileBottomSheetのsteps定義をPC／スマホ共通のSTEP切替に使用。選択中のSTEPだけを表示し、上部の直接選択と下部の戻る／次へを追加。初期・resetKey切替時はSTEP 01へ戻す。
+- 各STEPのReact subtreeはマウントしたまま非選択パネルをhidden／inertにし、入力値・編集状態・副作用を維持。STEP単位でスクロール位置を保存・復元し、選択変更時に隠れる入力のフォーカスを解除する。
+- モバイルのシート3状態、キーボード時の一時拡大・入力欄追従、地図／映像状態は変更しない。STEPナビの既存HelpTip文言を切替操作に合わせて更新。
+
+## Unsaved edit protection (Issue #1)
+
+- TimelineWorkState／PlanStateと同じ保存対象をキー順のJSON比較で未保存判定。初回抽出・正常読込・新規計画・保存成功時に基準を更新し、保存キャンセル／エラーと形式不正では更新しない。保存は開始時の状態を基準にする。
+- 置換前に必要時だけ日本語confirmを表示し、Timeline workerの新規indexと編集状態は抽出成功まで保留する。スポットはpoints・画像範囲・ラベル・スタイルの未保存状態だけ親へ通知し、PNG保存は編集状態を保存済みにしない。映像バルーン編集中の保存／読込／破棄を抑止する。
+
+## Android text input and mobile sheet (Issue #14)
+
+- MobileBottomSheet内の通常テキスト入力／textareaへフォーカスすると、visualViewportの高さ・offsetTop・resize／scrollとシート寸法を監視し、入力欄と内容領域の実測位置から必要な分だけ内部スクロールする。
+- キーボード表示中だけ通常stateとは別にシートを作業領域いっぱいへ一時拡大。入力をblurしてもクリック処理を待ってから元の高さへ戻し、キーボードを閉じても入力フォーカスが残る場合はviewport復帰を検知する。IME・入力値・カーソル・PCレイアウトは変更しない。
+
+## Mobile header mode menu (Issue #3)
+
+- 760px以下では、Timelineモードかつ地点0件の初期案内を従来のロゴ／3モード案内で維持する。地点読み込み後と計画／スポット画像モードでは高さ56pxのテキストブランド＋現在モード名＋モードメニューへ切り替える。
+- メニューは既存のWORKSPACE_MODE_COPYとstartPlanMode／startSpotMode／JSON選択処理を利用し、外側タップ・Escape・選択で閉じる。地図／映像上へ重ね、低い画面では内部スクロールする。HelpTipを追加。761px以上のヘッダーや作業データ処理は変更しない。
+
+## Mobile UI and legacy preview cleanup — v1.3 Step 8 (2026-10-16)
+
+- Appの旧previewProgress、rAF／終了タイマー、専用Follow計画・未使用開始関数・balloonFrameEditingと旧配置入口関数を撤去。RouteMapの旧動画時刻補間・移動マーカー／時計・プレビュー用カメラ切替／復元と専用props、未使用ヘルプ／CSSも削除した。地図／映像とStep 03「映像で確認」へ集約済みの操作入口を維持し、地図から直接MP4を生成できる。
+- 通常地図のルート線・地点選択／移動／範囲操作、FrameAnnotationOverlay、DAY／Endpoint／DistanceHudOverlayは維持。HUD用16:9枠とgetVideoPreviewViewport、framePositionと旧JSON補完、参照カメラのclone投影、共有frameDrag／Canvas描画・フレーム計算は残した。編集地図は映像切替中も同じインスタンスを保持するため、通常カメラ／Zoomの保存復元を新設する必要はない。
+- PCは左設定／右映像を維持。プレイヤーのシーク・ヘルプを44px以上へ調整し、狭い映像領域ではガイド／Undo／Redo等を折り返す。イベント名の省略／一覧で全文表示、縦スクロールを維持。スマホはSafe Areaの左右と既存シート高を考慮し、切替・映像操作はシート外。MobileBottomSheetの3状態・ジェスチャー・resetKeyは未変更。表示サイズ変更はCSS倍率だけで、1920×1080・16:9、再生位置／選択／履歴を初期化しない。
+- Canvasとシークのtouch-actionを分離し、シークはPointer Captureを使用。バルーンは既存共有Pointer Captureとサイズ変更時キャンセルを継続。背後の編集地図は既存inert／visibilityで操作を遮断する。
+- useVideoPlayerは正常描画済みCanvasの有無を保持。MP4生成中はMapLibre／背景Bitmapを解放しても出力Canvasの画素をそのまま静止表示し、VideoWorkspaceが半透明の生成進捗を重ねる。追加の地図読込やBitmapコピーはしない。既存の解放Promiseを待ってMP4を開始し、終了・キャンセル後はStep 6-Aの保持位置から停止状態でセッションを再開する。正常フレームがない場合は進捗のみ表示。新規セッション／作品resetで画素の有効フラグを解除する。
+- 今後もプレイヤー状態・Canvas保持・ガイドをJSON／履歴／MP4鮮度へ混ぜないこと。共通フレーム・カメラ・MP4エンコードは変更していない。旧プレビューという名前だけで地図編集用共通処理を削除しないこと。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
+## Direct video balloon editing — v1.3 Step 7 (2026-10-16)
+
+- 共有sceneのバルーンへpointIdを付与し、previewFrameRendererが実際に公開したsceneとFrameStateを保持する。getDisplayedBalloonsはそのsceneの実表示対象とannotationLayoutから1920×1080の矩形を取得。VideoBalloonOverlayは矩形を表示倍率で配置した透明buttonと選択枠のみを持ち、バルーン本体を二重描画しない。選択はAppのselectedPointIdと共有し、DAY／START・GOAL／HUD等は編集しない。再生中の映像タップは公開済みフレームで停止してヒット判定する。
+- popup/frameDragの既存Pointer Capture・位置変換・5px／Shift20pxキー操作を小さく拡張。映像側だけ画面6px閾値、開始／終了通知、実質同位置の除外、確定時のドラフト維持を使用する。旧地図側の既定操作は維持。位置はannotationLayout＋annotationFramePositionで24px／下70pxの既存制限を再利用し、保存は従来のannotation.framePosition。新オーバーレイはMapLibre投影に依存しない。
+- ドラッグ中は公開sceneの背景・ルート・地点投影・カメラ・フレームを固定し、renderer.previewBalloonPositionで対象1件だけframePositionを上書きしたsceneを共有drawVideoFrameへ渡す。履歴・FramePlan・カメラ計画・投影・タイルを更新しない。最後の表示sceneの背景Bitmapは、未完了要求やキャッシュ失効で早期closeされないよう次の正常公開／破棄まで保持する。
+- 正常pointerupで位置が変わった場合だけ既存setBalloonFramePosition→historyReducer commitを1回実行。キャンセル／capture喪失／画面終了／ガイド非表示／対象や設定の変更・表示サイズ変更ではドラフトを戻して履歴を追加しない。通常release前にdragをnullにしてlostpointercaptureの二重終了を防ぐ。確定後・Undo／RedoはStep 6-Aの同フレーム再合成へ接続。入力欄の標準Undo／Redoを奪わず、映像側のボタンも既存のpast／futureへ接続する。
+- ガイド表示はuseVideoPlayerの非保存状態。停止・描画完了時だけ選択枠とヒット領域を表示し、再生中／ガイド非表示／排他処理中は編集不可。ドラッグ中は再生・シーク・イベント移動・動画設定・MP4生成保存をUIと実処理で制限する。ガイドや選択・未確定位置は出力スナップショットへ入れず、確定したRoutePoint更新でStep 6-Bの再生成判定が自然に更新される。
+- 地点詳細の「映像で確認」は既存balloon:pointIdイベントを強制アンカーとして同じプレイヤーへ要求し、最初の実表示フレームへ停止移動、地点選択とガイド表示を維持する。範囲外は地図側で案内、表示不可は指定文で案内し別イベントやカメラを選ばない。Step 02の旧専用配置入口・構図セレクター・専用終了toolbarは撤去。FrameAnnotationOverlay、旧JSON補完、通常地図のバルーン操作、旧内部互換コードは維持する。
+- Step 8へ：旧previewProgressやballoonFrameEditingの内部状態・未使用入口関数と関連ヘルプ／CSSは今回全面削除していない。共有frameDrag、描画済みsceneのバルーンID／矩形、正規化座標・補完処理、生成Blobとの鮮度比較を保ちながら整理すること。MP4描画・エンコードとJSON format／versionは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
+## Generated MP4 freshness — v1.3 Step 6-B (2026-10-16)
+
+- `video/videoOutputSnapshot.ts`のcreateVideoOutputSnapshotが、renderRouteVideoへ渡す出力入力を固定順のJSON文字列へ正規化。対象ルートの順序・座標・DAY分割用日付、実績時計有効時の時刻、バルーン、実際の共通停止配列、時間・有効カメラ・開始Zoom、マーカー／配置・DAY色分け、HUDの実表示寸法／配置・距離モデルの必要値を比較する。非表示HUDの位置・サイズ、無効なカメラ設定、マーカー非表示時の配置、ラベルなしのバルーン寸法、互換用pauseSeconds等は除外。Mapは対象地点順の値配列へ変換し、参照・UI状態・進捗・Signal・FramePlan／地図／画像／Blobは比較しない。比較値はブラウザの制作セッション内だけに保持し、ログ・外部通信・JSON保存へ出さない。
+- Appの確定PreviewFrameOptionsを生成・比較の共通入力とし、useMemoで制作状態の変更時だけ比較値を作る。再生／シーク・選択・画面切替・ヘルプ・ボトムシート開閉等では再シリアライズしない。captureVideoOutputOptionsが生成開始時に対象ルート・入れ子の配置、DAY・カメラ・スタイル・HUDモデル／Map値をコピーし、その同じ入力から生成時比較値を作る。Follow計画もコピー済みルートから生成時に構築し、共有参照の変更で生成途中の入力が変わらないようにする。FramePlan／背景の複製は行わない。
+- 正常生成後だけBlob・Object URL・生成時比較値を確定。完了時の現状態が異なる場合も開始時比較値を保持し古いMP4として扱う。失敗／キャンセル時は旧正常MP4を維持し、終了直前のキャンセルも登録前に確認する。DAY切替での無条件破棄を撤去。Undo／設定を戻して一致すれば再度保存可能になる。新規作品・作業／計画読込ではBlobと比較値をクリアし、URLは置換・作品終了・unmountで解放、unmount時は生成も中断する。
+- Step 03で不一致時に「再生成が必要」＋短い案内、「MP4を再生成」を表示し保存ボタンを無効化。saveVideoも比較値を確認して不一致なら保存ダイアログより前に拒否する。既存busy／videoProgressを利用し、生成／保存中は設定・ルート編集領域をinert、バルーンサイズ入力とキーボードUndo／Redoも制限。生成キャンセル・既存モバイルシート操作は維持し、描画・エンコード・JSON形式・履歴処理は未変更。
+- Step 7へ：直接編集が既存RoutePoint.annotationのlabel／framePosition等を更新すれば、そのまま比較対象になる。新たなdirtyカウンターやプレイヤー状態を判定へ混ぜないこと。出力へ影響する新入力を増やす場合は、共通出力入力・生成用コピー・比較正規化を揃える。バルーン直接編集・地点詳細からのジャンプ・ガイド切替等には未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
+## Live video settings and position retention — v1.3 Step 6-A (2026-10-16)
+
+- `useVideoPlayer`は描画セッションの生成／解放と、設定反映を分離。確定したPreviewFrameOptionsの変更をlayout effectで検知し、再生を停止・旧要求を無効化して同じrendererの`updateOptions`へ送る。Step 03の既存UIは維持し、再生中に設定欄へフォーカス／タップした時点でも停止する。文字列入力と確定数値stateの既存区別、MP4中の操作制限、MobileBottomSheetのジェスチャー／開閉状態は変更しない。
+- 最後に公開されたFrameStateとFramePlan・経過秒数を保持し、選択イベントは地点ID＋種別のIDをeventAnchorRefへ保持する。`previewUpdates.ts`が旧表示計画と新計画の停止・パン／DAY切替・ルート構成等を比較し、時間軸が変わる場合だけ有効な同一イベントへ対応付ける。それ以外は同じFPSのフレーム（経過秒数）を維持し有効範囲へclamp。イベントが消えた／表示不可なら選択を解除して旧経過秒数へ戻す。手動シーク・通常再生はアンカー解除。設定変更や地図編集による先頭リセットを撤去し、新しい作品へのresetは維持する。
+- `previewFrameRenderer.updateOptions(next, position)`はフレームと同じ最新要求優先の直列キューを利用。処理中1件＋待機最新1件に設定スナップショットを持たせ、共有状態の更新と地図操作を同時実行しない。旧結果は要求ID・フックのepoch／世代で破棄し、新設定の完成フレームと計画・イベント・アンカーをまとめてUIへ反映する。描画中は「設定を反映して映像を更新しています…」を表示し、旧画像を新設定の成功表示にしない。失敗時は旧位置基準を保持して再試行できる。
+- Canvasのみの設定は既存FramePlan・Follow計画・イベント・背景を維持。Overviewの事前投影データ、Followのカメラごとの投影キャッシュを再利用し、HUD／時計／バルーン寸法変更で背景を取得し直さない。マーカー／DAY色分け等は必要な描画メタデータを更新。時間変更時は必要なFramePlan／イベントを再計算し、同じFollowカメラ計画は再利用する。カメラ変更は同じMapLibreセッションを動かし、背景キーに一致する場合のみキャッシュを使用。背景・カメラ・投影の組を維持し、エラー時は背景と投影キャッシュを破棄する。
+- `frameScene`の2つの準備関数はprojectだけを受け取れる型へ最小拡張し、MP4は従来のMapLibre、プレビューはキャッシュ付きprojectを渡す。Canvas描画仕様・FramePlanの補間・MP4エンコードは未変更。既存annotation.framePositionを優先し、サイズ変更で位置を補正しない。READMEと共有ヘルプを更新した。
+- Step 6-Bへ：今回のスナップショットは再生位置保持用で、生成済みMP4との一致／鮮度判定には使用していない。鮮度表示・保存制御・MP4生成時比較、Step 7の直接編集、旧プレビュー削除には未着手。JSON形式・地図編集・Undo／Redo・スポット画像・MP4生成保存は維持する。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
+## Video playback, seeking and event navigation — v1.3 Step 5-B (2026-10-16)
+
+- `video/useVideoPlayer.ts`が非保存のplaying／paused、要求位置playheadFrame、実表示displayedFrame、準備／失敗、selectedEventIdを管理。requestAnimationFrameの経過時間をFramePlan.fpsとgetFrameIndexAtTimeでフレームへ変換し、従来のpreviewProgressから独立して共有renderFrameへ要求する。最終フレームの描画成功後に停止し、終端からの再生は先頭へ戻る。
+- 一時停止はrendererの実際の公開済みFrameStateを取得し、cancelPendingFramesで要求IDを進めて処理中／待機中の旧要求を無効化する。Step 3-Cの処理中1件＋待機最新1件と完成Canvasの同期公開を維持。フック側もセッション世代と要求epochで遅れた結果を無効化する。高速シークは一時停止して最新位置だけを要求する。時刻欄は実表示、バーは要求位置を示す。
+- 地図への切替・タブ非表示で停止し、同一作品の映像再入場／MP4生成後は最終表示位置を停止状態で復元。新規読込・作業／計画再開・制作モード変更時はreset。設定オブジェクト変更時はStep 5-A同様に先頭へ戻す。地図保持・解放Promiseによるプレビュー／MP4セッションの直列化を維持する。
+- `video/videoEvents.ts`は種別＋地点IDの安定IDを持つSTART／DAY／バルーン／GOALを生成。STARTはpreFrames、GOALはsampleFrameで到着した最初のフレーム。DAYはday設定時のみ。地点配列からラベルを抽出するため停止0秒も対象になる。到達条件はOverviewのprogress／pausePointIndexとFollow・Overview introのreachedPointIndexを区別する。
+- イベント探索は共有sampleFrameと実動画用MapLibre transformのクローンによる投影・既存画面内判定を利用。到達・停止境界、intro／パン／斜め旋回中の候補フレームを調べ、停止区間の同一カメラをまとめる。全フレームのCanvas描画／タイル取得は行わない。Overview通常DAYのクランプ表示とFollow／introの画面外非表示、固定バルーンのアンカー判定を維持。未表示バルーンは理由付きframeIndex:nullで保持し前後移動から除外する。
+- `VideoWorkspace`に再生／停止、フレーム刻みのrange、現在／総時刻、前後イベント、選択名、通常閉じたスクロール一覧を追加。同フレームの印は1つにまとめ、一覧では個別選択。イベント印は位置表示専用、選択は前後ボタン／一覧から行う。スマホも設定シート外に配置し、既存16:9とResizeObserver、シート回避を維持。Step 03の既存preview-buttonは「映像で確認」へ接続。旧プレビュー内部と「動画構図で配置」はStep 8／7まで残す。
+- Step 6-Aへ：イベントIDと要求フレーム／実表示フレームは別情報。手動シーク・連続再生時は選択IDを解除する。設定変更後の同一イベント基準の復元は未実装で、現在は先頭リセット。バルーン直接編集、MP4鮮度管理、旧プレビュー削除にも未着手。JSON・MP4エンコード・RouteMap・MobileBottomSheetは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4比較は未実施。
+
+## Map/video workspace views — v1.3 Step 5-A (2026-10-16)
+
+- Appに非保存のworkspaceView（map／video、初期map）を追加。移動実績／計画のanimationPointsが2点以上のとき、設定パネル外の表示領域上部へ切替・役割説明と既存HelpTipによる案内を表示する。新規読込／作業再開／制作モード変更・ルート無効時はmapへ戻す。初回のルート確認案内は既存通知と1つにまとめ、5秒後に消す。Step 01〜03と既存DOM属性を維持して説明・カメラ見出しを調整。
+- map-edit-viewは寸法を保ったままvisibility＋inert＋aria-hiddenで非表示化。RouteMapと座標検索host・編集ツールを同じDOMに保持し、切替だけでMapLibreを再生成／再フィットしない。RouteMapとMobileBottomSheetは未変更。旧プレビューと「動画構図で配置」は地図へ戻して従来どおり実行する。
+- 新規VideoWorkspaceはCanvasと準備中／完了／失敗・再試行の表示だけを担当。Appが確定設定からPreviewFrameOptionsをmemo化し、createPreviewFrameRenderer → renderFrame(0)で共有FramePlan・scene・Canvas・動画用地図を利用する。設定オブジェクトの一致と描画完了を確認してCanvasを表示し、設定変更時は旧セッションを破棄して先頭を描き直す。旧previewProgressから映像を計算しない。
+- 映像Canvasは1920×1080を固定し、表示枠のResizeObserverは16:9で収まるCSS幅だけを計算。モバイルは既存--mobile-sheet-height（safe area込み）の分を避けて映像を配置し、切替はシートより上層に置く。バルーン等の描画座標・寸法は再計算しない。
+- previewFrameRenderer.dispose()が解放完了Promiseを返すよう最小拡張。Appは世代番号と解放Promiseで、設定変更・画面終了時の旧描画を無効化し、直前の解放後に新セッションを開始する。MP4生成も先にstopVideoPreviewをawaitしてから従来のrenderRouteVideoを呼ぶ。生成中はプレビュー地図を作らず、終了後に映像画面なら再準備する。MP4の描画・ループ・エンコードは未変更。
+- Step 5-Bへ：今回はフレーム0の停止表示のみ。旧「プレビュー」ボタンは維持。再生・シーク・イベントジャンプ・位置維持・バルーン直接編集・MP4鮮度管理は未着手。今後もプレビュー用地図の解放完了を待ち、設定更新中や失敗画像を完成映像として表示しないこと。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／PC・スマホ実機操作・実MP4確認は未実施。
+
+## Persisted video settings — v1.3 Step 4 (2026-10-16)
+
+- Step 3-Cコミット `4566792` を基準に同じ `feature/video-editor-v13` で実装。作業／計画JSONのformat・version 1は維持し、任意のvideoSettingsに時間4項目、Overview／Followのカメラ・Zoom・視点・開始Zoom、マーカー・DAY色・実績時計・距離HUDのenabled／x／y／scaleを保存。1920×1080・FPS・revealRoute等の固定仕様や計算結果・再生位置は保存しない。
+- `video/videoSettings.ts` が共通型・現行と同じDEFAULT_VIDEO_SETTINGS・parseVideoSettingsを提供。存在するvideoSettingsは全既知項目を検証し、数値範囲・刻み・列挙値・boolean・HUDを確認。未知フィールドは無視する。workFile／planFileは全データの検証後に返し、不正設定は各既存エラーへ変換して編集状態を置き換えない。
+- 作業JSONの既存トップレベル構図情報は移動せず維持し、selectedOutputDayだけを追加（不正形式は拒否、該当日程なし／期間外はall）。計画JSONには任意のトップレベルannotationStyle・animationStartPointId／animationEndPointId・endpointMarkerPlacementsを追加。ポイントID参照、サイズ、配置を検証し、videoSettingsへ同じ値を二重保存しない。既存DAY情報・framePosition／placement・旧pauseSeconds処理は維持。
+- Appは確定した数値stateを保存し、復元時はapplyVideoSettingsで数値と文字列入力を同じバッチ内で同期。旧JSONの追加項目は省略可能のまま受理し、Appで欠落した動画設定を共通既定値へ戻す。旧作業JSONのannotationStyle等は保存値を維持し、旧計画JSONの未保存構図項目は既定サイズ／範囲なし／配置なしへ戻す。新規Timeline読込成功・新規計画開始も既定値へ戻し、同一作品の通常編集・期間再抽出では動画設定をリセットしない。ファイル形式確認前のモード／選択変更も撤去し、読込拒否時は元作品を保持する。
+- READMEと関連する共有ヘルプの保存説明を更新。Step 5-Aへ：保存対象は制作設定だけで、Undo履歴や生成MP4／プレビューセッション・派生カメラ計画は含まない。復元後の派生値は既存処理で再計算する。新UI・動画設定Undo／Redo・生成MP4鮮度管理・Step 5以降とStep 1〜3-Cの内部基盤は未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
+## Preview request coordination and background reuse — v1.3 Step 3-C (2026-10-16)
+
+- Step 3-Bコミット `a8215a6` を基準に同じ `feature/video-editor-v13` で実装。`previewFrameRenderer.ts` のrenderFrame引数・framePlan／dispose入口は維持し、要求IDで最新要求を識別。処理中1件＋待機最新1件だけを保持し、中間要求は省略する。MapLibreの準備・カメラ変更・投影・背景取得・合成は同じ処理ループで直列実行。
+- 戻り値は `PreviewFrameResult`。成功は `{ status: 'rendered', requestId, canvas, state }`、古い要求／破棄時は `{ status: 'discarded', requestId, frameIndex, reason: 'superseded' | 'disposed', error? }`。最新要求のエラーは従来どおりrejectし、古い要求の失敗はdiscarded.errorへ保持して次の要求を続行。dispose後の新規要求はAbortErrorでrejectする。
+- 背景取得と共通Canvas合成は内部作業Canvasで実施し、完成・要求の有効性・地図エラーを確認してから出力Canvasへ同期コピーする。古い結果・途中画像・失敗した画像で既存の完成フレームを上書きしない。返却Canvasは引き続き同じ出力先で、スナップショットではない。
+- キャッシュはOverview固定背景＋事前投影と、Follow／Overview開始Zoomの直近背景各1件まで。GSI_STYLE固定のセッション内で1920×1080／pixelRatio=1・中心座標・zoom・bearing・pitchをキーにし、同じカメラはMap準備／背景取得も再利用する。動的背景は投影に使うMapとカメラを合わせる。最後の開始Zoomフレームは既存MP4相当の準備を一度確認。地図エラー・Map再生成・要求処理の失敗時はキャッシュを無効化し、置換Bitmapはcloseする。
+- dispose／外部signalのabortは新規要求を拒否し待機要求を破棄。進行中の地図待機をabortし、非同期処理の終了後にMap・Bitmap・内部Canvas・コンテナを解放する。解放後に古い要求が描画／反映しない。繰り返しdisposeは安全。出力Canvasは呼び出し側所有で、最後の完成フレームを残す。
+- Step 4／5へ：呼び出し側はstatusを判別し、rejectも処理する。ルート／カメラ／表示設定変更時は旧セッションをdisposeして再生成し、利用中の入力やCanvas状態を外から変更しない。画面切替・UI・30fps再生スケジューラ・フレームスキップ・MP4との同時利用管理は未着手。MP4ループ／背景キャッシュ・共有FramePlan／Canvas描画・videoMapSessionは未変更。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
+## Canvas frame preview foundation — v1.3 Step 3-B (2026-10-16)
+
+- Step 3-Aコミット `3bd9d3f` を基準に同じ `feature/video-editor-v13` で実装。`createPreviewFrameRenderer(canvas, options)`（`src/video/previewFrameRenderer.ts`）が `framePlan` / `renderFrame(frameIndex)` / `dispose()` を公開。optionsはルート・動画／描画設定と任意のsignalを受け、WebCodecs・Mediabunny・Reactへ依存しない。
+- `renderFrame()` は番号を整数へ切り下げて `0..totalFrames-1` に収める（NaNは0）。共通 `sampleFrame()` → `frameScene.ts` の共通描画データ準備 → `drawVideoFrame()` で1920×1080 Canvasを描き、`{ canvas, state }` を返す。返却Canvasは次の要求で上書きされる同じ出力先であり、フレームのコピーではない。
+- `frameScene.ts` へ既存MP4のOverview事前投影・モード別scene準備・DAY地点索引・時計引数選択・旧バルーン位置解決を移動し、MP4とプレビュー双方で使用。元RoutePointは変更しない。Overview開始Zoomの時計は地点0、FollowのDAY切替時計は従来のfollowClockPointIndexを使用。MP4のループ・背景キャッシュ・エンコード／後始末とStep 1の計算式は維持。
+- プレビュー初回はMP4と同じ初期カメラで旧バルーン配置を解決し、途中フレームからでも同じ固定位置を使用。Overview通常は固定背景Bitmapと事前投影を保持し、Zoomへ戻っても再利用。FollowとOverview開始Zoomは指定FrameStateのカメラでprepareして既存Follow sceneを作る。Followは従来どおり走行済みルートを表示し、Overview開始ZoomだけrevealRoute設定を尊重する。
+- セッションが非表示1920×1080コンテナと独立した動画用MapLibreを所有。地図準備エラーはrejectし、準備前の画像を成功として返さない。dispose（外部signalのabort時も呼ぶ）は進行中の待機を中断し、Map・Bitmap・コンテナを解放する。Canvasは呼び出し側所有。利用中のルート／設定・Canvas寸法／描画状態は外部から変更せず、変更時はセッションを作り直す。
+- Step 3-Cへ：renderFrameは1件ずつawaitする契約。要求の競合／順序制御・最新要求優先・高速シーク・Follow背景キャッシュ最適化・再生スケジューラは未実装。UI接続やMP4との同時利用管理も後続Stepの対象で、今回は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
+## Reusable video map session — v1.3 Step 3-A (2026-10-16)
+
+- Step 2-Bコミット `e491637` を基準に同じ `feature/video-editor-v13` で実装。`src/video/videoMapSession.ts` が `createVideoMapSession(container, signal?)` を公開し、返り値の `prepare(camera, move = true)` / `dispose()` / `hasError()` を従来どおり利用する。React・MP4エンコーダーへの依存はない。
+- セッションは必要時に最大1個のMapLibreを生成・再利用。既存GSI_STYLE・カメラ・pixelRatio等、地形色フォールバック、style待機と `waitForExportViewportReady()` の必須ソース／idle判定、20秒timeout、失敗地図を解放して1回再試行、AbortSignalと日本語エラーをそのまま移動。disposeはerror listener・Map・参照を解放してエラーを初期化し、再度呼んでも安全。
+- `renderer.ts` は独立モジュールをimportするだけで、Overviewの初期／開始Zoom／固定背景取得後の解放と、Followの初期／カメラ変更時準備・背景キー／lastIntroFrame判定、双方のfinallyを維持。Step 1・2-A・2-Bの計算／Canvas合成は未変更。
+- Step 3-Bへ：コンテナの作成・配置・寸法・削除、背景キャッシュとImageBitmapの寿命管理は呼び出し側の責務。prepareは逐次awaitし、返却された準備済みMapで投影・背景取得する。非同期シークの競合制御やキューは未実装（Step 3-Cの対象）。プレビューUI・新規DOM・Step 3-B以降は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。
+
+## Shared frame composition — v1.3 Step 2-B (2026-10-16)
+
+- Step 1・2-Aコミット済みの `feature/video-editor-v13`（`e3a3ae6`）を基準に実装。新規 `src/video/frameRenderer.ts` の `drawVideoFrame(context, scene: VideoFrameScene)` が、背景→ルート→現在地→時計→バルーン→DAY／START・GOAL→HUD→出典のCanvas合成を担当。Step 2-Aと既存annotationCanvas／routeClock／distanceHudの描画を再利用する。
+- `renderer.ts` の `drawFrame()` / `drawFollowFrame()` はモード別に描画データを準備して共通入口を呼ぶ。Overviewは事前投影座標を再利用し、進捗／停止地点・線の末尾補間・表示条件を維持。Followは現在カメラでの投影、reachedPointIndex・画面内判定・ルート区間／DAY色の生成を維持。HUD進行計算も従来どおり各モードに残す。Overview開始時Zoomは既存Follow経路から同じ共通合成へ接続。
+- Step 3-Aへ：sceneは1920×1080動画座標と表示対象を確定済みの配列・算出済み時計文字列／HUDデータを受け取る。共通合成は投影・カメラ計画・表示判定・時刻／距離計算を行わない。空／1点のルート区間のbeginPath／strokeも保持し、save/restoreの追加やCanvas状態の初期化・隔離はしていない。背景の準備・キャッシュ・ImageBitmapの寿命管理とStep 1のフレームサンプリングは呼び出し側の責務。プレビュー接続とStep 3以降は未着手。
+- `npm run build`（TypeScript／Vite）成功、既存チャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4の目視確認は未実施。
+
+## Shared Canvas drawing primitives — v1.3 Step 2-A (2026-10-16)
+
+- Step 1コミット `15e4764` を基準に、同じ `feature/video-editor-v13` ブランチで実装。`src/video/frameDrawing.ts` へ `drawDayMarker()` / `drawEndpointMarker()` / `isInVideoViewport()` と必要な `VideoDayMarker` 型を移動し、重複していた現在地描画を `drawCurrentPositionMarker()`、出典表示を `drawMapAttribution()` に集約。
+- `renderer.ts` の `drawFrame()` / `drawFollowFrame()` は、既存の描画位置・順序でこれらを呼び出す。開始時ZoomのFollow描画経路にも共通反映。DAYのlayout／色・START/GOALの配置・マーカー寸法・出典文字列は既存処理を再利用し、save/restoreの境界とCanvas状態の引き継ぎも維持する。
+- Step 2-Bへ：共通部品は1920×1080の画面座標を受け、投影・到達／表示条件・描画順序は呼び出し側が担当する。現在地と出典の関数はsave/restoreで状態を隔離しない。フレーム全体の構造、ルート描画、背景キャッシュ、時計／HUD計算とStep 1の計算は未変更。バルーン・距離HUDは既存の `annotationCanvas.ts` / `distanceHud.ts` を継続利用する。
+- `npm run build`（TypeScript／Vite）成功、既存のチャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行・ブラウザ／実機操作・実MP4確認は未実施。Step 2-B以降は未着手。
+
+## Shared video frame timeline — v1.3 Step 1 (2026-10-16)
+
+- 作業ブランチ `feature/video-editor-v13`、取得した最新 `origin/main` とHEADが `c1eac72` で一致する状態から実装。
+- `src/video/frameTimeline.ts` に `FramePlan` / `FrameState` と `buildFramePlan()` / `sampleFrame()` / `getFrameIndexAtTime()` を追加。既存の停止時間・Overview/Follow PlaybackTimeline・カメラ計画・開始時Zoom関数を再利用する。渡されたFollowCameraPlanは再計算せず、その参照を保持する。rendererやエンコード専用型には依存しない。
+- `renderer.ts` の全体表示（開始時Zoomを含む）と追従表示を共通サンプリングへ接続し、重複していたフレーム時刻計算を撤去。本編は従来どおり `animationFrame / (animationFrames - 1)`、前後停止は本編の始端／終端へ固定。提示時刻 `outputTimeSeconds = frameIndex / fps` と本編時刻 `playbackElapsedSeconds` を区別する。
+- Step 2では `cameraMode` とOverviewの `renderPath` で分岐する。Overview開始時Zoomは専用の `playback` を使う既存Follow描画経路で、方位・傾きは0。Followの `playback` はパン／DAY切替・到達地点・真上／斜めの状態をそのまま保持する。時計は引き続きOverview開始時Zoomの地点0指定と `followClockPointIndex()` のDAY切替処理を尊重する。
+- 計画作成にはrendererと同じ検証済みルート・動画設定を渡す。`sampleFrame()` は整数 `0..totalFrames-1` のみ受付。シーク用 `getFrameIndexAtTime()` は指定秒を含むフレームへ切り下げ、範囲外を先頭／末尾へ収める。元のpointsは変更しないため、編集後は計画を作り直す。
+- Canvas描画・MapLibre準備／背景キャッシュ・エンコード／進捗／保存、ReactのpreviewProgress・UI・JSON形式は未変更。`outputTiming.ts` の既存連続プレビュー用 `sampleVideoOutputTime()` も維持。描画共通化と編集プレビュー接続はStep 2以降。
+- `npm run build`（TypeScript／Vite）成功、既存のチャンクサイズ警告のみ。`git diff --check` 問題なし。依頼に沿いテスト実行、ブラウザ／Android実機操作、実MP4の目視確認は未実施。
+
 ## Mobile bottom sheet (2026-10-16)
 
 - GitHubから取得したorigin/mainとHEAD（075bc8a）が一致した状態を基準に実装。760px以下のみ設定パネルを地図に重ねる。761px以上は既存asideのスクロールとPCレイアウトを維持する。

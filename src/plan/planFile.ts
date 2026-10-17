@@ -1,6 +1,8 @@
 import { saveBlobWithPicker } from '../files/saveBlob';
-import { isBalloonFramePosition } from '../popup/placement';
-import type { PopupPlacement } from '../popup/placement';
+import { isBalloonFramePosition, parseMarkerFramePositions } from '../popup/placement';
+import type { BalloonFramePosition, EndpointMarkerFramePositions, EndpointMarkerPlacements, PopupPlacement } from '../popup/placement';
+import { parseAnnotationStyle, type AnnotationStyle } from '../route/annotationStyle';
+import { parseVideoSettings, type VideoSettings } from '../video/videoSettings';
 import type { RoutePoint } from '../timeline/types';
 
 export const PLAN_FILE_FORMAT = 'timeline-route-animator-plan';
@@ -12,6 +14,13 @@ export interface PlanState {
   planDayStarts: string[];
   planDayNotes: Record<string, string>;
   dayMarkerPlacements: Record<string, PopupPlacement>;
+  videoSettings?: VideoSettings;
+  annotationStyle?: AnnotationStyle;
+  animationStartPointId?: string | null;
+  animationEndPointId?: string | null;
+  endpointMarkerPlacements?: EndpointMarkerPlacements;
+  dayMarkerFramePositions?: Record<string, BalloonFramePosition>;
+  endpointMarkerFramePositions?: EndpointMarkerFramePositions;
 }
 
 export interface PlanFile extends PlanState {
@@ -29,6 +38,13 @@ export function serializePlanFile(state: PlanState, savedAt = new Date()): strin
     planDayStarts: state.planDayStarts,
     planDayNotes: state.planDayNotes,
     dayMarkerPlacements: state.dayMarkerPlacements,
+    ...(state.videoSettings !== undefined ? { videoSettings: parseVideoSettings(state.videoSettings) } : {}),
+    ...(state.annotationStyle !== undefined ? { annotationStyle: parseAnnotationStyle(state.annotationStyle) } : {}),
+    ...(state.animationStartPointId !== undefined ? { animationStartPointId: state.animationStartPointId } : {}),
+    ...(state.animationEndPointId !== undefined ? { animationEndPointId: state.animationEndPointId } : {}),
+    ...(state.endpointMarkerPlacements !== undefined ? { endpointMarkerPlacements: state.endpointMarkerPlacements } : {}),
+    ...(state.dayMarkerFramePositions !== undefined ? { dayMarkerFramePositions: state.dayMarkerFramePositions } : {}),
+    ...(state.endpointMarkerFramePositions !== undefined ? { endpointMarkerFramePositions: state.endpointMarkerFramePositions } : {}),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -110,5 +126,32 @@ export function parsePlanFile(text: string): PlanState {
     return [id, parsePlacement(placement)];
   }));
   // Keep IDs, including temporarily unused DAY metadata retained by route editing.
-  return { points, planDayStarts: data.planDayStarts, planDayNotes, dayMarkerPlacements };
+  const state: PlanState = { points, planDayStarts: data.planDayStarts, planDayNotes, dayMarkerPlacements };
+  try {
+    if (data.dayMarkerFramePositions !== undefined) state.dayMarkerFramePositions = parseMarkerFramePositions(data.dayMarkerFramePositions, isId);
+    if (data.endpointMarkerFramePositions !== undefined) state.endpointMarkerFramePositions = parseMarkerFramePositions(data.endpointMarkerFramePositions, (key) => key === 'START' || key === 'GOAL');
+  } catch { throw new Error(PLAN_FILE_ERROR); }
+  if (data.videoSettings !== undefined) {
+    try { state.videoSettings = parseVideoSettings(data.videoSettings); }
+    catch { throw new Error(PLAN_FILE_ERROR); }
+  }
+  if (data.annotationStyle !== undefined) {
+    try { state.annotationStyle = parseAnnotationStyle(data.annotationStyle); }
+    catch { throw new Error(PLAN_FILE_ERROR); }
+  }
+  const ids = new Set(points.map((point) => point.id));
+  for (const key of ['animationStartPointId', 'animationEndPointId'] as const) {
+    const id = data[key];
+    if (id === undefined) continue;
+    if (id !== null && (!isId(id) || !ids.has(id))) throw new Error(PLAN_FILE_ERROR);
+    state[key] = id;
+  }
+  if (data.endpointMarkerPlacements !== undefined) {
+    if (!isRecord(data.endpointMarkerPlacements)) throw new Error(PLAN_FILE_ERROR);
+    state.endpointMarkerPlacements = Object.fromEntries(Object.entries(data.endpointMarkerPlacements).map(([label, placement]) => {
+      if (label !== 'START' && label !== 'GOAL') throw new Error(PLAN_FILE_ERROR);
+      return [label, parsePlacement(placement)];
+    }));
+  }
+  return state;
 }

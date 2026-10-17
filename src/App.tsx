@@ -2,28 +2,34 @@ import MobileBottomSheet from './components/MobileBottomSheet';
 import { WORKSPACE_MODE_COPY } from './workspaceModeCopy';
 import { hasRecordedRouteTime } from './video/routeClock';
 import SpotWorkspace from './spot/SpotWorkspace';
-import type { BalloonFramePosition, PopupPlacement, EndpointMarkerPlacements, EndpointMarkerLabel } from './popup/placement';
+import type { BalloonFramePosition, PopupPlacement, EndpointMarkerLabel } from './popup/placement';
+import { hasMissingMarkerFramePositions, resolveMarkerFramePositions, type MarkerReferenceProjector } from './video/markerFramePositions';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import RouteMap from './map/RouteMap';
-import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT } from './plan/planFile';
-import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT } from './timeline/workFile';
+import { downloadPlanFile, parsePlanFile, PLAN_FILE_ERROR, PLAN_FILE_FORMAT, type PlanState } from './plan/planFile';
+import { downloadWorkFile, parseWorkFile, WORK_FILE_ERROR, WORK_FILE_FORMAT, type TimelineWorkState } from './timeline/workFile';
 import { saveBlobWithPicker, saveErrorMessage } from './files/saveBlob';
 import { DEFAULT_ANNOTATION_STYLE, type AnnotationStyle } from './route/annotationStyle';
 import type { RouteMarkerMode } from './route/routeMarker';
 import { addPoint, appendPlanPoint, insertPlanPoint, deletePoint, movePoint } from './route/editor';
 import { formatDistance } from './route/geometry';
-import { emptyHistory, historyReducer } from './route/history';
+import { emptyEditHistory, editHistoryReducer, type HistoryAction } from './route/history';
 import { deriveDayMarkers, derivePlanDayMarkers, planRouteDistances, tripRouteDistance } from './route/tripRoute';
 import { buildRouteDistanceModel } from './route/routeDistanceProgress';
-import { DEFAULT_DISTANCE_HUD, clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
-import type { RawPosition, WorkerResponse } from './timeline/types';
+import { clampDistanceHudPlacement, distanceHudLayout, type DistanceHudSettings } from './video/distanceHud';
+import type { RawPosition, RoutePoint, WorkerResponse } from './timeline/types';
 import { readLeadingFileFormat, readTimelineFile } from './timeline/fileLoader';
-import { buildFollowCameraPlan, buildFollowPlaybackTimeline, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
+import { buildFollowCameraPlan, type FollowCameraPlan, type FollowZoomPreset, type FollowViewMode, type VideoCameraMode } from './video/followCamera';
 import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
-import { DEFAULT_PRE_ROLL_SECONDS, DEFAULT_POST_ROLL_SECONDS } from './video/outputTiming';
+import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSettings';
+import VideoWorkspace from './video/VideoWorkspace';
+import type { PreviewFrameOptions, PreviewMarkerPosition, PreviewMarkerTarget } from './video/previewFrameRenderer';
+import { useVideoPlayer } from './video/useVideoPlayer';
+import { sameFramePlanInputs } from './video/previewUpdates';
+import { captureVideoOutputOptions, createVideoOutputSnapshot, type VideoOutputOptions } from './video/videoOutputSnapshot';
 import { balloonPauseSeconds } from './video/balloonPauses';
-import { buildOverviewPlaybackTimeline, normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
+import { normalizePauseSeconds, totalPauseSeconds } from './video/playbackTimeline';
 import { buildRoutePointDayNumbers } from './route/dayRouteColor';
 import HelpTip from './help/HelpTip';
 import type { HelpKey } from './help/helpContent';
@@ -31,10 +37,65 @@ import type { HelpKey } from './help/helpContent';
 type MapMode = 'display' | 'edit' | 'animation-range';
 type WorkspaceMode = 'timeline' | 'plan' | 'spot';
 
+function stableSerialize(value: unknown): string {
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === 'object') return Object.fromEntries(
+      Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => [key, normalize(nested)]),
+    );
+    return item;
+  };
+  return JSON.stringify(normalize(value)) ?? 'null';
+}
+
+function defaultPlanState(): PlanState {
+  return {
+    points: [], planDayStarts: [], planDayNotes: {}, dayMarkerPlacements: {},
+    videoSettings: DEFAULT_VIDEO_SETTINGS, annotationStyle: DEFAULT_ANNOTATION_STYLE,
+    animationStartPointId: null, animationEndPointId: null, endpointMarkerPlacements: {}, dayMarkerFramePositions: {}, endpointMarkerFramePositions: {},
+  };
+}
+
 export default function App() {
-  const [dayMarkerPlacements, setDayMarkerPlacements] = useState<Record<string, PopupPlacement>>({});
-  const [endpointMarkerPlacements, setEndpointMarkerPlacements] = useState<EndpointMarkerPlacements>({});
+  const markerRevisionRef = useRef(0);
+  const [history, dispatchHistory] = useReducer(editHistoryReducer, emptyEditHistory);
+  const editSnapshotRef = useRef(history.present);
+  editSnapshotRef.current = history.present;
+  const { points, dayMarkerPlacements, endpointMarkerPlacements, dayMarkerFramePositions, endpointMarkerFramePositions, legacyDayKeys } = history.present;
+  const dispatch = useCallback((action: HistoryAction) => {
+    if (action.type !== 'resolve-balloon-positions' && action.type !== 'resolve-marker-positions' && action.type !== 'sync-hud-position') {
+      markerRevisionRef.current += 1;
+    }
+    dispatchHistory(action);
+  }, []);
+  const markerProjectorRef = useRef<MarkerReferenceProjector | null>(null);
+  const [markerProjector, setMarkerProjector] = useState<MarkerReferenceProjector | null>(null);
+  const markerProjectorWaitersRef = useRef(new Set<(projector: MarkerReferenceProjector) => void>());
+  const onMarkerProjectorReady = useCallback((projector: MarkerReferenceProjector | null) => {
+    markerProjectorRef.current = projector;
+    setMarkerProjector(() => projector);
+    if (projector) {
+      for (const resolve of markerProjectorWaitersRef.current) resolve(projector);
+      markerProjectorWaitersRef.current.clear();
+    }
+  }, []);
+  const waitForMarkerProjector = useCallback((signal?: AbortSignal): Promise<MarkerReferenceProjector> => {
+    if (markerProjectorRef.current) return Promise.resolve(markerProjectorRef.current);
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { window.clearTimeout(timer); markerProjectorWaitersRef.current.delete(ready); signal?.removeEventListener('abort', abort); };
+      const ready = (projector: MarkerReferenceProjector) => { cleanup(); resolve(projector); };
+      const abort = () => { cleanup(); reject(new DOMException('マーカー配置の準備をキャンセルしました。', 'AbortError')); };
+      const timer = window.setTimeout(() => { cleanup(); reject(new Error('地図の準備完了後にもう一度操作してください。')); }, 20_000);
+      markerProjectorWaitersRef.current.add(ready);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+  }, []);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('timeline');
+  const [mobileModeMenuOpen, setMobileModeMenuOpen] = useState(false);
+  const topbarRef = useRef<HTMLElement>(null);
+  const [workspaceView, setWorkspaceView] = useState<'map' | 'video'>('map');
+  const initialGuideShownRef = useRef(false);
   const [selectedOutputDay, setSelectedOutputDay] = useState('all');
   const workerRef = useRef<Worker | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +103,6 @@ export default function App() {
   const workFileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const routeLoadedNoticeTimerRef = useRef<number | null>(null);
-  const previewEndTimerRef = useRef<number | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const minAvailableDate = dates.at(-1) ?? '';
   const maxAvailableDate = dates[0] ?? '';
@@ -54,28 +114,28 @@ export default function App() {
   const [workSaveName, setWorkSaveName] = useState('route-work.json');
   const [planSaveName, setPlanSaveName] = useState('route-plan.json');
   const videoBlobRef = useRef<Blob | null>(null);
+  const videoUrlRef = useRef('');
+  const currentOutputSnapshotRef = useRef('');
   const [rawPositions, setRawPositions] = useState<RawPosition[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [selectedRaw, setSelectedRaw] = useState<RawPosition | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [selectionCandidateIds, setSelectionCandidateIds] = useState<string[]>([]);
   const [annotationLabel, setAnnotationLabel] = useState('');
-  const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(false);
-  const [commonPauseSeconds, setCommonPauseSeconds] = useState(0);
-  const [commonPauseInput, setCommonPauseInput] = useState('0.0');
-  const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_PRE_ROLL_SECONDS);
-  const [preRollInput, setPreRollInput] = useState(DEFAULT_PRE_ROLL_SECONDS.toFixed(1));
-  const [postRollSeconds, setPostRollSeconds] = useState(DEFAULT_POST_ROLL_SECONDS);
-  const [postRollInput, setPostRollInput] = useState(DEFAULT_POST_ROLL_SECONDS.toFixed(1));
+  const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(DEFAULT_VIDEO_SETTINGS.recordedTimeClockEnabled);
+  const [commonPauseSeconds, setCommonPauseSeconds] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds);
+  const [commonPauseInput, setCommonPauseInput] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds.toFixed(1));
+  const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_VIDEO_SETTINGS.preRollSeconds);
+  const [preRollInput, setPreRollInput] = useState(DEFAULT_VIDEO_SETTINGS.preRollSeconds.toFixed(1));
+  const [postRollSeconds, setPostRollSeconds] = useState(DEFAULT_VIDEO_SETTINGS.postRollSeconds);
+  const [postRollInput, setPostRollInput] = useState(DEFAULT_VIDEO_SETTINGS.postRollSeconds.toFixed(1));
   const [dayMarkerNotes, setDayMarkerNotes] = useState<Record<string, string>>({});
   const [planDayStarts, setPlanDayStarts] = useState<string[]>([]);
   const [planDayNotes, setPlanDayNotes] = useState<Record<string, string>>({});
   const [dayMarkerNoteInput, setDayMarkerNoteInput] = useState('');
   const [mobileDayMarkerEditingScale, setMobileDayMarkerEditingScale] = useState(1);
   const [annotationStyle, setAnnotationStyle] = useState<AnnotationStyle>(DEFAULT_ANNOTATION_STYLE);
-  const [history, dispatch] = useReducer(historyReducer, emptyHistory);
   const [mapMode, setMapMode] = useState<MapMode>('display');
-  const [balloonFrameEditing, setBalloonFrameEditing] = useState(false);
   const [openToolbarHelpKey, setOpenToolbarHelpKey] = useState<HelpKey | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [insertMode, setInsertMode] = useState(false);
@@ -83,40 +143,127 @@ export default function App() {
   const [rangeDeletePointIds, setRangeDeletePointIds] = useState<string[]>([]);
   const [animationStartPointId, setAnimationStartPointId] = useState<string | null>(null);
   const [animationEndPointId, setAnimationEndPointId] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number>(10);
-  const [durationInput, setDurationInput] = useState('10');
-  const [cameraMode, setCameraMode] = useState<VideoCameraMode>('overview');
-  const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>('standard');
-  const [followViewMode, setFollowViewMode] = useState<FollowViewMode>('top');
-  const [overviewZoomMode, setOverviewZoomMode] = useState<'auto' | 'custom'>('auto');
-  const [overviewCustomZoom, setOverviewCustomZoom] = useState(10);
-  const [overviewCustomZoomInput, setOverviewCustomZoomInput] = useState('10.0');
-  const [followCustomZoom, setFollowCustomZoom] = useState(10);
-  const [followCustomZoomInput, setFollowCustomZoomInput] = useState('10.0');
-  const [introZoomEnabled, setIntroZoomEnabled] = useState(true);
-  const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>('day');
-  const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(false);
-  const [distanceHudSettings, setDistanceHudSettings] = useState<DistanceHudSettings>(DEFAULT_DISTANCE_HUD);
-  const [followCameraPlan, setFollowCameraPlan] = useState<FollowCameraPlan | null>(null);
+  const [duration, setDuration] = useState<number>(DEFAULT_VIDEO_SETTINGS.duration);
+  const [durationInput, setDurationInput] = useState(String(DEFAULT_VIDEO_SETTINGS.duration));
+  const [cameraMode, setCameraMode] = useState<VideoCameraMode>(DEFAULT_VIDEO_SETTINGS.cameraMode);
+  const [followZoomPreset, setFollowZoomPreset] = useState<FollowZoomPreset>(DEFAULT_VIDEO_SETTINGS.followZoomPreset);
+  const [followViewMode, setFollowViewMode] = useState<FollowViewMode>(DEFAULT_VIDEO_SETTINGS.followViewMode);
+  const [overviewZoomMode, setOverviewZoomMode] = useState<'auto' | 'custom'>(DEFAULT_VIDEO_SETTINGS.overviewZoomMode);
+  const [overviewCustomZoom, setOverviewCustomZoom] = useState(DEFAULT_VIDEO_SETTINGS.overviewCustomZoom);
+  const [overviewCustomZoomInput, setOverviewCustomZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.overviewCustomZoom.toFixed(1));
+  const [followCustomZoom, setFollowCustomZoom] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom);
+  const [followCustomZoomInput, setFollowCustomZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom.toFixed(1));
+  const [introZoomEnabled, setIntroZoomEnabled] = useState(DEFAULT_VIDEO_SETTINGS.introZoomEnabled);
+  const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>(DEFAULT_VIDEO_SETTINGS.routeMarkerMode);
+  const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(DEFAULT_VIDEO_SETTINGS.dayRouteColorsEnabled);
+  const [distanceHudOptions, setDistanceHudOptions] = useState(() => ({
+    enabled: DEFAULT_VIDEO_SETTINGS.distanceHudSettings.enabled, scale: DEFAULT_VIDEO_SETTINGS.distanceHudSettings.scale,
+  }));
+  const distanceHudSettings = useMemo<DistanceHudSettings>(() => ({ ...distanceHudOptions, ...history.present.distanceHudPlacement }),
+    [distanceHudOptions, history.present.distanceHudPlacement]);
   const balloonFollowPlanCache = useRef<{ key: string; plan: FollowCameraPlan } | null>(null);
-  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [videoProgress, setVideoProgress] = useState<VideoProgress | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
+  const [generatedOutputSnapshot, setGeneratedOutputSnapshot] = useState<string | null>(null);
+  const replaceVideoUrl = useCallback((next: string) => {
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    videoUrlRef.current = next;
+    setVideoUrl(next);
+  }, []);
+  const clearGeneratedVideo = useCallback(() => {
+    videoBlobRef.current = null;
+    setGeneratedOutputSnapshot(null);
+    replaceVideoUrl('');
+  }, [replaceVideoUrl]);
 
-  const points = history.present;
+  const videoSettings: VideoSettings = {
+    duration, commonPauseSeconds, preRollSeconds, postRollSeconds, cameraMode,
+    overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode,
+    introZoomEnabled, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
+  };
+  const timelineBaselineRef = useRef<string | null>(null);
+  const planBaselineRef = useRef<string | null>(null);
+  const pendingExtractionSnapshotRef = useRef<((routePoints: RoutePoint[]) => string) | null>(null);
+  const pendingTimelineLoadRef = useRef<{ dates: string[]; fileName: string } | null>(null);
+  const [spotHasUnsavedChanges, setSpotHasUnsavedChanges] = useState(false);
+  const applyVideoSettings = useCallback((settings: VideoSettings) => {
+    setDuration(settings.duration);
+    setDurationInput(String(settings.duration));
+    setCommonPauseSeconds(settings.commonPauseSeconds);
+    setCommonPauseInput(settings.commonPauseSeconds.toFixed(1));
+    setPreRollSeconds(settings.preRollSeconds);
+    setPreRollInput(settings.preRollSeconds.toFixed(1));
+    setPostRollSeconds(settings.postRollSeconds);
+    setPostRollInput(settings.postRollSeconds.toFixed(1));
+    setCameraMode(settings.cameraMode);
+    setOverviewZoomMode(settings.overviewZoomMode);
+    setOverviewCustomZoom(settings.overviewCustomZoom);
+    setOverviewCustomZoomInput(settings.overviewCustomZoom.toFixed(1));
+    setFollowZoomPreset(settings.followZoomPreset);
+    setFollowCustomZoom(settings.followCustomZoom);
+    setFollowCustomZoomInput(settings.followCustomZoom.toFixed(1));
+    setFollowViewMode(settings.followViewMode);
+    setIntroZoomEnabled(settings.introZoomEnabled);
+    setRouteMarkerMode(settings.routeMarkerMode);
+    setDayRouteColorsEnabled(settings.dayRouteColorsEnabled);
+    setRecordedTimeClockEnabled(settings.recordedTimeClockEnabled);
+    setDistanceHudOptions({ enabled: settings.distanceHudSettings.enabled, scale: settings.distanceHudSettings.scale });
+  }, []);
+
+  const timelineWorkState: TimelineWorkState = {
+    points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
+    endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
+    dayMarkerFramePositions, endpointMarkerFramePositions,
+    videoSettings, selectedOutputDay,
+  };
+  const planState: PlanState = {
+    points, planDayStarts, planDayNotes, dayMarkerPlacements, videoSettings, annotationStyle,
+    animationStartPointId, animationEndPointId, endpointMarkerPlacements,
+    dayMarkerFramePositions, endpointMarkerFramePositions,
+  };
+  if (timelineBaselineRef.current === null && workspaceMode === 'timeline') {
+    timelineBaselineRef.current = stableSerialize(timelineWorkState);
+  }
+  const timelineStateKey = () => stableSerialize(timelineWorkState);
+  const planStateKey = () => stableSerialize(planState);
+  const compactMobileHeader = !(workspaceMode === 'timeline' && points.length === 0);
+  const currentWorkspaceModeCopy = WORKSPACE_MODE_COPY[workspaceMode];
+
+  useEffect(() => {
+    if (!mobileModeMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !topbarRef.current?.contains(event.target)) setMobileModeMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMobileModeMenuOpen(false);
+      topbarRef.current?.querySelector<HTMLButtonElement>('.mobile-mode-trigger')?.focus();
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileModeMenuOpen]);
+
+  useEffect(() => setMobileModeMenuOpen(false), [workspaceMode]);
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
   const selectedPointIndex = selectedPointId ? points.findIndex((point) => point.id === selectedPointId) : -1;
   const selectionCandidateIndex = selectedPointId ? selectionCandidateIds.indexOf(selectedPointId) : -1;
-  const showSelectionCandidateSwitcher = editMode && !addMode && !insertMode && !rangeDeleteMode && previewProgress === null
+  const showSelectionCandidateSwitcher = editMode && !addMode && !insertMode && !rangeDeleteMode
     && selectionCandidateIds.length >= 2 && selectionCandidateIndex >= 0;
   const dayMarkers = useMemo(() => (workspaceMode === 'plan'
     ? derivePlanDayMarkers(points, planDayStarts, planDayNotes)
-    : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => ({ ...marker, placement: dayMarkerPlacements[workspaceMode === 'plan' ? marker.pointId : marker.date!] })), [dayMarkerPlacements, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
+    : deriveDayMarkers(points, dayMarkerNotes, startDate)).map((marker) => {
+      const key = workspaceMode === 'plan' ? marker.pointId : marker.date!;
+      return { ...marker, placement: dayMarkerPlacements[key], framePosition: dayMarkerFramePositions[key], legacyFramePlacement: legacyDayKeys.has(key) };
+    }), [dayMarkerPlacements, dayMarkerFramePositions, legacyDayKeys, workspaceMode, points, planDayStarts, planDayNotes, dayMarkerNotes, startDate]);
   const selectedDayMarker = dayMarkers.find((marker) => marker.pointId === selectedPointId) ?? null;
   const dayNumberByPointId = useMemo(() => buildRoutePointDayNumbers(points, dayMarkers), [points, dayMarkers]);
   const outputDay = workspaceMode === 'timeline' && selectedOutputDay !== 'all'
@@ -144,9 +291,6 @@ export default function App() {
     setRangeDeletePointIds([]);
     setAnimationStartPointId(null);
     setAnimationEndPointId(null);
-    setPreviewProgress(null);
-    setFollowCameraPlan(null);
-    setVideoUrl('');
   }, []);
   useEffect(() => {
     if (selectedOutputDay !== 'all' && (workspaceMode !== 'timeline'
@@ -195,10 +339,22 @@ export default function App() {
     setSelectedPointId(id);
   };
   const setBalloonFramePosition = useCallback((id: string, framePosition: BalloonFramePosition) => {
+    const target = points.find((point) => point.id === id)?.annotation;
+    if (!target || target.framePosition && Math.abs(target.framePosition.x - framePosition.x) < 1e-9 && Math.abs(target.framePosition.y - framePosition.y) < 1e-9) return;
     dispatch({ type: 'commit', points: points.map((point) => point.id === id && point.annotation
       ? { ...point, annotation: { ...point.annotation, framePosition } } : point) });
-    if (!balloonFrameEditing) setSelectedPointId(id);
-  }, [points, balloonFrameEditing]);
+    setSelectedPointId(id);
+  }, [points]);
+  const commitVideoMarker = (target: PreviewMarkerTarget, position: PreviewMarkerPosition) => {
+    if (target.kind === 'day') {
+      const marker = dayMarkers.find((item) => item.pointId === target.pointId);
+      const key = workspaceMode === 'plan' ? marker?.pointId : marker?.date;
+      if (!key) return;
+      dispatch({ type: 'commit', edit: { dayMarkerFramePositions: { ...dayMarkerFramePositions, [key]: position } } });
+    } else if (target.kind === 'endpoint') {
+      dispatch({ type: 'commit', edit: { endpointMarkerFramePositions: { ...endpointMarkerFramePositions, [target.label]: position } } });
+    } else dispatch({ type: 'commit', edit: { distanceHudPlacement: position } });
+  };
   const resolveBalloonPositions = useCallback((positions: ReadonlyMap<string, BalloonFramePosition>) => {
     dispatch({ type: 'resolve-balloon-positions', positions });
   }, []);
@@ -206,21 +362,27 @@ export default function App() {
     const marker = dayMarkers.find((item) => item.pointId === id);
     const key = workspaceMode === 'plan' ? id : marker?.date;
     if (!key) return;
-    setDayMarkerPlacements((current) => {
-      const next = { ...current };
-      if (placement) next[key] = placement;
-      else delete next[key];
-      return next;
-    });
+    const previous = dayMarkerPlacements[key];
+    if (placement === previous || placement && previous && placement.offsetX === previous.offsetX && placement.offsetY === previous.offsetY) { setSelectedPointId(id); return; }
+    const nextPlacements = { ...dayMarkerPlacements }, nextPositions = { ...dayMarkerFramePositions }, nextLegacyKeys = new Set(legacyDayKeys);
+    if (placement) nextPlacements[key] = placement;
+    else delete nextPlacements[key];
+    delete nextPositions[key];
+    nextLegacyKeys.delete(key);
+    dispatch({ type: 'commit', edit: { dayMarkerPlacements: nextPlacements, dayMarkerFramePositions: nextPositions, legacyDayKeys: nextLegacyKeys } });
     setSelectedPointId(id);
   };
   const setEndpointPlacement = (label: EndpointMarkerLabel, placement?: PopupPlacement) => {
-    setEndpointMarkerPlacements((current) => {
-      const next = { ...current };
-      if (placement) next[label] = placement;
-      else delete next[label];
-      return next;
-    });
+    const previous = endpointMarkerPlacements[label];
+    if (placement === previous || placement && previous && placement.offsetX === previous.offsetX && placement.offsetY === previous.offsetY) {
+      setSelectedPointId((label === 'START' ? animationPoints[0] : animationPoints.at(-1))?.id ?? null);
+      return;
+    }
+    const nextPlacements = { ...endpointMarkerPlacements }, nextPositions = { ...endpointMarkerFramePositions };
+    if (placement) nextPlacements[label] = placement;
+    else delete nextPlacements[label];
+    delete nextPositions[label];
+    dispatch({ type: 'commit', edit: { endpointMarkerPlacements: nextPlacements, endpointMarkerFramePositions: nextPositions } });
     setSelectedPointId((label === 'START' ? animationPoints[0] : animationPoints.at(-1))?.id ?? null);
   };
 
@@ -286,16 +448,27 @@ export default function App() {
     const endIndex = animationEndPointId ? dayFilteredPoints.findIndex((point) => point.id === animationEndPointId) : dayFilteredPoints.length - 1;
     return startIndex >= 0 && endIndex > startIndex ? dayFilteredPoints.slice(startIndex, endIndex + 1) : dayFilteredPoints;
   }, [dayFilteredPoints, animationStartPointId, animationEndPointId]);
+  const canShowVideo = workspaceMode !== 'spot' && animationPoints.length >= 2;
+  const showingVideo = workspaceView === 'video' && canShowVideo;
+  useEffect(() => { setWorkspaceView('map'); }, [workspaceMode]);
+  useEffect(() => { if (!canShowVideo) setWorkspaceView('map'); }, [canShowVideo]);
+  useEffect(() => {
+    if (!canShowVideo || initialGuideShownRef.current || error || busy) return;
+    initialGuideShownRef.current = true;
+    const guide = 'ルートを確認してください。修正しなければ、そのままMP4を生成できます。';
+    const guideNotice = notice ? `${notice} ${guide}` : guide;
+    setNotice(guideNotice);
+    if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
+    routeLoadedNoticeTimerRef.current = window.setTimeout(() => {
+      setNotice((current) => current === guideNotice ? '' : current);
+      routeLoadedNoticeTimerRef.current = null;
+    }, 5000);
+  }, [canShowVideo, animationPoints, error, busy, notice]);
   const recordedTimeAvailable = useMemo(() => workspaceMode === 'timeline' && hasRecordedRouteTime(animationPoints), [workspaceMode, animationPoints]);
   const showRecordedTimeClock = recordedTimeAvailable && recordedTimeClockEnabled;
   const pointPauses = useMemo(() => balloonPauseSeconds(animationPoints, visibleDayMarkers, routeMarkerMode, commonPauseSeconds),
     [animationPoints, visibleDayMarkers, routeMarkerMode, commonPauseSeconds]);
   const animationPauseSeconds = useMemo(() => totalPauseSeconds(pointPauses), [pointPauses]);
-  const previewPlaybackTimeline = useMemo(() => cameraMode === 'follow' && followCameraPlan
-    ? buildFollowPlaybackTimeline(followCameraPlan, pointPauses)
-    : buildOverviewPlaybackTimeline(animationPoints, duration, pointPauses),
-  [cameraMode, followCameraPlan, animationPoints, duration, pointPauses]);
-
   const overviewCamera = useMemo(() => createOverviewCamera(animationPoints,
     overviewZoomMode === 'custom' ? overviewCustomZoom : undefined),
   [animationPoints, overviewZoomMode, overviewCustomZoom]);
@@ -317,40 +490,154 @@ export default function App() {
     }
     catch { return null; }
   }, [cameraMode, points, animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode]);
-  useEffect(() => {
-    if (workspaceMode === 'spot' || busy || videoProgress || previewProgress !== null || !dayFilteredPoints.some((point) => point.annotation?.label)) setBalloonFrameEditing(false);
-  }, [workspaceMode, busy, videoProgress, previewProgress, dayFilteredPoints]);
-  const toggleBalloonFrameEditing = () => {
-    if (balloonFrameEditing) { setBalloonFrameEditing(false); return; }
-    if (cameraMode === 'follow' && !balloonFollowCamera) {
-      try { buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode); }
-      catch (reason) { setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。'); }
-      return;
-    }
-    setError('');
-    setSelectedPointId(selectedPoint?.annotation?.label ? selectedPoint.id : dayFilteredPoints.find((point) => point.annotation?.label)?.id ?? null);
-    setBalloonFrameEditing(true);
-  };
-
   const distanceHudModel = useMemo(() => distanceHudSettings.enabled && dayFilteredPoints.length > 0
     ? buildRouteDistanceModel(dayFilteredPoints, visibleDayMarkers, animationPoints) : null,
   [distanceHudSettings.enabled, dayFilteredPoints, visibleDayMarkers, animationPoints]);
   const distanceHud = useMemo(() => distanceHudModel
     ? { settings: distanceHudSettings, model: distanceHudModel } : undefined, [distanceHudModel, distanceHudSettings]);
+  const framePreviewOptions = useMemo<PreviewFrameOptions>(() => ({
+    points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers,
+    recordedTimeClockEnabled: showRecordedTimeClock, dayRouteColorsEnabled, endpointMarkerPlacements, endpointMarkerFramePositions,
+    routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true,
+    cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom,
+    followZoomPreset, followCustomZoom, followViewMode, followCameraPlan: balloonFollowCamera ?? undefined,
+    introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined,
+  }), [animationPoints, visibleDayMarkers, visibleDayNumbers, showRecordedTimeClock, dayRouteColorsEnabled,
+    endpointMarkerPlacements, endpointMarkerFramePositions, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
+    cameraMode, overviewCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom,
+    followViewMode, balloonFollowCamera, introZoomEnabled, annotationStyle, distanceHud]);
+  // Position resolution must survive its own state commit, but never a different
+  // route, placement edit, camera, output range, or restored work session.
+  const markerConversionToken = useMemo(() => ({}), [history.revision, workspaceMode, animationPoints, selectedOutputDay,
+    dayMarkerPlacements, endpointMarkerPlacements, legacyDayKeys, dayMarkerNotes, planDayNotes, planDayStarts, startDate,
+    routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, cameraMode,
+    overviewCamera, balloonFollowCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode, introZoomEnabled, annotationStyle]);
+  const markerConversionTokenRef = useRef(markerConversionToken);
+  markerConversionTokenRef.current = markerConversionToken;
+  const markerFrameOptionsRef = useRef(framePreviewOptions);
+  markerFrameOptionsRef.current = framePreviewOptions;
+  const [markerReadyToken, setMarkerReadyToken] = useState<object | null>(null);
+  const missingMarkerPositions = useMemo(() => hasMissingMarkerFramePositions(framePreviewOptions), [framePreviewOptions]);
+  const ensureMarkerPositions = useCallback(async (signal?: AbortSignal) => {
+    const input = framePreviewOptions;
+    const revision = markerRevisionRef.current;
+    if (!hasMissingMarkerFramePositions(input)) return {
+      options: input, positions: { dayMarkerFramePositions, endpointMarkerFramePositions },
+    };
+    const projector = await waitForMarkerProjector(signal);
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) throw new Error('マーカー配置の計算用Canvasを作成できませんでした。');
+    const resolved = await resolveMarkerFramePositions(context, input, projector, signal);
+    const current = markerFrameOptionsRef.current;
+    // Normal balloon coordinate initialization may replace the points array
+    // while leaving every marker reference-frame input unchanged.
+    const sameInputs = markerConversionTokenRef.current === markerConversionToken || sameFramePlanInputs(input, current)
+      && input.annotationStyle?.fontScale === current.annotationStyle?.fontScale
+      && input.annotationStyle?.minimumWidth === current.annotationStyle?.minimumWidth
+      && input.annotationStyle?.minimumWidthForDay === current.annotationStyle?.minimumWidthForDay
+      && input.annotationStyle?.minimumWidthForBalloon === current.annotationStyle?.minimumWidthForBalloon
+      && (input.dayMarkers ?? []).every((marker, index) => {
+        const next = current.dayMarkers?.[index];
+        return next && marker.pointId === next.pointId && marker.date === next.date && marker.note === next.note
+          && marker.legacyFramePlacement === next.legacyFramePlacement;
+      });
+    if (signal?.aborted || revision !== markerRevisionRef.current || !sameInputs) {
+      throw new DOMException('マーカー配置の準備をキャンセルしました。', 'AbortError');
+    }
+    const source = editSnapshotRef.current;
+    const nextDays = { ...source.dayMarkerFramePositions };
+    const nextEndpoints = { ...source.endpointMarkerFramePositions };
+    let daysChanged = false, endpointsChanged = false;
+    for (const marker of resolved.dayMarkers ?? []) {
+      const key = workspaceMode === 'plan' ? marker.pointId : marker.date;
+      if (key && marker.framePosition && !nextDays[key]) { nextDays[key] = { ...marker.framePosition }; daysChanged = true; }
+    }
+    for (const label of ['START', 'GOAL'] as const) {
+      const position = resolved.endpointMarkerFramePositions?.[label];
+      if (position && !nextEndpoints[label]) { nextEndpoints[label] = { ...position }; endpointsChanged = true; }
+    }
+    if (daysChanged || endpointsChanged) dispatch({ type: 'resolve-marker-positions', source, days: nextDays, endpoints: nextEndpoints });
+    setMarkerReadyToken(markerConversionToken);
+    return { options: resolved, positions: { dayMarkerFramePositions: nextDays, endpointMarkerFramePositions: nextEndpoints } };
+  }, [framePreviewOptions, dayMarkerFramePositions, endpointMarkerFramePositions, workspaceMode, markerConversionToken, waitForMarkerProjector, dispatch]);
+  useEffect(() => {
+    if (!missingMarkerPositions || !markerProjector || busy || videoProgress || markerReadyToken === markerConversionToken) return;
+    const controller = new AbortController();
+    void ensureMarkerPositions(controller.signal).catch((reason: unknown) => {
+      if (!controller.signal.aborted && !(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setError(reason instanceof Error ? reason.message : 'マーカーの配置を準備できませんでした。');
+      }
+    });
+    return () => controller.abort();
+  }, [missingMarkerPositions, markerProjector, busy, videoProgress, markerReadyToken, markerConversionToken, ensureMarkerPositions]);
+  const markerPositionsReady = !missingMarkerPositions || markerReadyToken === markerConversionToken;
+  const currentOutputSnapshot = useMemo(() => createVideoOutputSnapshot(framePreviewOptions), [framePreviewOptions]);
+  currentOutputSnapshotRef.current = currentOutputSnapshot;
+  const videoNeedsRegeneration = !!videoUrl && generatedOutputSnapshot !== currentOutputSnapshot;
+  const videoPlayer = useVideoPlayer(framePreviewOptions, showingVideo && markerPositionsReady, !!videoProgress);
+
+  const canReplaceSession = () => {
+    if (videoPlayer.isEditingBalloon()) {
+      setError('配置を確定またはキャンセルしてから、保存・読込・切替を行ってください。');
+      return false;
+    }
+    return true;
+  };
+
+  const confirmDiscardCurrent = () => {
+    if (!canReplaceSession()) return false;
+    const pendingTextEdit = (!!selectedPoint && annotationLabel !== (selectedPoint.annotation?.label ?? ''))
+      || (!!selectedDayMarker && dayMarkerNoteInput !== (workspaceMode === 'plan'
+        ? planDayNotes[selectedDayMarker.pointId] ?? ''
+        : dayMarkerNotes[selectedDayMarker.date ?? ''] ?? ''));
+    const dirty = pendingTextEdit || (workspaceMode === 'spot'
+      ? spotHasUnsavedChanges
+      : workspaceMode === 'plan'
+        ? planBaselineRef.current !== null && planStateKey() !== planBaselineRef.current
+        : timelineBaselineRef.current !== null && timelineStateKey() !== timelineBaselineRef.current);
+    if (!dirty) return true;
+    const message = workspaceMode === 'spot'
+      ? 'スポット画像の編集内容は、この操作で失われます。PNG画像を保存していても編集状態は復元できません。破棄して続けますか？'
+      : '未保存の編集内容があります。破棄して続けますか？';
+    return window.confirm(message);
+  };
+  const stopVideoPreview = videoPlayer.stop;
+  const openVideoWorkspace = () => {
+    videoPlayer.pause();
+    setOpenToolbarHelpKey(null);
+    setWorkspaceView('video');
+  };
+  const selectVideoBalloon = (id: string) => {
+    setSelectedPointId(id);
+    setSelectedRaw(null);
+    setSelectionCandidateIds([]);
+  };
+  const openSelectedBalloonInVideo = () => {
+    if (!selectedPoint?.annotation?.label || busy || videoProgress || videoPlayer.isEditingBalloon()) return;
+    if (!animationPoints.some((point) => point.id === selectedPoint.id)) {
+      setNotice('この地点はアニメーション対象範囲外です。アニメーション範囲を調整してください。');
+      return;
+    }
+    if (!canShowVideo) { setNotice('動画生成には2点以上のルートが必要です。'); return; }
+    videoPlayer.requestBalloonEvent(selectedPoint.id);
+    openVideoWorkspace();
+  };
   useEffect(() => {
     if (!distanceHudModel) return;
-    setDistanceHudSettings((current) => {
-      const placement = clampDistanceHudPlacement(current, distanceHudLayout(distanceHudModel, current.scale));
-      return placement.x === current.x && placement.y === current.y ? current : { ...current, ...placement };
-    });
-  }, [distanceHudModel, distanceHudSettings.scale]);
+    dispatch({ type: 'sync-hud-position', placement: clampDistanceHudPlacement(distanceHudSettings, distanceHudLayout(distanceHudModel, distanceHudSettings.scale)) });
+  }, [distanceHudModel, distanceHudSettings, dispatch]);
 
-  const extract = useCallback(() => {
-    if (!dates.length) return;
+  const extract = () => {
+    if (!dates.length || busy || videoProgress || !confirmDiscardCurrent()) return;
+    const currentState = timelineWorkState;
+    pendingExtractionSnapshotRef.current = (routePoints) => stableSerialize({
+      ...currentState, points: routePoints, selectedOutputDay: 'all',
+      animationStartPointId: null, animationEndPointId: null,
+    });
     setError('');
     setBusy(true);
     workerRef.current?.postMessage({ type: 'extract-range', startDate, endDate, from, to });
-  }, [dates.length, startDate, endDate, from, to]);
+  };
 
   useEffect(() => {
     const worker = new Worker(new URL('./timeline/worker.ts', import.meta.url), { type: 'module' });
@@ -358,31 +645,55 @@ export default function App() {
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
       if (message.type === 'error') {
+        pendingExtractionSnapshotRef.current = null;
+        pendingTimelineLoadRef.current = null;
         setError(message.message);
         setBusy(false);
       } else if (message.type === 'loaded') {
-        setDayMarkerPlacements({});
-        setEndpointMarkerPlacements({});
-        setWorkspaceMode('timeline');
-        setSelectedOutputDay('all');
-        setInsertMode(false);
-        setPlanDayStarts([]);
-        setPlanDayNotes({});
-        setDates(message.dates);
-        setStartDate(message.dates[0]);
-        setEndDate(message.dates[0]);
-        setDayMarkerNotes({});
-        setFileName(message.fileName);
-        setWorkSaveName('route-work.json');
-        setNotice(`${message.dates.length}日分の日付を検出しました。`);
-        worker.postMessage({ type: 'extract', date: message.dates[0], from: '00:00', to: '23:59' });
+        const firstDate = message.dates[0];
+        pendingTimelineLoadRef.current = { dates: message.dates, fileName: message.fileName };
+        setNotice(`${message.dates.length}日分の日付を検出しました。ルートを抽出しています…`);
+        pendingExtractionSnapshotRef.current = (routePoints) => stableSerialize({
+          points: routePoints, startDate: firstDate, endDate: firstDate, from: '00:00', to: '23:59',
+          dayMarkerNotes: {}, dayMarkerPlacements: {}, endpointMarkerPlacements: {}, dayMarkerFramePositions: {}, endpointMarkerFramePositions: {},
+          annotationStyle: DEFAULT_ANNOTATION_STYLE, animationStartPointId: null, animationEndPointId: null,
+          videoSettings: DEFAULT_VIDEO_SETTINGS, selectedOutputDay: 'all',
+        });
+        worker.postMessage({ type: 'extract', date: firstDate, from: '00:00', to: '23:59' });
       } else {
+        const pendingLoad = pendingTimelineLoadRef.current;
+        const nextBaseline = pendingExtractionSnapshotRef.current?.(message.routePoints);
+        if (nextBaseline !== undefined) timelineBaselineRef.current = nextBaseline;
+        pendingExtractionSnapshotRef.current = null;
+        pendingTimelineLoadRef.current = null;
+        if (pendingLoad) {
+          videoPlayer.reset();
+          setWorkspaceView('map');
+          initialGuideShownRef.current = false;
+          applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
+          setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
+          clearGeneratedVideo();
+          setDates(pendingLoad.dates);
+          setStartDate(pendingLoad.dates[0]);
+          setEndDate(pendingLoad.dates[0]);
+          setFrom('00:00');
+          setTo('23:59');
+          setDayMarkerNotes({});
+          setFileName(pendingLoad.fileName);
+          setWorkSaveName('route-work.json');
+          setRawPositions([]);
+          setShowRaw(false);
+          setSelectedRaw(null);
+          setPlanDayStarts([]);
+          setPlanDayNotes({});
+          setSpotHasUnsavedChanges(false);
+        }
         setWorkspaceMode('timeline');
         setSelectedOutputDay('all');
         setInsertMode(false);
         setPlanDayStarts([]);
         setPlanDayNotes({});
-        dispatch({ type: 'load', points: message.routePoints });
+        dispatch({ type: 'load', points: message.routePoints, preserveEdit: !pendingLoad });
         setRawPositions(message.rawPositions);
         setSelectedPointId(null);
         setSelectionCandidateIds([]);
@@ -404,38 +715,23 @@ export default function App() {
         }
       }
     };
-    worker.onerror = () => { setError('移動履歴の読み込みに失敗しました。'); setBusy(false); };
+    worker.onerror = () => {
+      pendingExtractionSnapshotRef.current = null;
+      pendingTimelineLoadRef.current = null;
+      setError('移動履歴の読み込みに失敗しました。');
+      setBusy(false);
+    };
     return () => {
       worker.terminate();
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     };
-  }, []);
-
-  useEffect(() => {
-    if (previewProgress === null) return;
-    const previewDuration = outputVideoDuration(duration, animationPauseSeconds, preRollSeconds, postRollSeconds);
-    const startedAt = performance.now() - previewProgress * previewDuration * 1000;
-    let frame = 0;
-    const animate = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / (previewDuration * 1000));
-      setPreviewProgress(progress);
-      if (progress < 1) frame = requestAnimationFrame(animate);
-      else previewEndTimerRef.current = window.setTimeout(() => {
-        previewEndTimerRef.current = null;
-        setPreviewProgress(null);
-      }, 350);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => {
-      cancelAnimationFrame(frame);
-      if (previewEndTimerRef.current !== null) window.clearTimeout(previewEndTimerRef.current);
-      previewEndTimerRef.current = null;
-    };
-  }, [previewProgress === null, duration, animationPauseSeconds, preRollSeconds, postRollSeconds, introZoomEnabled]);
+  }, [applyVideoSettings, videoPlayer.reset, clearGeneratedVideo]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (workspaceMode === 'spot') return;
+      if (workspaceMode === 'spot' || busy || videoProgress || videoPlayer.isEditingBalloon()) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
       event.preventDefault();
       dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
@@ -443,10 +739,12 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [workspaceMode]);
+  }, [workspaceMode, busy, videoProgress, videoPlayer.editingBalloonId]);
 
-  useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
-  useEffect(() => { if (!videoUrl) videoBlobRef.current = null; }, [videoUrl]);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+  }, []);
 
   useEffect(() => {
     setRangeDeletePointIds([]);
@@ -476,12 +774,10 @@ export default function App() {
   }, [dayFilteredPoints, animationStartPointId, animationEndPointId]);
 
   const loadFile = async (file: File) => {
-    if (busy || videoProgress || previewProgress !== null) return;
-    if (workspaceMode === 'spot') setWorkspaceMode('timeline');
+    if (busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     setError('');
     setNotice('JSONを端末内で解析しています…');
-    setSelectionCandidateIds([]);
     try {
       const format = await readLeadingFileFormat(file);
       if (format === WORK_FILE_FORMAT) {
@@ -493,8 +789,15 @@ export default function App() {
         throw new Error('計画JSONは「計画モード」の「作業を再開」から読み込んでください。');
       }
       const buffer = await readTimelineFile(file);
+      if (!confirmDiscardCurrent()) {
+        setNotice('');
+        setBusy(false);
+        return;
+      }
       const worker = workerRef.current;
       if (!worker) throw new Error('移動履歴の読み込みに失敗しました。');
+      pendingExtractionSnapshotRef.current = null;
+      pendingTimelineLoadRef.current = null;
       console.info('[Timeline] sending buffer to Worker', { byteLength: buffer.byteLength });
       worker.postMessage({ type: 'load', buffer, fileName: file.name }, [buffer]);
     } catch (reason) {
@@ -503,15 +806,16 @@ export default function App() {
     }
   };
 
-  const startPlanMode = () => {
-    if (workspaceMode === 'plan' || busy || videoProgress) return;
-    setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
-    setWorkspaceMode('plan');
+  const beginNewMode = (mode: 'plan' | 'spot') => {
+    videoPlayer.reset();
+    setWorkspaceView('map');
+    initialGuideShownRef.current = false;
+    applyVideoSettings(DEFAULT_VIDEO_SETTINGS);
+    setAnnotationStyle(DEFAULT_ANNOTATION_STYLE);
+    setWorkspaceMode(mode);
     setSelectedOutputDay('all');
     setPlanSaveName('route-plan.json');
     setInsertMode(false);
-    setDayMarkerPlacements({});
-    setEndpointMarkerPlacements({});
     setPlanDayStarts([]);
     setPlanDayNotes({});
     dispatch({ type: 'load', points: [] });
@@ -533,34 +837,37 @@ export default function App() {
     setRangeDeletePointIds([]);
     setMapMode('edit');
     setAddMode(true);
-    setPreviewProgress(null);
-    setFollowCameraPlan(null);
-    setVideoUrl('');
+    clearGeneratedVideo();
     setError('');
     setNotice('');
+    setSpotHasUnsavedChanges(false);
+    if (mode === 'plan') planBaselineRef.current = stableSerialize(defaultPlanState());
     if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
     routeLoadedNoticeTimerRef.current = null;
   };
 
+  const startPlanMode = () => {
+    if (workspaceMode === 'plan' || busy || videoProgress || !confirmDiscardCurrent()) return;
+    beginNewMode('plan');
+  };
+
   const startSpotMode = () => {
-    if (workspaceMode === 'spot' || busy || videoProgress) return;
-    startPlanMode();
-    dispatch({ type: 'load', points: [] });
-    setSelectedPointId(null);
-    setPreviewProgress(null);
-    setVideoUrl('');
-    setWorkspaceMode('spot');
+    if (workspaceMode === 'spot' || busy || videoProgress || !confirmDiscardCurrent()) return;
+    beginNewMode('spot');
   };
 
   const saveWork = async () => {
-    if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || previewProgress !== null) return;
+    if (workspaceMode !== 'timeline' || !points.length || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     try {
-      const name = await downloadWorkFile({
-        points, startDate, endDate, from, to, dayMarkerNotes, dayMarkerPlacements,
-        endpointMarkerPlacements, annotationStyle, animationStartPointId, animationEndPointId,
-      }, workSaveName);
-      if (name) setWorkSaveName(name);
+      const resolved = await ensureMarkerPositions();
+      const stateAtSave: TimelineWorkState = { ...timelineWorkState, ...resolved.positions };
+      const baselineAtSave = stableSerialize(stateAtSave);
+      const name = await downloadWorkFile(stateAtSave, workSaveName);
+      if (name) {
+        setWorkSaveName(name);
+        timelineBaselineRef.current = baselineAtSave;
+      }
       setError('');
     } catch (reason) {
       setError(saveErrorMessage(reason, '作業データを保存できませんでした。もう一度お試しください。'));
@@ -570,7 +877,7 @@ export default function App() {
   };
 
   const loadWork = async (file: File) => {
-    if (workspaceMode !== 'timeline' || busy || videoProgress || previewProgress !== null) return;
+    if (workspaceMode !== 'timeline' || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     await restoreWorkFile(file);
   };
@@ -583,16 +890,30 @@ export default function App() {
         setError('動画生成が終了してから、作業を再開してください。');
         return;
       }
-      dispatch({ type: 'load', points: saved.points });
+      if (!confirmDiscardCurrent()) { setNotice(''); return; }
+      const resumedState: TimelineWorkState = {
+        ...saved, videoSettings: saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS,
+        selectedOutputDay: saved.selectedOutputDay ?? 'all',
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
+      };
+      dispatch({ type: 'load', points: saved.points, edit: {
+        dayMarkerPlacements: saved.dayMarkerPlacements, endpointMarkerPlacements: saved.endpointMarkerPlacements,
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
+        distanceHudPlacement: { x: resumedState.videoSettings!.distanceHudSettings.x, y: resumedState.videoSettings!.distanceHudSettings.y },
+        legacyDayKeys: new Set(deriveDayMarkers(saved.points, saved.dayMarkerNotes, saved.startDate)
+          .filter((marker) => !saved.dayMarkerFramePositions?.[marker.date!]).map((marker) => marker.date!)),
+      } });
+      videoPlayer.reset();
+      setWorkspaceView('map');
+      initialGuideShownRef.current = false;
       setWorkspaceMode('timeline');
-      setSelectedOutputDay('all');
+      setSelectedOutputDay(saved.selectedOutputDay ?? 'all');
+      applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
       setStartDate(saved.startDate);
       setEndDate(saved.endDate);
       setFrom(saved.from);
       setTo(saved.to);
       setDayMarkerNotes(saved.dayMarkerNotes);
-      setDayMarkerPlacements(saved.dayMarkerPlacements);
-      setEndpointMarkerPlacements(saved.endpointMarkerPlacements);
       setAnnotationStyle(saved.annotationStyle);
       setAnimationStartPointId(saved.animationStartPointId);
       setAnimationEndPointId(saved.animationEndPointId);
@@ -615,15 +936,14 @@ export default function App() {
       setInsertMode(false);
       setOpenToolbarHelpKey(null);
       setMapMode('edit');
-      setPreviewProgress(null);
-      setFollowCameraPlan(null);
-      setVideoUrl('');
-      setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
+      clearGeneratedVideo();
       setMobileDayMarkerEditingScale(1);
       setError('');
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
       routeLoadedNoticeTimerRef.current = null;
       setNotice('作業データを復元しました。元のJSONファイルなしで編集を続けられます。測位データは含まれていません。');
+      timelineBaselineRef.current = stableSerialize(resumedState);
+      pendingExtractionSnapshotRef.current = null;
     } catch {
       setNotice('');
       setError(WORK_FILE_ERROR);
@@ -633,11 +953,17 @@ export default function App() {
   };
 
   const savePlan = async () => {
-    if (workspaceMode !== 'plan' || !points.length || busy || videoProgress) return;
+    if (workspaceMode !== 'plan' || !points.length || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     try {
-      const name = await downloadPlanFile({ points, planDayStarts, planDayNotes, dayMarkerPlacements }, planSaveName);
-      if (name) setPlanSaveName(name);
+      const resolved = await ensureMarkerPositions();
+      const stateAtSave: PlanState = { ...planState, ...resolved.positions };
+      const baselineAtSave = stableSerialize(stateAtSave);
+      const name = await downloadPlanFile(stateAtSave, planSaveName);
+      if (name) {
+        setPlanSaveName(name);
+        planBaselineRef.current = baselineAtSave;
+      }
       setError('');
     } catch (reason) {
       setError(saveErrorMessage(reason, '計画データを保存できませんでした。もう一度お試しください。'));
@@ -647,7 +973,7 @@ export default function App() {
   };
 
   const loadPlan = async (file: File) => {
-    if (workspaceMode !== 'plan' || busy || videoProgress || previewProgress !== null) return;
+    if (workspaceMode !== 'plan' || busy || videoProgress || !canReplaceSession()) return;
     setBusy(true);
     try {
       const saved = parsePlanFile(await file.text());
@@ -656,25 +982,40 @@ export default function App() {
         setError('動画生成が終了してから、作業を再開してください。');
         return;
       }
-      setDistanceHudSettings(DEFAULT_DISTANCE_HUD);
+      if (!confirmDiscardCurrent()) return;
+      const resumedState: PlanState = {
+        ...saved, videoSettings: saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS,
+        annotationStyle: saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
+        animationStartPointId: saved.animationStartPointId ?? null,
+        animationEndPointId: saved.animationEndPointId ?? null,
+        endpointMarkerPlacements: saved.endpointMarkerPlacements ?? {},
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
+      };
+      applyVideoSettings(saved.videoSettings ?? DEFAULT_VIDEO_SETTINGS);
+      setAnnotationStyle(saved.annotationStyle ?? DEFAULT_ANNOTATION_STYLE);
+      videoPlayer.reset();
+      setWorkspaceView('map');
+      initialGuideShownRef.current = false;
       setWorkspaceMode('plan');
       setSelectedOutputDay('all');
       setInsertMode(false);
-      dispatch({ type: 'load', points: saved.points });
+      dispatch({ type: 'load', points: saved.points, edit: {
+        dayMarkerPlacements: saved.dayMarkerPlacements, endpointMarkerPlacements: saved.endpointMarkerPlacements ?? {},
+        dayMarkerFramePositions: saved.dayMarkerFramePositions ?? {}, endpointMarkerFramePositions: saved.endpointMarkerFramePositions ?? {},
+        distanceHudPlacement: { x: resumedState.videoSettings!.distanceHudSettings.x, y: resumedState.videoSettings!.distanceHudSettings.y },
+        legacyDayKeys: new Set(derivePlanDayMarkers(saved.points, saved.planDayStarts, saved.planDayNotes)
+          .filter((marker) => !saved.dayMarkerFramePositions?.[marker.pointId]).map((marker) => marker.pointId)),
+      } });
       setPlanDayStarts(saved.planDayStarts);
       setPlanSaveName(file.name);
       setPlanDayNotes(saved.planDayNotes);
-      setDayMarkerPlacements(saved.dayMarkerPlacements);
-      setEndpointMarkerPlacements({});
       setSelectedPointId(null);
       setSelectionCandidateIds([]);
       setSelectedRaw(null);
       setRangeDeletePointIds([]);
-      setAnimationStartPointId(null);
-      setAnimationEndPointId(null);
-      setPreviewProgress(null);
-      setFollowCameraPlan(null);
-      setVideoUrl('');
+      setAnimationStartPointId(saved.animationStartPointId ?? null);
+      setAnimationEndPointId(saved.animationEndPointId ?? null);
+      clearGeneratedVideo();
       setAnnotationLabel('');
       setDayMarkerNoteInput('');
       setRangeDeleteMode(false);
@@ -691,6 +1032,7 @@ export default function App() {
       if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current);
       routeLoadedNoticeTimerRef.current = null;
       setNotice('計画データを復元しました。編集を続けられます。');
+      planBaselineRef.current = stableSerialize(resumedState);
     } catch {
       setError(PLAN_FILE_ERROR);
     } finally {
@@ -717,8 +1059,14 @@ export default function App() {
     setSelectedPointId(id);
   };
 
+  const commitMovePoint = (id: string, latitude: number, longitude: number) => {
+    const point = points.find((candidate) => candidate.id === id);
+    if (!point || point.latitude === latitude && point.longitude === longitude) return;
+    dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) });
+  };
+
   const commitInsert = (latitude: number, longitude: number) => {
-    if (workspaceMode !== 'plan' || !editMode || !insertMode || addMode || rangeDeleteMode || previewProgress !== null || busy || videoProgress) return;
+    if (workspaceMode !== 'plan' || !editMode || !insertMode || addMode || rangeDeleteMode || busy || videoProgress) return;
     const id = `manual-${crypto.randomUUID()}`;
     const next = insertPlanPoint(points, planDayStarts, latitude, longitude, id);
     if (!next) {
@@ -801,43 +1149,39 @@ export default function App() {
     setError('');
   };
 
-  const startPreview = () => {
-    if (cameraMode === 'follow') {
-      setError('');
-      try {
-        setFollowCameraPlan(buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode));
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
-        return;
-      }
-    } else {
-      setFollowCameraPlan(null);
-    }
-    setBalloonFrameEditing(false);
-    setPreviewProgress(0);
-  };
-
   const generateVideo = async () => {
-    if (busy || videoProgress) return;
+    if (busy || videoProgress || abortRef.current || videoPlayer.isEditingBalloon()) return;
     setError('');
-    let plan: FollowCameraPlan | undefined;
-    if (cameraMode === 'follow') {
-      try {
-        plan = buildFollowCameraPlan(animationPoints, followZoomPreset, duration, followCustomZoom, followViewMode);
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
-        return;
-      }
+    setBusy(true);
+    videoPlayer.pause();
+    let output: VideoOutputOptions;
+    let snapshot: string;
+    try {
+      const resolved = await ensureMarkerPositions();
+      output = captureVideoOutputOptions(resolved.options);
+      if (output.cameraMode === 'follow') output.followCameraPlan = buildFollowCameraPlan(output.points,
+        output.followZoomPreset ?? 'standard', output.duration, output.followCustomZoom, output.followViewMode);
+      snapshot = createVideoOutputSnapshot(output);
+    } catch (reason) {
+      setBusy(false);
+      setError(reason instanceof Error ? reason.message : 'ルート追従の準備に失敗しました。');
+      return;
     }
-    setVideoProgress({ current: 0, total: outputVideoFrameCount(duration, animationPauseSeconds, preRollSeconds, postRollSeconds), percent: 0 });
+    setBusy(false);
+    const pauseTotal = totalPauseSeconds(balloonPauseSeconds(output.points, output.dayMarkers ?? [], output.routeMarkerMode ?? 'day', output.commonPauseSeconds ?? 0));
+    setVideoProgress({ current: 0, total: outputVideoFrameCount(output.duration, pauseTotal, output.preRollSeconds, output.postRollSeconds), percent: 0 });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const blob = await renderRouteVideo({ recordedTimeClockEnabled: showRecordedTimeClock, points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers, dayRouteColorsEnabled, endpointMarkerPlacements, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true, cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followCameraPlan: plan, introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined, signal: controller.signal, onProgress: setVideoProgress });
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
-      setVideoUrl(URL.createObjectURL(blob));
+      await stopVideoPreview();
+      if (controller.signal.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
+      const blob = await renderRouteVideo({ ...output, signal: controller.signal, onProgress: setVideoProgress });
+      if (controller.signal.aborted) throw new DOMException('動画生成をキャンセルしました。', 'AbortError');
+      const url = URL.createObjectURL(blob);
       videoBlobRef.current = blob;
-      setNotice('MP4を生成しました。端末へ保存できます。');
+      setGeneratedOutputSnapshot(snapshot);
+      replaceVideoUrl(url);
+      setNotice(snapshot === currentOutputSnapshotRef.current ? 'MP4を生成しました。端末へ保存できます。' : 'MP4を生成しました。制作内容が変更されているため再生成が必要です。');
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === 'AbortError') setNotice('動画生成をキャンセルしました。');
       else setError(reason instanceof Error ? reason.message : '動画生成に失敗しました。');
@@ -849,9 +1193,13 @@ export default function App() {
 
   const saveVideo = async () => {
     const blob = videoBlobRef.current;
-    if (busy || videoProgress) return;
+    if (busy || videoProgress || videoPlayer.isEditingBalloon()) return;
     if (!blob || blob.size === 0 || blob.type !== 'video/mp4') {
       setError('保存できるMP4データがありません。MP4を生成し直してください。');
+      return;
+    }
+    if (generatedOutputSnapshot !== currentOutputSnapshotRef.current) {
+      setError('再生成が必要です。MP4を再生成してから保存してください。');
       return;
     }
     setBusy(true);
@@ -870,10 +1218,32 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
+      <header ref={topbarRef} className={`topbar${compactMobileHeader ? ' topbar--compact-mobile' : ''}`}>
         <img className="brand-logo" src={`${import.meta.env.BASE_URL}journey-map-studio-logo.png`} alt="Journey Map Studio" />
+        <div className="mobile-compact-header">
+          <div className="mobile-brand-copy"><strong>Journey Map Studio</strong><span>{currentWorkspaceModeCopy.title}</span></div>
+          <div className="mobile-mode-menu-wrap">
+            <button className="mobile-mode-trigger" type="button" aria-expanded={mobileModeMenuOpen} aria-controls="mobile-mode-menu"
+              onClick={() => setMobileModeMenuOpen((open) => !open)}>モード <span aria-hidden="true">{mobileModeMenuOpen ? '▴' : '▾'}</span></button>
+            <HelpTip helpKey="mobileModeMenu" />
+            {mobileModeMenuOpen && <div className="mobile-mode-menu" id="mobile-mode-menu" aria-label="制作モード">
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'timeline' ? 'page' : undefined}
+                disabled={busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); fileInputRef.current?.click(); }}>
+                <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>
+              </button>
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'plan' ? 'page' : undefined}
+                disabled={workspaceMode === 'plan' || busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); startPlanMode(); }}>
+                <span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small>
+              </button>
+              <button type="button" className="mobile-mode-option" aria-current={workspaceMode === 'spot' ? 'page' : undefined}
+                disabled={workspaceMode === 'spot' || busy || !!videoProgress} onClick={() => { setMobileModeMenuOpen(false); startSpotMode(); }}>
+                <span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small>
+              </button>
+            </div>}
+          </div>
+        </div>
         <div className="topbar-actions">
-          <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress || previewProgress !== null}>
+          <button className="file-button" onClick={() => fileInputRef.current?.click()} disabled={busy || !!videoProgress}>
             <span>{WORKSPACE_MODE_COPY.timeline.title}</span><small>{WORKSPACE_MODE_COPY.timeline.description}</small>
           </button>
           <button className="file-button plan-button" onClick={startPlanMode} disabled={workspaceMode === 'plan' || busy || !!videoProgress}>
@@ -888,11 +1258,11 @@ export default function App() {
 
       <section className="privacy-note"><span>●</span> 位置履歴JSONは端末内でのみ処理され、外部へ送信されません</section>
 
-      {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} /> : <div className="workspace">
-        <MobileBottomSheet resetKey={workspaceMode} steps={[workspaceMode === 'plan' ? 'ルートを計画する' : '範囲を選ぶ', 'ルートを整える', '動画にする']}>
-          <section className="panel-section source-section">
+      {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} onDirtyChange={setSpotHasUnsavedChanges} /> : <div className="workspace">
+        <MobileBottomSheet resetKey={workspaceMode} steps={[workspaceMode === 'plan' ? '旅のルートを準備する' : '旅のデータを準備する', 'ルートや地点を編集する', '動画を確認・出力する']}>
+          <section className="panel-section source-section" inert={busy || !!videoProgress}>
             {workspaceMode === 'timeline' ? <>
-            <div className="section-heading"><span className="step">01</span><div><h2>範囲を選ぶ</h2><p>{fileName || 'GoogleマップからエクスポートしたJSONファイルを読み込んでください'}</p></div></div>
+            <div className="section-heading"><span className="step">01</span><div><h2>旅のデータを準備する</h2><p>{fileName || 'GoogleマップからエクスポートしたJSONファイルを読み込んでください'}</p></div></div>
             <div className="date-grid">
               <label>開始日<input type="date" value={startDate} min={minAvailableDate} max={maxAvailableDate} disabled={!dates.length || busy} onChange={(event) => {
                 const value = event.target.value;
@@ -903,7 +1273,7 @@ export default function App() {
             </div>
             <div className="select-label">
               <div className="control-label-with-help"><label htmlFor="output-day">表示・出力する日程</label><HelpTip helpKey="outputDay" /></div>
-              <select id="output-day" value={selectedOutputDay} disabled={!points.length || busy || !!videoProgress || previewProgress !== null}
+              <select id="output-day" value={selectedOutputDay} disabled={!points.length || busy || !!videoProgress}
                 onChange={(event) => changeOutputDay(event.currentTarget.value)}>
                 <option value="all">全日程</option>
                 {dayMarkers.filter((marker) => marker.date).map((marker) => <option key={marker.date} value={marker.date}>
@@ -919,18 +1289,18 @@ export default function App() {
             <div className="control-label-with-help range-help"><p className="range-note">※ 開始日のFromから、終了日のToまでを読み込みます。</p><HelpTip helpKey="timelineRange" /></div>
             <button className="secondary-button wide" disabled={!dates.length || !startDate || !endDate || busy} onClick={() => extract()}>この範囲を読み込む</button>
             <div className="control-label-with-help range-help"><p className="range-note">編集中の作業を保存・再開</p><HelpTip helpKey="timelineWork" /></div>
-            <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress || previewProgress !== null} onClick={saveWork}>作業を保存</button>
-            <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => workFileInputRef.current?.click()}>作業を再開</button>
+            <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress} onClick={saveWork}>作業を保存</button>
+            <button className="secondary-button wide" disabled={busy || !!videoProgress} onClick={() => workFileInputRef.current?.click()}>作業を再開</button>
             <input ref={workFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = '';
               if (file) void loadWork(file);
             }} />
             </> : <>
-              <div className="section-heading"><span className="step">01</span><div><h2>ルートを計画する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
+              <div className="section-heading"><span className="step">01</span><div><h2>旅のルートを準備する</h2><p>地図をクリックした順にポイントを追加します</p></div></div>
               <p className="range-note">「編集」→「連続追加」で地点を追加できます。</p>
               <button className="secondary-button wide" disabled={!points.length || busy || !!videoProgress} onClick={savePlan}>作業を保存</button>
-              <button className="secondary-button wide" disabled={busy || !!videoProgress || previewProgress !== null} onClick={() => planFileInputRef.current?.click()}>作業を再開</button>
+              <button className="secondary-button wide" disabled={busy || !!videoProgress} onClick={() => planFileInputRef.current?.click()}>作業を再開</button>
               <input ref={planFileInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = '';
@@ -939,28 +1309,16 @@ export default function App() {
             </>}
           </section>
 
-          <section className="panel-section">
-            <div className="section-heading"><span className="step">02</span><div><h2>ルートを整える</h2><p>{dayFilteredPoints.length ? `${dayFilteredPoints.length}ポイント · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
+          <section className="panel-section" inert={busy || !!videoProgress}>
+            <div className="section-heading"><span className="step">02</span><div><h2>ルートや地点を編集する</h2><p>必要に応じて修正できます。{dayFilteredPoints.length ? `${dayFilteredPoints.length}ポイント · ${workspaceMode === 'plan' ? '約 ' : ''}${formatDistance(distance)}` : 'ルートは未選択です'}</p></div></div>
             <div className="control-label-with-help control-with-help">
               <div className="mode-switch">
-                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
-                <button className={editMode ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('edit'); }}>編集</button>
-                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setBalloonFrameEditing(false); setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
+                <button className={mapMode === 'display' ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('display'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>表示</button>
+                <button className={editMode ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('edit'); }}>編集</button>
+                <button className={animationRangeMode ? 'active' : ''} onClick={() => { setWorkspaceView('map'); setMapMode('animation-range'); setAddMode(false); setInsertMode(false); setRangeDeleteMode(false); setRangeDeletePointIds([]); }}>アニメ範囲</button>
               </div>
               <HelpTip helpKey="mapMode" />
             </div>
-            <div className="control-label-with-help balloon-frame-control">
-              <button className="secondary-button" aria-pressed={balloonFrameEditing}
-                disabled={busy || !!videoProgress || previewProgress !== null || !dayFilteredPoints.some((point) => point.annotation?.label)}
-                onClick={toggleBalloonFrameEditing}>{balloonFrameEditing ? '配置編集を終了' : '動画構図で配置'}</button>
-              <HelpTip helpKey="balloonFramePlacement" />
-            </div>
-            {balloonFrameEditing && <div className="balloon-frame-selection">
-              <label htmlFor="balloon-frame-point">構図を確認する地点</label>
-              <select id="balloon-frame-point" value={selectedPointId ?? ''} onChange={(event) => setSelectedPointId(event.currentTarget.value)}>
-                {dayFilteredPoints.filter((point) => point.annotation?.label).map((point) => <option key={point.id} value={point.id}>{point.annotation!.label}</option>)}
-              </select>
-            </div>}
             {planDistances && <div className="detail-card">
               <strong>概算距離</strong>
               {planDistances.days.map((day) => <span key={day.pointId}>DAY {day.dayNumber}　約 {formatDistance(day.distanceMeters)}</span>)}
@@ -980,6 +1338,10 @@ export default function App() {
                 {selectedPoint.id === animationPoints[0]?.id && endpointMarkerPlacements.START && <button className="secondary-button" onClick={() => setEndpointPlacement('START')}>START位置をリセット</button>}
                 {selectedPoint.id === animationPoints.at(-1)?.id && endpointMarkerPlacements.GOAL && <button className="secondary-button" onClick={() => setEndpointPlacement('GOAL')}>GOAL位置をリセット</button>}
               </>}
+              {selectedPoint.annotation?.label && <div className="control-label-with-help">
+                <button type="button" className="secondary-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={openSelectedBalloonInVideo}>映像で確認</button>
+                <HelpTip helpKey="videoBalloonEditing" />
+              </div>}
               {editMode && <div className="annotation-editor">
                 <div className="control-label-with-help"><label htmlFor="annotation-label">地点ラベル（最大30文字）</label><HelpTip helpKey="pointLabel" /></div>
                 <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
@@ -1002,7 +1364,7 @@ export default function App() {
                     <HelpTip helpKey="dayEditingScale" />
                   </div>
                   <input id="day-editing-scale" type="range" min="75" max="175" step="25"
-                    value={mobileDayMarkerEditingScale * 100} disabled={previewProgress !== null || !!videoProgress}
+                    value={mobileDayMarkerEditingScale * 100} disabled={!!videoProgress}
                     onChange={(event) => setMobileDayMarkerEditingScale(Number(event.target.value) / 100)} />
                   <small>編集画面のみ。動画サイズには影響しません</small>
                 </div>
@@ -1025,35 +1387,37 @@ export default function App() {
             {workspaceMode === 'timeline' && selectedRaw && <RawDetail point={selectedRaw} onClose={() => setSelectedRaw(null)} />}
           </section>
 
-          <section className="panel-section video-section">
-            <div className="section-heading"><span className="step">03</span><div><h2>動画にする</h2><p>FHD · 30fps · MP4（H.264）</p></div></div>
-            <div className="video-camera-controls">
-              <div className="control-label-with-help"><label>表示モード</label><HelpTip helpKey="cameraMode" /></div>
+          <section className="panel-section video-section"
+            onFocusCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}
+            onPointerDownCapture={() => { if (showingVideo && videoPlayer.playbackStatus === 'playing') videoPlayer.pause(); }}>
+            <div className="section-heading"><span className="step">03</span><div><h2>動画を確認・出力する</h2><p>地図からそのままMP4を生成できます。FHD · 30fps · MP4（H.264）</p></div></div>
+            <div className="video-camera-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
+              <div className="control-label-with-help"><label>動画のカメラ</label><HelpTip helpKey="cameraMode" /></div>
               <div className="video-mode-options">
-                <button className={cameraMode === 'overview' ? 'active' : ''} aria-pressed={cameraMode === 'overview'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('overview')}>全体表示</button>
-                <button className={cameraMode === 'follow' ? 'active' : ''} aria-pressed={cameraMode === 'follow'} disabled={previewProgress !== null || !!videoProgress} onClick={() => setCameraMode('follow')}>ルート追従</button>
+                <button className={cameraMode === 'overview' ? 'active' : ''} aria-pressed={cameraMode === 'overview'} disabled={!!videoProgress} onClick={() => setCameraMode('overview')}>全体表示</button>
+                <button className={cameraMode === 'follow' ? 'active' : ''} aria-pressed={cameraMode === 'follow'} disabled={!!videoProgress} onClick={() => setCameraMode('follow')}>ルート追従</button>
               </div>
               {cameraMode === 'overview' && <>
                 <div className="control-label-with-help"><label>表示範囲</label><HelpTip helpKey="overviewZoom" /></div>
                 <div className="video-mode-options">
-                  {(['auto', 'custom'] as const).map((mode) => <button key={mode} className={overviewZoomMode === mode ? 'active' : ''} aria-pressed={overviewZoomMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setOverviewZoomMode(mode)}>{mode === 'auto' ? '自動' : 'カスタム'}</button>)}
+                  {(['auto', 'custom'] as const).map((mode) => <button key={mode} className={overviewZoomMode === mode ? 'active' : ''} aria-pressed={overviewZoomMode === mode} disabled={!!videoProgress} onClick={() => setOverviewZoomMode(mode)}>{mode === 'auto' ? '自動' : 'カスタム'}</button>)}
                 </div>
               </>}
               {cameraMode === 'follow' && <>
                 <div className="control-label-with-help"><label>追従視点</label><HelpTip helpKey="followView" /></div>
                 <div className="video-mode-options">
-                  {([['top', '真上'], ['oblique', '斜め']] as const).map(([mode, label]) => <button key={mode} className={followViewMode === mode ? 'active' : ''} aria-pressed={followViewMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowViewMode(mode)}>{label}</button>)}
+                  {([['top', '真上'], ['oblique', '斜め']] as const).map(([mode, label]) => <button key={mode} className={followViewMode === mode ? 'active' : ''} aria-pressed={followViewMode === mode} disabled={!!videoProgress} onClick={() => setFollowViewMode(mode)}>{label}</button>)}
                 </div>
                 <div className="control-label-with-help"><label>表示範囲</label><HelpTip helpKey="followZoom" /></div>
                 <div className="follow-zoom-options">
-                  {([['wide', '広め'], ['standard', '標準'], ['close', '寄り'], ['custom', 'カスタム']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={previewProgress !== null || !!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
+                  {([['wide', '広め'], ['standard', '標準'], ['close', '寄り'], ['custom', 'カスタム']] as const).map(([preset, label]) => <button key={preset} className={followZoomPreset === preset ? 'active' : ''} aria-pressed={followZoomPreset === preset} disabled={!!videoProgress} onClick={() => setFollowZoomPreset(preset)}>{label}</button>)}
                 </div>
               </>}
               {((cameraMode === 'overview' && overviewZoomMode === 'custom') || (cameraMode === 'follow' && followZoomPreset === 'custom')) && <label className="custom-zoom-number">
                 Zoom
                 <input type="number" inputMode="decimal" min="4" max="16" step="0.1"
                   value={cameraMode === 'overview' ? overviewCustomZoomInput : followCustomZoomInput}
-                  disabled={previewProgress !== null || !!videoProgress}
+                  disabled={!!videoProgress}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
                     if (cameraMode === 'overview') setOverviewCustomZoomInput(value);
@@ -1077,32 +1441,33 @@ export default function App() {
               </label>}
               <div className="control-label-with-help"><label>地点マーカー</label><HelpTip helpKey="routeMarker" /></div>
               <div className="route-marker-options">
-                {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={previewProgress !== null || !!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
+                {([['day', 'DAY'], ['start-goal', 'START / GOAL'], ['none', 'なし']] as const).map(([mode, label]) => <button key={mode} className={routeMarkerMode === mode ? 'active' : ''} aria-pressed={routeMarkerMode === mode} disabled={!!videoProgress} onClick={() => setRouteMarkerMode(mode)}>{label}</button>)}
               </div>
               <div className="control-label-with-help control-label-with-help--toggle">
-                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>開始前の時間を使って広域表示からズーム</small></span><input type="checkbox" checked={introZoomEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
+                <label className="toggle-row"><span><strong>開始時ズーム</strong><small>MP4の冒頭で、広域表示から設定した画角へズームします。</small></span><input type="checkbox" checked={introZoomEnabled} disabled={!!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="introZoom" />
               </div>
+              <p className="range-note">※ 開始時ズームはMP4出力時のみ反映されます。映像タブでは処理負荷を抑えるため、ズーム後の画角で静止表示します。</p>
               <div className="control-label-with-help control-label-with-help--toggle">
-                <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線・DAYマーカー・走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
+                <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線・DAYマーカー・走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={!!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="dayRouteColors" />
               </div>
             </div>
-            {recordedTimeAvailable && <div className="control-label-with-help control-label-with-help--toggle">
+            {recordedTimeAvailable && <div className="control-label-with-help control-label-with-help--toggle" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <label className="toggle-row"><span><strong>実績時刻を表示</strong></span><input type="checkbox" checked={recordedTimeClockEnabled}
-                disabled={previewProgress !== null || !!videoProgress} onChange={(event) => setRecordedTimeClockEnabled(event.target.checked)} /><i /></label>
+                disabled={!!videoProgress} onChange={(event) => setRecordedTimeClockEnabled(event.target.checked)} /><i /></label>
               <HelpTip helpKey="recordedTimeClock" />
             </div>}
-            <div className="duration-controls">
+            <div className="duration-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help"><label htmlFor="video-duration-range">移動時間</label><HelpTip helpKey="movementDuration" /></div>
-              <input id="video-duration-range" type="range" min="5" max="120" step="1" value={duration} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+              <input id="video-duration-range" type="range" min="5" max="120" step="1" value={duration} disabled={!!videoProgress} onChange={(event) => {
                 const value = Number(event.currentTarget.value);
                 setDuration(value);
                 setDurationInput(String(value));
               }} />
               <div className="duration-limits"><span>5秒</span><span>120秒</span></div>
               <label className="duration-number" htmlFor="video-duration-number">
-                <input id="video-duration-number" aria-label="移動時間（秒）" type="number" inputMode="numeric" min="5" max="120" step="1" value={durationInput} disabled={previewProgress !== null || !!videoProgress} onChange={(event) => {
+                <input id="video-duration-number" aria-label="移動時間（秒）" type="number" inputMode="numeric" min="5" max="120" step="1" value={durationInput} disabled={!!videoProgress} onChange={(event) => {
                   const value = event.currentTarget.value;
                   setDurationInput(value);
                   if (value !== '' && Number.isFinite(Number(value))) setDuration(Math.min(120, Math.max(5, Math.round(Number(value)))));
@@ -1112,7 +1477,7 @@ export default function App() {
               <div className="control-label-with-help"><label htmlFor="common-pause-seconds">バルーン表示時の停止</label><HelpTip helpKey="balloonPause" /></div>
               <label className="duration-number" htmlFor="common-pause-seconds">
                 <input id="common-pause-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
-                  value={commonPauseInput} disabled={previewProgress !== null || !!videoProgress}
+                  value={commonPauseInput} disabled={!!videoProgress}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
                     setCommonPauseInput(value);
@@ -1124,7 +1489,7 @@ export default function App() {
               <div className="control-label-with-help"><label htmlFor="pre-roll-seconds">開始前の時間</label><HelpTip helpKey="videoHoldTimes" /></div>
               <label className="duration-number" htmlFor="pre-roll-seconds">
                 <input id="pre-roll-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
-                  value={preRollInput} disabled={previewProgress !== null || !!videoProgress}
+                  value={preRollInput} disabled={!!videoProgress}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
                     setPreRollInput(value);
@@ -1136,7 +1501,7 @@ export default function App() {
               <div className="control-label-with-help"><label htmlFor="post-roll-seconds">到着後の停止</label><HelpTip helpKey="videoHoldTimes" /></div>
               <label className="duration-number" htmlFor="post-roll-seconds">
                 <input id="post-roll-seconds" type="number" inputMode="decimal" min="0" max="30" step="0.5"
-                  value={postRollInput} disabled={previewProgress !== null || !!videoProgress}
+                  value={postRollInput} disabled={!!videoProgress}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
                     setPostRollInput(value);
@@ -1154,61 +1519,79 @@ export default function App() {
                 <span>※ 出力時間には、移動時間に加えて地点停止・開始前・到着後の時間が含まれます。</span>
               </div>
             </div>
-            <div className="distance-hud-controls">
+            <div className="distance-hud-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help control-label-with-help--toggle">
                 <label className="toggle-row"><span><strong>走行距離表示</strong></span><input type="checkbox" checked={distanceHudSettings.enabled}
-                  disabled={previewProgress !== null || !!videoProgress}
-                  onChange={(event) => setDistanceHudSettings((current) => ({ ...current, enabled: event.target.checked }))} /><i /></label>
+                  disabled={!!videoProgress}
+                  onChange={(event) => setDistanceHudOptions((current) => ({ ...current, enabled: event.target.checked }))} /><i /></label>
                 <HelpTip helpKey="distanceHud" />
               </div>
               {distanceHudSettings.enabled && distanceHudModel && <>
                 <label className="distance-hud-size">サイズ <span>{Math.round(distanceHudSettings.scale * 100)}%</span>
                   <input type="range" min="50" max="200" step="10" value={Math.round(distanceHudSettings.scale * 100)}
-                    disabled={previewProgress !== null || !!videoProgress}
-                    onChange={(event) => setDistanceHudSettings((current) => ({ ...current, scale: Number(event.target.value) / 100 }))} />
+                    disabled={!!videoProgress}
+                    onChange={(event) => setDistanceHudOptions((current) => ({ ...current, scale: Number(event.target.value) / 100 }))} />
                 </label>
-                <button className="secondary-button wide" disabled={previewProgress !== null || !!videoProgress}
-                  onClick={() => setDistanceHudSettings((current) => ({ ...current,
-                    ...clampDistanceHudPlacement(DEFAULT_DISTANCE_HUD, distanceHudLayout(distanceHudModel, current.scale)) }))}>位置をリセット</button>
+                <button className="secondary-button wide" disabled={!!videoProgress}
+                  onClick={() => dispatch({ type: 'commit', edit: { distanceHudPlacement:
+                    clampDistanceHudPlacement(DEFAULT_VIDEO_SETTINGS.distanceHudSettings, distanceHudLayout(distanceHudModel, distanceHudSettings.scale)) } })}>位置をリセット</button>
                 <p className="range-note">地図上のHUDをドラッグして位置を変更できます。</p>
               </>}
             </div>
-            <div className="annotation-style-controls">
+            <div className="annotation-style-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <h3>バルーン表示</h3>
-              {(['balloonScale', 'fontScale'] as const).map((key) => {
-                const inputId = key === 'balloonScale' ? 'annotation-balloon-scale' : 'annotation-font-scale';
-                return <div className="annotation-style-item" key={key}>
-                  <div className="control-label-with-help">
-                    <label htmlFor={inputId}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(annotationStyle[key] * 100)}%</span></label>
-                    <HelpTip helpKey={key === 'balloonScale' ? 'balloonScale' : 'balloonFontScale'} />
-                  </div>
-                  <input id={inputId} type="range" min="50" max="200" step="10" value={Math.round(annotationStyle[key] * 100)} onChange={(event) => setAnnotationStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
-                </div>;
-              })}
+              <div className="annotation-style-item">
+                <div className="control-label-with-help">
+                  <label htmlFor="annotation-font-scale">文字サイズ <span className="annotation-style-value">{Math.round(annotationStyle.fontScale * 100)}%</span></label>
+                  <HelpTip helpKey="balloonFontScale" />
+                </div>
+                <input id="annotation-font-scale" type="range" min="50" max="200" step="10" value={Math.round(annotationStyle.fontScale * 100)} disabled={busy || !!videoProgress}
+                  onChange={(event) => setAnnotationStyle((current) => ({ ...current, fontScale: Number(event.target.value) / 100 }))} />
+              </div>
+              <div className="annotation-style-item">
+                <div className="control-label-with-help">
+                  <label htmlFor="annotation-minimum-width">バルーンの最小幅 <span className="annotation-style-value">{annotationStyle.minimumWidth ?? DEFAULT_ANNOTATION_STYLE.minimumWidth}px</span></label>
+                  <HelpTip helpKey="balloonMinimumWidth" />
+                </div>
+                <input id="annotation-minimum-width" type="range" min="160" max="440" step="10" value={annotationStyle.minimumWidth ?? DEFAULT_ANNOTATION_STYLE.minimumWidth} disabled={busy || !!videoProgress}
+                  onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidth: Number(event.target.value) }))} />
+                <div className="annotation-minimum-targets" role="group" aria-label="最小幅の適用対象">
+                  <label><input type="checkbox" checked={annotationStyle.minimumWidthForDay ?? false} disabled={busy || !!videoProgress}
+                    onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidthForDay: event.target.checked }))} />DAYマーカー</label>
+                  <label><input type="checkbox" checked={annotationStyle.minimumWidthForBalloon ?? false} disabled={busy || !!videoProgress}
+                    onChange={(event) => setAnnotationStyle((current) => ({ ...current, minimumWidthForBalloon: event.target.checked }))} />通常バルーン</label>
+                </div>
+              </div>
             </div>
-            <button className="preview-button" disabled={previewProgress === null && animationPoints.length < 2} onClick={previewProgress === null ? startPreview : () => setPreviewProgress(null)}>{previewProgress === null ? 'プレビュー' : '中止'}</button>
-            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress} onClick={() => void generateVideo()}>MP4を生成</button>
+            <button className="preview-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId || animationPoints.length < 2} onClick={openVideoWorkspace}>映像で確認</button>
+            <button className="generate-button" disabled={animationPoints.length < 2 || busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={() => void generateVideo()}>{videoNeedsRegeneration ? 'MP4を再生成' : 'MP4を生成'}</button>
             {videoProgress && <div className="progress-card"><div><strong>動画生成中</strong><span>{videoProgress.current} / {videoProgress.total} frames</span></div><b>{videoProgress.percent}%</b><progress max="100" value={videoProgress.percent} /><button onClick={() => abortRef.current?.abort()}>キャンセル</button></div>}
-            {videoUrl && <button className="download-button" disabled={busy || !!videoProgress} onClick={() => void saveVideo()}>MP4を保存</button>}
+            {videoNeedsRegeneration && <p className="range-note" role="status"><strong>再生成が必要</strong><br />制作内容が変更されました。MP4を再生成してください。</p>}
+            {videoUrl && <button className="download-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId || videoNeedsRegeneration} onClick={() => void saveVideo()}>MP4を保存</button>}
           </section>
         </MobileBottomSheet>
 
         <div className="map-area">
+        {canShowVideo && <div className="workspace-view-bar">
+          <div className="workspace-view-buttons" role="group" aria-label="作業画面">
+            <button type="button" aria-pressed={!showingVideo} disabled={busy || !!videoProgress}
+              onClick={() => { if (showingVideo) { void stopVideoPreview(); setWorkspaceView('map'); } }}>地図</button>
+            <button type="button" aria-pressed={showingVideo} disabled={busy || !!videoProgress}
+              onClick={() => { if (!showingVideo) openVideoWorkspace(); }}>映像</button>
+          </div>
+          <span className="workspace-view-role">{showingVideo ? '完成映像を確認・調整' : 'ルートと地点を編集'}</span>
+          <HelpTip helpKey="workspaceView" />
+        </div>}
+        <div className="workspace-display">
+        <div className={`map-edit-view${showingVideo ? ' map-edit-view--hidden' : ''}`} inert={showingVideo || busy || !!videoProgress} aria-hidden={showingVideo || undefined}>
         <div id="plan-coordinate-jump" />
         <section className="map-stage">
-          <RouteMap balloonFrameEditing={balloonFrameEditing} balloonMigrationPoints={points} balloonFollowCameraPlan={balloonFollowCamera} onBalloonFramePosition={setBalloonFramePosition} onResolveBalloonPositions={resolveBalloonPositions} recordedTimeClockEnabled={showRecordedTimeClock} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!videoProgress && !busy} onDistanceHudPlacement={(placement) => setDistanceHudSettings((current) => ({ ...current, ...placement }))} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} dayRouteColorsEnabled={dayRouteColorsEnabled} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} previewProgress={previewProgress} previewDuration={duration} playbackTimeline={previewPlaybackTimeline} preRollSeconds={preRollSeconds} postRollSeconds={postRollSeconds} introZoomEnabled={introZoomEnabled} revealRoute cameraMode={cameraMode} followCameraPlan={followCameraPlan} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={(id, latitude, longitude) => dispatch({ type: 'commit', points: movePoint(points, id, latitude, longitude) })} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
+          <RouteMap onMarkerProjectorReady={onMarkerProjectorReady} balloonMigrationPoints={points} balloonFollowCameraPlan={balloonFollowCamera} onBalloonFramePosition={setBalloonFramePosition} onResolveBalloonPositions={resolveBalloonPositions} coordinateJumpEnabled={workspaceMode === 'plan'} coordinateJumpDisabled={busy || !!videoProgress} mobileDayMarkerEditingScale={mobileDayMarkerEditingScale} insertMode={workspaceMode === 'plan' && editMode && insertMode} onInsertPoint={commitInsert} distanceHud={distanceHud} distanceHudDraggable={!showingVideo && !videoProgress && !busy} distanceHudDragResetKey={history.present} onDistanceHudPlacement={(placement) => dispatch({ type: 'commit', edit: { distanceHudPlacement: placement } })} endpointMarkerPlacements={endpointMarkerPlacements} onAnnotationPlacement={setAnnotationPlacement} onDayPlacement={setDayPlacement} onEndpointPlacement={setEndpointPlacement} overviewCamera={overviewCamera} autoFitRouteChanges={workspaceMode === 'timeline'} annotationStyle={annotationStyle} dayMarkers={visibleDayMarkers} dayNumberByPointId={visibleDayNumbers} points={dayFilteredPoints} animationPoints={animationPoints} rawPositions={visibleRawPositions} showRaw={showRaw} editMode={editMode} animationRangeMode={animationRangeMode} addMode={addMode} rangeDeleteMode={rangeDeleteMode} rangeDeletePointIds={rangeDeletePointIds} routeMarkerMode={routeMarkerMode} selectedPointId={selectedPointId} cameraMode={cameraMode} onSelectPoint={(id) => { setSelectedPointId(id); setSelectedRaw(null); }} onSelectionCandidates={setSelectionCandidateIds} onSelectRaw={(point) => { setSelectedRaw(point); setSelectedPointId(null); setSelectionCandidateIds([]); }} onAddPoint={commitAdd} onMovePoint={commitMovePoint} onRangeDeleteSelection={setRangeDeletePointIds} onError={setError} />
           {workspaceMode === 'timeline' && !points.length && <div className="empty-map"><div className="empty-route-icon">⌁</div><h2>旅の道筋を、アニメーションに</h2><p>GoogleマップからエクスポートしたJSONファイルを読み込み、<br />移動履歴をアニメーションに。新しいルートの作成やスポット情報の画像作成も。</p><div className="empty-map-actions"><button className="empty-json-button" onClick={() => fileInputRef.current?.click()}>
   <span>{WORKSPACE_MODE_COPY.timeline.title}</span>
   <small>{WORKSPACE_MODE_COPY.timeline.description}</small>
 </button><button className="plan-button" onClick={startPlanMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.plan.title}</span><small>{WORKSPACE_MODE_COPY.plan.description}</small></button><button className="plan-button" onClick={startSpotMode} disabled={busy || !!videoProgress}><span>{WORKSPACE_MODE_COPY.spot.title}</span><small>{WORKSPACE_MODE_COPY.spot.description}</small></button></div></div>}
-          {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
-          {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
-          {balloonFrameEditing && <nav className="edit-toolbar" aria-label="バルーン配置編集">
-            <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo' })}>元に戻す</button>
-            <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo' })}>やり直す</button>
-            <button onClick={() => setBalloonFrameEditing(false)}>配置編集を終了</button>
-          </nav>}
-          {editMode && !balloonFrameEditing && <nav className="edit-toolbar" aria-label="ルート編集">
+          {editMode && <nav className="edit-toolbar" aria-label="ルート編集">
             <span className="edit-toolbar-item"><button className={!addMode && !insertMode && !rangeDeleteMode ? 'active' : ''} onClick={selectEditTool}><span>⌖</span>選択</button>{workspaceMode === 'plan' && <HelpTip helpKey="planSelect" variant="toolbar" open={openToolbarHelpKey === 'planSelect'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planSelect' : null)} />}</span>
             <span className="edit-toolbar-item"><button className={addMode ? 'active' : ''} onClick={toggleAddMode}><span>＋</span>連続追加</button>{workspaceMode === 'plan' && <HelpTip helpKey="planAppend" variant="toolbar" open={openToolbarHelpKey === 'planAppend'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planAppend' : null)} />}</span>
             {workspaceMode === 'plan' && <span className="edit-toolbar-item"><button className={insertMode ? 'active' : ''} disabled={points.length < 2} onClick={toggleInsertMode}><span>⊕</span>途中追加</button><HelpTip helpKey="planInsert" variant="toolbar" open={openToolbarHelpKey === 'planInsert'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planInsert' : null)} /></span>}
@@ -1218,9 +1601,19 @@ export default function App() {
             <i />
             <span className="edit-toolbar-item"><button disabled={!history.past.length} onClick={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }}><span>↶</span>元に戻す</button>{workspaceMode === 'plan' && <HelpTip helpKey="planUndo" variant="toolbar" open={openToolbarHelpKey === 'planUndo'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planUndo' : null)} />}</span>
             <span className="edit-toolbar-item"><button disabled={!history.future.length} onClick={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }}><span>↷</span>やり直す</button>{workspaceMode === 'plan' && <HelpTip helpKey="planRedo" variant="toolbar" open={openToolbarHelpKey === 'planRedo'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planRedo' : null)} />}</span>
-            <span className="edit-toolbar-item"><button disabled={workspaceMode === 'plan' ? !points.length : !history.initial.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>{workspaceMode === 'plan' && <HelpTip helpKey="planReset" variant="toolbar" open={openToolbarHelpKey === 'planReset'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planReset' : null)} />}</span>
+            <span className="edit-toolbar-item"><button disabled={workspaceMode === 'plan' ? !points.length : !history.initial.points.length} onClick={() => { dispatch({ type: 'reset' }); setSelectedPointId(null); setRangeDeletePointIds([]); }}><span>↺</span>初期状態</button>{workspaceMode === 'plan' && <HelpTip helpKey="planReset" variant="toolbar" open={openToolbarHelpKey === 'planReset'} onOpenChange={(open) => setOpenToolbarHelpKey(open ? 'planReset' : null)} />}</span>
           </nav>}
         </section>
+        </div>
+        {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} generationProgress={videoProgress} editingDisabled={busy || !!videoProgress}
+          selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon}
+          onClearSelection={() => { setSelectedPointId(null); setSelectedRaw(null); setSelectionCandidateIds([]); }}
+          onCommitBalloon={setBalloonFramePosition} onCommitMarker={commitVideoMarker}
+          canUndo={!!history.past.length} canRedo={!!history.future.length}
+          onUndo={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }} onRedo={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }} />}
+        {busy && <div className="loading-overlay"><span className="spinner" />端末内で処理しています…</div>}
+        {(error || notice) && <div className={`toast ${error ? 'toast--error' : ''}`} role="status"><span>{error ? '!' : '✓'}</span><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); if (routeLoadedNoticeTimerRef.current !== null) window.clearTimeout(routeLoadedNoticeTimerRef.current); routeLoadedNoticeTimerRef.current = null; }}>×</button></div>}
+        </div>
         </div>
       </div>}
     </main>
