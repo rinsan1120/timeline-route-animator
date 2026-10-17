@@ -1,5 +1,14 @@
 # HANDOFF
 
+## Current handoff / branch baseline (2026-10-17)
+
+- **Current source of truth:** `main` in `rinsan1120/timeline-route-animator`; V1.3 is merged via [PR #28](https://github.com/rinsan1120/timeline-route-animator/pull/28), merge commit `b91055b`. The associated [main GitHub Pages deployment](https://github.com/rinsan1120/timeline-route-animator/actions/runs/38998626252) succeeded, including its existing tests and build.
+- **Before work:** read the current target branch's `AGENTS.md`, this `HANDOFF.md`, and `docs/v13-improvements/JourneyMapStudio_Development_Lessons.md`. Check the latest implementation and the user's latest decisions; historical notes below refer to the feature-branch development stages, not necessarily the current behavior or backlog.
+- **Branch/deployment:** ordinary code and documentation edits target `main`, unless the user explicitly selects another branch. Confirm the branch and changed paths before GitHub writes. The workflow currently deploys GitHub Pages on `main` pushes, including documentation-only edits; avoid accidental public-version changes.
+- **Open issues:** track priorities and status through [`docs/v13-improvements/ISSUE_TRACKER.md`](docs/v13-improvements/ISSUE_TRACKER.md) and the [live GitHub Issues](https://github.com/rinsan1120/timeline-route-animator/issues). At the 2026-10-17 check, 27 issues (#1–#27) were Open, including issues with implementation commits merged into `main`. Do not equate merged code with confirmed resolution or close issues without user direction.
+- **Working agreement:** protect existing editing, JSON compatibility, Undo/Redo, responsive UI, and perceptual agreement between preview and MP4. Avoid unnecessary tests or unrelated investigation; Codex commits locally and does not push. GitHub direct updates are remote commits and should be followed by Fetch/Pull when continuing locally.
+- **History below:** feature-branch names, step numbers, old "not yet implemented" statements, and earlier test statuses document the state *at that time*. Resolve any apparent contradictions against current `main` code and the latest explicit product-owner decision.
+
 ## Compact mobile video controls / automatic editing targets
 
 - PC・スマホとも編集ガイド切替ボタンとguidesVisible／toggleGuidesを廃止。停止中・描画完了時は既存の通常バルーン／DAY／START・GOAL／HUDの透明な編集対象を有効にし、再生中は枠と対象を無効化する。編集中の排他・Pointer Capture・ドラフト・キャンセル世代・共通Undo／Redoの処理は維持。

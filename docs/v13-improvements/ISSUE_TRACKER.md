@@ -4,7 +4,7 @@
 
 - 対象リポジトリ：[`rinsan1120/timeline-route-animator`](https://github.com/rinsan1120/timeline-route-animator)
 - 管理表作成日：2026-10-16（日本時間）
-- 参照状態：2026-10-16時点のオープンIssue **27件**を採録。2026-10-17にV1.3を `main` に統合し、以後の通常開発・仕様書管理は `main` を基準とする。最新のIssue状態はGitHubで確認する。
+- 参照状態：2026-10-17にGitHubのOpen Issue **27件（#1〜#27）** を再照合。V1.3は同日 `main` に統合・Pages公開済み。以後の通常開発・仕様書管理は `main` を基準とする。最新状態はGitHubで再確認する。
 - 決定者：プロダクトオーナー。優先順位は対話で合意したもので、必要に応じて変更する。
 - **最優先5件（合意済み）**：[#13](https://github.com/rinsan1120/timeline-route-animator/issues/13) → [#14](https://github.com/rinsan1120/timeline-route-animator/issues/14) → [#1](https://github.com/rinsan1120/timeline-route-animator/issues/1) → [#3](https://github.com/rinsan1120/timeline-route-animator/issues/3) → [#17](https://github.com/rinsan1120/timeline-route-animator/issues/17)。
 
@@ -48,11 +48,11 @@
 | 22 | **P3** | [#11](https://github.com/rinsan1120/timeline-route-animator/issues/11) | プレビュー読込失敗時の案内文 | コード上の問題／Open | MP4生成向け文言をプレビュー向けに整理 | #27 |
 | 23 | **P3** | [#27](https://github.com/rinsan1120/timeline-route-animator/issues/27) | MP4非対応環境への案内文 | コード上の問題／Open | Android Chrome限定の案内を環境非依存に修正 | #11 |
 | 24 | **P3** | [#7](https://github.com/rinsan1120/timeline-route-animator/issues/7) | 動画演出プリセットの追加 | 新機能候補／Open | 既存の主要編集体験が安定してから検討 | — |
-| 25 | **反映照合** | [#2](https://github.com/rinsan1120/timeline-route-animator/issues/2) | スマホ設定ボトムシート導入 | main実装あり・Issue未整理／Open | mainの実装状態とIssueを照合し、反映済みならClose候補 | #12・#16 |
-| 26 | **反映照合** | [#4](https://github.com/rinsan1120/timeline-route-animator/issues/4) | 動画制作設定のJSON保存・復元 | V1.3ブランチ実装あり／Open | main反映状況を照合し、反映済みならClose候補 | #1 |
-| 27 | **反映照合** | [#5](https://github.com/rinsan1120/timeline-route-animator/issues/5) | 再生・一時停止・シークの追加 | V1.3ブランチ実装あり／Open | main反映状況を照合し、反映済みならClose候補 | #8・#12 |
+| 25 | **反映照合** | [#2](https://github.com/rinsan1120/timeline-route-animator/issues/2) | スマホ設定ボトムシート導入 | mainに実装あり／Open | 解消判定は未確定。Closeはユーザー判断 | #12・#16 |
+| 26 | **反映照合** | [#4](https://github.com/rinsan1120/timeline-route-animator/issues/4) | 動画制作設定のJSON保存・復元 | mainにV1.3実装が統合済み／Open | 解消判定は未確定。Closeはユーザー判断 | #1 |
+| 27 | **反映照合** | [#5](https://github.com/rinsan1120/timeline-route-animator/issues/5) | 再生・一時停止・シークの追加 | mainにV1.3実装が統合済み／Open | 解消判定は未確定。Closeはユーザー判断 | #8・#12 |
 
-**注意**：表中の「Open」はこの表の作成時点のGitHub Issue状態であり、リアルタイム自動同期ではない。着手・完了・Close状況は必ずGitHubの最新Issueを参照する。
+**注意**：表中の「Open」は2026-10-17の再照合時点のGitHub Issue状態であり、リアルタイム自動同期ではない。実装コミットが `main` にあっても、実機での解消やIssueの完了を意味しない。着手・完了・Close状況は必ずGitHubの最新Issueを参照する。
 
 ## P0：最優先5件の対応方針（プロダクトオーナー決定）
 
@@ -66,9 +66,9 @@
 
 **P0内の番号は重要度の順位**であり、実装着手順とは分けて管理する。2026-10-16の設計判断で、スマホ検証の作業領域を先に確保するため **#3を#14より先に着手**することとした。#14の入力不能問題の重要度は維持し、#3で修正済みと扱わない。詳細は[スマホヘッダー・キーボード連携設計](MOBILE_HEADER_KEYBOARD_DESIGN.md)。
 
-## V1.3開発ブランチの実装進捗（2026-10-16／静的なGitHub記録）
+## V1.3開発ブランチ時代の実装記録（履歴／2026-10-16）
 
-重要度の順位と**実際の実装順**は分けて管理する。以下は`feature/video-editor-v13`上で確認したコミットであり、**実機で修正が解消したとの判定や、`main`への正式統合・公開完了を意味しない**。GitHub Issue自体はOpenのまま。
+重要度の順位と**実際の実装順**は分けて管理する。以下は当時 `feature/video-editor-v13` 上で確認したコミットの履歴であり、2026-10-17のPR #28によって **`main` へ統合済み**。ただし、**実機で問題が解消したことの確認やIssueのCloseを意味しない**。
 
 | 実装順 | Issue | ブランチ上のコミット | 状況 |
 | ---: | --- | --- | --- |
@@ -81,7 +81,7 @@
 
 - 今後の主要検討対象：[#12](https://github.com/rinsan1120/timeline-route-animator/issues/12) スマホ映像画面の全体UX再設計。#15の変更内容も踏まえて設計する。
 - 関連設計：[V1.3スマホヘッダー・キーボード連携設計](MOBILE_HEADER_KEYBOARD_DESIGN.md)。#3・#14の実装方針と確定仕様を記録し、最終挙動は現在のソースコードを正とする。
-- **公開運用の注意**：このブランチをGitHub Actionsの手動実行でPages公開しても、後から`main`へPushすると旧版が再デプロイされる。開発中に`main`へ文書だけをコミットしない。
+- **現在の公開運用**：V1.3は `main` に統合済みで、`.github/workflows/deploy.yml` は `main` へのPushでPagesを自動デプロイする。以前のfeature公開とmain公開の競合は過去の教訓としてLessons第11章に記録されている。
 
 ## 関連Issueの取り扱い
 
@@ -90,7 +90,7 @@
 - **#1 と #20・#24・#25**：保存前確認と、バルーン編集中のファイル読込／画面切替ガードを設計上突き合わせる。ただし未確認リスクの全部を不具合と断定して一括改修しない。
 - **#15 と #12**：STEP別情報設計を整理してから映像画面の主要操作導線を調整する。
 - **#8 と #26**：イベントの可視フレーム探索とMapLibre内部API依存は別課題。互換性維持を優先する。
-- **#2・#4・#5**：機能がmain／V1.3開発ブランチへ実装された形跡がある。Issueの状態はOpenのため、実際の反映をGitHubで確認し、反映済みならユーザーのPush後にClose候補として整理。ローカルcommitだけでCloseしない。
+- **#2・#4・#5**：実装コードは `main` に存在するが、IssueはOpenのまま。統合と解消確認を混同せず、Closeの判断はユーザーに委ねる。GitHubに直接コミットした変更に追加Pushは不要。
 
 ## 運用ルール
 
@@ -102,6 +102,8 @@
 6. この管理表の更新先は **`main`** とする。GitHubに直接コミットした変更をローカルで使用する際はFetch／Pullし、Codexと同じファイルの並行編集を避ける。GitHub Pagesのデプロイ対象ブランチと公開への影響も更新前に確認する。
 
 ## メンテナンス記録
+
+- 2026-10-17：GitHub Issues #1〜#27がすべてOpenであることを確認。V1.3のPR #28によるmain統合とPages成功を踏まえ、過去のfeature基準・未統合表現を履歴として明確化。順位は変更せず、IssueのClose・再分類は行っていない。
 
 - 2026-10-17：V1.3を `main` に統合し、以後の通常開発・文書管理・Pages自動デプロイの基準を `main` に統一。
 

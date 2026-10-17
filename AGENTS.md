@@ -1,5 +1,18 @@
 # AGENTS.md
 
+## Current development baseline (2026-10-17)
+
+- Repository: `rinsan1120/timeline-route-animator`. The single source of truth for regular development, documentation, and production GitHub Pages deployment is the latest `main` branch.
+- V1.3 was merged from `feature/video-editor-v13` into `main` in PR #28 (merge commit `b91055b`). Use a different branch only when the user explicitly designates it; never infer the target from a default-branch setting.
+- Before technical investigations, design decisions, code changes, Codex instructions, or GitHub operations, read the target branch's `AGENTS.md`, `HANDOFF.md`, and `docs/v13-improvements/JourneyMapStudio_Development_Lessons.md`. Apply relevant Lessons to the current task; previous reading does not replace a fresh check.
+- Before a GitHub write, confirm the repository, explicit target branch, changed paths, expected impact on other branches and the deployment workflow, and the user's authorization. Never silently substitute `main` for an explicitly designated feature branch.
+- The current `.github/workflows/deploy.yml` deploys on `main` pushes, including documentation-only commits. Direct GitHub edits immediately create remote commits; Codex changes normally stop at `git commit` without `git push`, which the user handles.
+- Keep unresolved issues in `docs/v13-improvements/ISSUE_TRACKER.md` and GitHub Issues. A merged implementation does not automatically close an issue or establish that its reported problem is resolved; consult live issue state and obtain the user's direction for closing issues.
+- Older V1-only descriptions and feature-branch commit references elsewhere in this file and `HANDOFF.md` are historical context, not authority to remove already implemented functionality. Issue #6 tracks broader cleanup of obsolete V1 descriptions.
+- Keep changes minimal and preserve existing preview/MP4 perceptual parity, save formats, undo/redo, UI, and mobile behavior. Do not introduce extra test, browser, device, or regression work without the user's request or a concrete high-risk need.
+
+---
+
 ## Project
 
 This repository contains **Timeline Route Animator**.
