@@ -92,17 +92,17 @@ export default function VideoWorkspace({ player, suspended, generationProgress, 
           }
           return;
         }
-        event.preventDefault();
+        if (!event.isPrimary || event.button !== 0) return;
         const box = event.currentTarget.getBoundingClientRect();
         const x = (event.clientX - box.left) / box.width * VIDEO_VIEWPORT.width;
         const y = (event.clientY - box.top) / box.height * VIDEO_VIEWPORT.height;
-        const balloons = player.pauseForSelection();
         const marker = [...player.getVisibleMarkers()].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+        const target = marker ? undefined : [...player.getVisibleBalloons()].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+        if (!marker && !target) return;
+        event.preventDefault();
+        player.pauseForSelection();
         if (marker) setSelectedMarkerId(previewMarkerId(marker.target));
-        else {
-          const target = [...balloons].reverse().find(({ rect }) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
-          if (target) selectBalloon(target.pointId);
-        }
+        else if (target) selectBalloon(target.pointId);
       }} onPointerUp={(event) => {
         const tap = blankTapRef.current;
         blankTapRef.current = null;

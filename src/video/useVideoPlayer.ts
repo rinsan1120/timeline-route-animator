@@ -325,6 +325,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     updating: retainedPlanRef.current !== null && (frame.options !== options || frame.status === 'preparing'),
     balloons, markers, editingBalloonId, editCancellation, eventJumpNotice, beginBalloonEdit, beginMarkerEdit, finishBalloonEdit, previewBalloon, previewMarker,
     isEditingTarget,
+    getVisibleBalloons: () => rendererRef.current?.getDisplayedBalloons() ?? [],
     getVisibleMarkers: () => rendererRef.current?.getDisplayedMarkers() ?? [],
     pauseForSelection, requestBalloonEvent, isEditingBalloon: () => balloonEditRef.current !== null,
     play, pause, seek, jumpToEvent, stop, reset, retry: () => setRetry((value) => value + 1),
