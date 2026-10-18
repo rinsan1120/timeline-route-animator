@@ -9,6 +9,15 @@
 - **Working agreement:** protect existing editing, JSON compatibility, Undo/Redo, responsive UI, and perceptual agreement between preview and MP4. Avoid unnecessary tests or unrelated investigation; Codex commits locally and does not push. GitHub direct updates are remote commits and should be followed by Fetch/Pull when continuing locally.
 - **History below:** feature-branch names, step numbers, old "not yet implemented" statements, old "Current Status" headings, "uncommitted" notes and earlier test statuses describe that point in history. They do not describe the current `main` state. Resolve discrepancies against the latest `main` code and the owner's approved decisions.
 
+## Issue #12 — 映像タブの直接編集と編集用ズーム（2026-10-18 / main反映）
+
+- 対象：移動実績参照モード・計画モードの映像タブ。#12-A（映像からの地点ラベル編集）はコミット `d31a23f26`、#12-B（編集用ズーム・パン）は `2296f3089` で `main` に反映済み。コード反映の確認であり、Android・iPhone・PCでの実機操作確認を意味しない。Issue #12は引き続きOpenで、元Issue全体のUX改善完了判定は別途オーナー判断。
+- **#12-A：文字編集導線**：通常バルーンをタップ／クリックで選択すると、映像タブを維持したままSTEP 2の地点ラベル入力欄へ誘導。PCは既存設定パネル、スマホは閉状態なら半開きにしてSTEP 2を表示・該当欄へスクロールし、選択だけではキーボードを開かない。地図専用の表示／編集／アニメ範囲切替を自動実行しない。`annotationLabel`／既存`saveAnnotation`で最大30文字の変更を確定し、プレビュー・JSON・MP4の従来のデータ経路へ反映。バルーン削除は映像タブの入力欄には追加しない。
+- **タップ／ドラッグの分離と未確定入力**：バルーンの短いタップ・クリック（activate）で編集欄を開き、位置ドラッグ／フォーカス／矢印キー微調整では勝手にパネルを開かない。別バルーン選択または空白タップによる選択解除の際、未確定のラベル入力がある場合のみ確認し、キャンセルでは入力・選択・配置を保護する。未確定入力が残った別バルーンへのドラッグは直ちに位置確定せず、確認を優先。既存の作業全体破棄確認とは分離。
+- **#12-B：映像の編集用ズーム**：`usePreviewViewport.ts`を使い、16:9プレビュー内の表示だけを1〜3倍で拡大。スマホは2本指ピンチ／パン、PCはCtrl＋ホイール、対応するトラックパッドピンチ（Safariのgestureイベントも扱う）でズーム。1倍超の背景ドラッグでパンし、映像が消えない範囲に移動を制限。拡大中は「等倍に戻す」を表示。映像Canvasと通常バルーン・DAY・START/GOAL・HUDの透明操作領域へ同一変換を適用し、元の1920×1080論理座標で保存する。
+- **操作衝突・画面境界**：2本指検出時は既存ドラッグをキャンセルしてピンチを優先し、誤った位置確定・Undo追加・STEP 2起動を防ぐ。拡大するのは映像領域だけで、再生・シーク・イベント一覧・設定シートは拡大しない。再生・シーク・イベントジャンプ・設定パネル開閉では表示倍率を維持し、地図への画面切替／映像再マウントでは初期倍率へ戻す。非アクティブ地図のDOM・入力・フォーカス隔離は維持。
+- **出力・履歴との分離**：表示倍率・パン位置は一時UI状態で、作業JSON／計画JSON、`videoSettings`、Undo/Redo、MP4鮮度比較、動画カメラZoom、出力フレームへ保存・反映しない。実際のバルーン等の配置変更は従来の確定・履歴・保存処理を使用し、MP4との知覚上一致を維持。#9の通常倍率でのタッチ領域拡張は別Issueとして継続。
+
 ## Compact mobile video controls / automatic editing targets
 
 - PC・スマホとも編集ガイド切替ボタンとguidesVisible／toggleGuidesを廃止。停止中・描画完了時は既存の通常バルーン／DAY／START・GOAL／HUDの透明な編集対象を有効にし、再生中は枠と対象を無効化する。編集中の排他・Pointer Capture・ドラフト・キャンセル世代・共通Undo／Redoの処理は維持。
