@@ -12,6 +12,7 @@ interface Props {
   enabled: boolean;
   selectedPointId: string | null;
   annotationStyle: AnnotationStyle;
+  viewCancellation: number;
   onSelect: (pointId: string, interaction: BalloonInteraction) => BalloonSelectionResult;
   onCommit: (pointId: string, position: BalloonFramePosition) => void;
 }
@@ -55,7 +56,7 @@ export default function VideoBalloonOverlay(props: Props) {
           updateRects(items.length ? items : latest.current.player.balloons);
         },
         (position) => { if (latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) latest.current.onCommit(balloon.pointId, position); }, {
-          threshold: 6, skipUnchanged: true, keepCommittedPreview: true,
+          threshold: 6, skipUnchanged: true, keepCommittedPreview: true, deferTouchStart: true,
           start: () => {
             if (!latest.current.enabled) return false;
             const selection = latest.current.onSelect(balloon.pointId, 'drag');
@@ -101,7 +102,7 @@ export default function VideoBalloonOverlay(props: Props) {
       document.removeEventListener('visibilitychange', onVisibility);
       bindings.forEach((cleanup) => cleanup());
     };
-  }, [balloons, props.enabled, props.annotationStyle, props.player.editCancellation]);
+  }, [balloons, props.enabled, props.annotationStyle, props.player.editCancellation, props.viewCancellation]);
 
   if (!props.enabled) return null;
   return <div className="video-balloon-overlay" ref={containerRef} aria-label="映像のバルーン編集">

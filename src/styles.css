@@ -394,7 +394,11 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 .video-workspace { container-type: inline-size; overflow: hidden; overscroll-behavior: contain; position: absolute; z-index: 1; inset: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px; color: #edf1f4; background: var(--navy); }
 .video-workspace-caption { flex: 0 0 auto; margin: 0; font-size: 11px; line-height: 1.5; }
 .video-frame-holder { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.video-frame { touch-action: none; position: relative; flex: 0 0 auto; aspect-ratio: 16 / 9; max-width: 100%; background: #07111f; }
+.video-frame-viewport { touch-action: none; position: relative; flex: 0 0 auto; aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; }
+.video-frame { touch-action: none; position: relative; width: 100%; aspect-ratio: 16 / 9; transform-origin: 0 0; background: #07111f; }
+.video-preview-reset { position: absolute; z-index: 2; top: 6px; right: 6px; min-height: 44px; padding: 6px 10px; border: 1px solid #93a8be; border-radius: 6px; color: #fff; background: #112942e6; font-size: 12px; cursor: pointer; }
+.video-preview-reset:focus-visible { outline: 2px solid var(--orange); outline-offset: -3px; }
+.video-preview-reset:disabled { opacity: .5; cursor: default; }
 .video-frame canvas { display: block; width: 100%; height: auto; }
 .video-frame-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; overflow-y: auto; text-align: center; background: #0a1c31; font-size: 12px; overflow-wrap: anywhere; }
 .video-frame-status--generating { background: rgb(7 17 31 / 45%); }

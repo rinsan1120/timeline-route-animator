@@ -10,6 +10,7 @@ interface FrameDragOptions {
   keepCommittedPreview?: boolean;
   activate?: () => void;
   blockedMove?: () => void;
+  deferTouchStart?: boolean;
 }
 
 // The invisible hit target follows the shared Canvas rectangle. Pointer capture
@@ -21,7 +22,7 @@ export function bindFrameBalloonDrag(
   commit: (position: BalloonFramePosition) => void,
   options: FrameDragOptions = {},
 ) {
-  let drag: { id: number; x: number; y: number; scale: number; center: { x: number; y: number }; moved: boolean; editable: boolean; position: BalloonFramePosition | null } | null = null;
+  let drag: { id: number; x: number; y: number; scale: number; center: { x: number; y: number }; moved: boolean; started: boolean; editable: boolean; position: BalloonFramePosition | null } | null = null;
   const stop = (event: Event) => { event.preventDefault(); event.stopPropagation(); };
   const changed = (center: { x: number; y: number }, next: BalloonFramePosition) => {
     const original = position(center);
@@ -30,10 +31,11 @@ export function bindFrameBalloonDrag(
   const down = (event: PointerEvent) => {
     if (event.button !== 0 || drag || !event.isPrimary) return;
     stop(event);
-    const start = options.start?.();
+    const deferred = !!options.deferTouchStart && event.pointerType === 'touch';
+    const start = deferred ? undefined : options.start?.();
     if (start === false) return;
     const box = rect();
-    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, scale: displayScale(), center: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, moved: false, editable: start !== 'selection-only', position: null };
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, scale: displayScale(), center: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, moved: false, started: !deferred, editable: start !== 'selection-only', position: null };
     element.setPointerCapture(event.pointerId);
     element.dataset.dragging = 'true';
   };
@@ -42,6 +44,13 @@ export function bindFrameBalloonDrag(
     stop(event);
     if (event.clientX === drag.x && event.clientY === drag.y && !drag.moved) return;
     if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < (options.threshold ?? 0)) return;
+    if (!drag.started) {
+      const start = options.start?.();
+      if (!drag) return;
+      if (start === false) { cancel(); return; }
+      drag.started = true;
+      drag.editable = start !== 'selection-only';
+    }
     drag.moved = true;
     if (!drag.editable) {
       // End capture before a selection confirmation can open a native dialog.

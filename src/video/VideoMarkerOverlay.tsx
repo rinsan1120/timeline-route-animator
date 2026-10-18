@@ -7,6 +7,7 @@ import type { VideoPlayer } from './useVideoPlayer';
 interface Props {
   player: VideoPlayer;
   enabled: boolean;
+  viewCancellation: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onCommit: (target: PreviewMarkerTarget, position: PreviewMarkerPosition) => void;
@@ -41,7 +42,7 @@ export default function VideoMarkerOverlay(props: Props) {
           const items = latest.current.player.isEditingTarget(marker.target) ? latest.current.player.previewMarker(position) : [];
           updateRects(items.length ? items : latest.current.player.markers);
         }, (position) => { if (latest.current.player.isEditingTarget(marker.target)) latest.current.onCommit(marker.target, position); }, {
-          threshold: 6, skipUnchanged: true, keepCommittedPreview: true,
+          threshold: 6, skipUnchanged: true, keepCommittedPreview: true, deferTouchStart: true,
           start: () => {
             if (!latest.current.enabled || !latest.current.player.beginMarkerEdit(marker.target)) return false;
             latest.current.onSelect(id);
@@ -51,6 +52,12 @@ export default function VideoMarkerOverlay(props: Props) {
           end: (committed) => {
             if (latest.current.player.isEditingTarget(marker.target)) latest.current.player.finishBalloonEdit(committed);
             if (!committed) updateRects(latest.current.player.markers);
+          },
+          activate: () => {
+            if (!latest.current.enabled) return;
+            latest.current.onSelect(id);
+            restoreFocusRef.current = id;
+            target.focus({ preventScroll: true });
           },
         })];
     });
@@ -82,7 +89,7 @@ export default function VideoMarkerOverlay(props: Props) {
       document.removeEventListener('visibilitychange', onVisibility);
       bindings.forEach((cleanup) => cleanup());
     };
-  }, [markers, props.enabled, props.player.editCancellation]);
+  }, [markers, props.enabled, props.player.editCancellation, props.viewCancellation]);
 
   if (!props.enabled) return null;
   return <div className="video-balloon-overlay" ref={containerRef} aria-label="映像のDAY・端点・距離HUD編集">
