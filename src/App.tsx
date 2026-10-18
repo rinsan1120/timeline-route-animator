@@ -24,6 +24,7 @@ import { createOverviewCamera } from './video/overviewCamera';
 import { outputVideoDuration, outputVideoFrameCount, renderRouteVideo, type VideoProgress } from './video/renderer';
 import { DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './video/videoSettings';
 import VideoWorkspace from './video/VideoWorkspace';
+import type { BalloonInteraction, BalloonSelectionResult } from './video/VideoBalloonOverlay';
 import type { PreviewFrameOptions, PreviewMarkerPosition, PreviewMarkerTarget } from './video/previewFrameRenderer';
 import { useVideoPlayer } from './video/useVideoPlayer';
 import { sameFramePlanInputs } from './video/previewUpdates';
@@ -122,6 +123,7 @@ export default function App() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [selectionCandidateIds, setSelectionCandidateIds] = useState<string[]>([]);
   const [annotationLabel, setAnnotationLabel] = useState('');
+  const [balloonEditorRequest, setBalloonEditorRequest] = useState<{ sequence: number; step: number; targetId: string } | null>(null);
   const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(DEFAULT_VIDEO_SETTINGS.recordedTimeClockEnabled);
   const [commonPauseSeconds, setCommonPauseSeconds] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds);
   const [commonPauseInput, setCommonPauseInput] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds.toFixed(1));
@@ -254,6 +256,8 @@ export default function App() {
   const editMode = mapMode === 'edit';
   const animationRangeMode = mapMode === 'animation-range';
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
+  const videoSelectionRef = useRef({ id: selectedPointId, draft: annotationLabel, label: selectedPoint?.annotation?.label ?? '' });
+  videoSelectionRef.current = { id: selectedPointId, draft: annotationLabel, label: selectedPoint?.annotation?.label ?? '' };
   const selectedPointIndex = selectedPointId ? points.findIndex((point) => point.id === selectedPointId) : -1;
   const selectionCandidateIndex = selectedPointId ? selectionCandidateIds.indexOf(selectedPointId) : -1;
   const showSelectionCandidateSwitcher = editMode && !addMode && !insertMode && !rangeDeleteMode
@@ -388,6 +392,7 @@ export default function App() {
 
   const saveAnnotation = () => {
     if (!selectedPoint) return;
+    if (showingVideo && videoPlayer.isEditingBalloon()) return;
     const label = annotationLabel.trim();
     if (!label || Array.from(label).length > 30) {
       setError('地点ラベルは1〜30文字で入力してください。');
@@ -450,6 +455,7 @@ export default function App() {
   }, [dayFilteredPoints, animationStartPointId, animationEndPointId]);
   const canShowVideo = workspaceMode !== 'spot' && animationPoints.length >= 2;
   const showingVideo = workspaceView === 'video' && canShowVideo;
+  useEffect(() => { if (!showingVideo) setBalloonEditorRequest(null); }, [showingVideo]);
   useEffect(() => { setWorkspaceView('map'); }, [workspaceMode]);
   useEffect(() => { if (!canShowVideo) setWorkspaceView('map'); }, [canShowVideo]);
   useEffect(() => {
@@ -607,10 +613,36 @@ export default function App() {
     setOpenToolbarHelpKey(null);
     setWorkspaceView('video');
   };
-  const selectVideoBalloon = (id: string) => {
+  const selectVideoBalloon = (id: string, interaction: BalloonInteraction): BalloonSelectionResult => {
+    const current = videoSelectionRef.current;
+    const pendingText = current.id !== null && current.id !== id && current.draft !== current.label;
+    // Track this gesture without selecting or moving until its intent is known.
+    if (pendingText && interaction === 'drag') return 'selection-only';
+    if (pendingText && !window.confirm('入力途中の変更があります。変更を破棄して別のバルーンを選択しますか？')) return false;
+    if (current.id !== id) {
+      const label = points.find((point) => point.id === id)?.annotation?.label ?? '';
+      // Focus and pointer handlers can run before React renders the selection.
+      videoSelectionRef.current = { id, draft: label, label };
+      setAnnotationLabel(label);
+    }
     setSelectedPointId(id);
     setSelectedRaw(null);
     setSelectionCandidateIds([]);
+    if (interaction === 'activate') setBalloonEditorRequest((request) => ({
+      sequence: (request?.sequence ?? 0) + 1, step: 1, targetId: 'annotation-label',
+    }));
+    return true;
+  };
+  const clearVideoSelection = () => {
+    const current = videoSelectionRef.current;
+    if (current.id !== null && current.draft !== current.label
+      && !window.confirm('入力途中の変更があります。変更を破棄して選択を解除しますか？')) return false;
+    videoSelectionRef.current = { id: null, draft: '', label: '' };
+    setSelectedPointId(null);
+    setAnnotationLabel('');
+    setSelectedRaw(null);
+    setSelectionCandidateIds([]);
+    return true;
   };
   const openSelectedBalloonInVideo = () => {
     if (!selectedPoint?.annotation?.label || busy || videoProgress || videoPlayer.isEditingBalloon()) return;
@@ -1259,7 +1291,7 @@ export default function App() {
       <section className="privacy-note"><span>●</span> 位置履歴JSONは端末内でのみ処理され、外部へ送信されません</section>
 
       {workspaceMode === 'spot' ? <SpotWorkspace onBusy={setBusy} onDirtyChange={setSpotHasUnsavedChanges} /> : <div className="workspace">
-        <MobileBottomSheet resetKey={workspaceMode} steps={[workspaceMode === 'plan' ? '旅のルートを準備する' : '旅のデータを準備する', 'ルートや地点を編集する', '動画を確認・出力する']}>
+        <MobileBottomSheet resetKey={workspaceMode} revealRequest={showingVideo ? balloonEditorRequest : null} steps={[workspaceMode === 'plan' ? '旅のルートを準備する' : '旅のデータを準備する', 'ルートや地点を編集する', '動画を確認・出力する']}>
           <section className="panel-section source-section" inert={busy || !!videoProgress}>
             {workspaceMode === 'timeline' ? <>
             <div className="section-heading"><span className="step">01</span><div><h2>旅のデータを準備する</h2><p>{fileName || 'GoogleマップからエクスポートしたJSONファイルを読み込んでください'}</p></div></div>
@@ -1342,14 +1374,14 @@ export default function App() {
                 <button type="button" className="secondary-button" disabled={busy || !!videoProgress || !!videoPlayer.editingBalloonId} onClick={openSelectedBalloonInVideo}>映像で確認</button>
                 <HelpTip helpKey="videoBalloonEditing" />
               </div>}
-              {editMode && <div className="annotation-editor">
+              {(editMode || showingVideo && !!selectedPoint.annotation?.label) && <div className="annotation-editor" inert={showingVideo && !!videoPlayer.editingBalloonId}>
                 <div className="control-label-with-help"><label htmlFor="annotation-label">地点ラベル（最大30文字）</label><HelpTip helpKey="pointLabel" /></div>
                 <input id="annotation-label" type="text" value={annotationLabel} onChange={(event) => setAnnotationLabel(event.currentTarget.value)} onKeyDown={(event) => {
                   // Text editing keeps its own Undo/Redo instead of changing route history.
                   event.stopPropagation();
                 }} placeholder="マップに表示する内容" />
                 <button className="secondary-button" disabled={!annotationLabel.trim() || Array.from(annotationLabel.trim()).length > 30} onClick={saveAnnotation}>{selectedPoint.annotation ? '変更' : 'バルーンを設定'}</button>
-                {selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
+                {!showingVideo && selectedPoint.annotation && <button className="secondary-button" onClick={removeAnnotation}>バルーンを削除</button>}
               </div>}
               {workspaceMode === 'plan' && editMode && <div className="day-marker-editor plan-day-editor">
                 <div className="control-label-with-help"><strong>計画DAY</strong><HelpTip helpKey="planDay" /></div>
@@ -1607,7 +1639,7 @@ export default function App() {
         </div>
         {showingVideo && <VideoWorkspace player={videoPlayer} suspended={!!videoProgress} generationProgress={videoProgress} editingDisabled={busy || !!videoProgress}
           selectedPointId={selectedPointId} annotationStyle={annotationStyle} onSelectBalloon={selectVideoBalloon}
-          onClearSelection={() => { setSelectedPointId(null); setSelectedRaw(null); setSelectionCandidateIds([]); }}
+          onClearSelection={clearVideoSelection}
           onCommitBalloon={setBalloonFramePosition} onCommitMarker={commitVideoMarker}
           canUndo={!!history.past.length} canRedo={!!history.future.length}
           onUndo={() => { dispatch({ type: 'undo' }); setRangeDeletePointIds([]); }} onRedo={() => { dispatch({ type: 'redo' }); setRangeDeletePointIds([]); }} />}

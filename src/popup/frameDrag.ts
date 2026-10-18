@@ -4,10 +4,12 @@ interface Rect { left: number; top: number; width: number; height: number }
 
 interface FrameDragOptions {
   threshold?: number;
-  start?: () => boolean;
+  start?: () => boolean | 'selection-only';
   end?: (committed: boolean) => void;
   skipUnchanged?: boolean;
   keepCommittedPreview?: boolean;
+  activate?: () => void;
+  blockedMove?: () => void;
 }
 
 // The invisible hit target follows the shared Canvas rectangle. Pointer capture
@@ -19,7 +21,7 @@ export function bindFrameBalloonDrag(
   commit: (position: BalloonFramePosition) => void,
   options: FrameDragOptions = {},
 ) {
-  let drag: { id: number; x: number; y: number; scale: number; center: { x: number; y: number }; moved: boolean; position: BalloonFramePosition | null } | null = null;
+  let drag: { id: number; x: number; y: number; scale: number; center: { x: number; y: number }; moved: boolean; editable: boolean; position: BalloonFramePosition | null } | null = null;
   const stop = (event: Event) => { event.preventDefault(); event.stopPropagation(); };
   const changed = (center: { x: number; y: number }, next: BalloonFramePosition) => {
     const original = position(center);
@@ -28,9 +30,10 @@ export function bindFrameBalloonDrag(
   const down = (event: PointerEvent) => {
     if (event.button !== 0 || drag || !event.isPrimary) return;
     stop(event);
-    if (options.start?.() === false) return;
+    const start = options.start?.();
+    if (start === false) return;
     const box = rect();
-    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, scale: displayScale(), center: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, moved: false, position: null };
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, scale: displayScale(), center: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, moved: false, editable: start !== 'selection-only', position: null };
     element.setPointerCapture(event.pointerId);
     element.dataset.dragging = 'true';
   };
@@ -40,6 +43,12 @@ export function bindFrameBalloonDrag(
     if (event.clientX === drag.x && event.clientY === drag.y && !drag.moved) return;
     if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < (options.threshold ?? 0)) return;
     drag.moved = true;
+    if (!drag.editable) {
+      // End capture before a selection confirmation can open a native dialog.
+      cancel();
+      options.blockedMove?.();
+      return;
+    }
     const scale = options.threshold === undefined ? displayScale() : drag.scale;
     drag.position = position({ x: drag.center.x + (event.clientX - drag.x) / scale, y: drag.center.y + (event.clientY - drag.y) / scale });
     preview(drag.position);
@@ -47,6 +56,7 @@ export function bindFrameBalloonDrag(
   const finish = (event: PointerEvent) => {
     if (!drag || drag.id !== event.pointerId) return;
     if (event.type === 'pointerup') move(event);
+    if (!drag) return;
     stop(event);
     const current = drag;
     drag = null;
@@ -57,12 +67,15 @@ export function bindFrameBalloonDrag(
     if (committed) commit(current.position!);
     options.end?.(committed);
     if (!committed || !options.keepCommittedPreview) preview(null);
+    if (event.type === 'pointerup' && !current.moved) options.activate?.();
   };
   const keydown = (event: KeyboardEvent) => {
     const delta = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[event.key];
     if (!delta || drag) return;
     stop(event);
-    if (options.start?.() === false) return;
+    const start = options.start?.();
+    if (start === false) return;
+    if (start === 'selection-only') { options.blockedMove?.(); return; }
     const box = rect();
     const step = event.shiftKey ? 20 : 5;
     const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
@@ -76,7 +89,11 @@ export function bindFrameBalloonDrag(
   element.addEventListener('pointerup', finish);
   element.addEventListener('pointercancel', finish);
   element.addEventListener('lostpointercapture', finish);
-  element.addEventListener('click', stop);
+  const click = (event: MouseEvent) => {
+    stop(event);
+    if (event.detail === 0 && !('pointerType' in event && event.pointerType) && !drag) options.activate?.();
+  };
+  element.addEventListener('click', click);
   element.addEventListener('keydown', keydown);
   const cancel = () => {
     const id = drag?.id;
@@ -92,7 +109,7 @@ export function bindFrameBalloonDrag(
     element.removeEventListener('pointerup', finish);
     element.removeEventListener('pointercancel', finish);
     element.removeEventListener('lostpointercapture', finish);
-    element.removeEventListener('click', stop);
+    element.removeEventListener('click', click);
     element.removeEventListener('keydown', keydown);
   };
   return Object.assign(cleanup, { cancel });

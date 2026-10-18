@@ -9,9 +9,10 @@ interface MobileBottomSheetProps {
   children: ReactNode;
   steps: readonly [string, string, string];
   resetKey?: string;
+  revealRequest?: { sequence: number; step: number; targetId: string } | null;
 }
 
-export default function MobileBottomSheet({ children, steps, resetKey }: MobileBottomSheetProps) {
+export default function MobileBottomSheet({ children, steps, resetKey, revealRequest }: MobileBottomSheetProps) {
   const [state, setState] = useState<SheetState>('closed');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
@@ -20,6 +21,7 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
   const contentRef = useRef<HTMLDivElement>(null);
   const focusedInputRef = useRef<HTMLElement | null>(null);
   const scrollPositionsRef = useRef([0, 0, 0]);
+  const pendingRevealRef = useRef(revealRequest);
   const gestureRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const contentId = useId();
@@ -54,6 +56,26 @@ export default function MobileBottomSheet({ children, steps, resetKey }: MobileB
     const content = contentRef.current;
     if (content) content.scrollTop = scrollPositionsRef.current[selectedStep] ?? 0;
   }, [selectedStep]);
+
+  useLayoutEffect(() => {
+    if (!revealRequest) { pendingRevealRef.current = null; return; }
+    if (contentRef.current) scrollPositionsRef.current[selectedStep] = contentRef.current.scrollTop;
+    pendingRevealRef.current = revealRequest;
+    setSelectedStep(revealRequest.step);
+    setState((current) => current === 'closed' ? 'half' : current);
+  }, [revealRequest]);
+
+  useLayoutEffect(() => {
+    const request = pendingRevealRef.current;
+    const content = contentRef.current;
+    if (!request || !content || selectedStep !== request.step || mobile && state === 'closed') return;
+    const target = document.getElementById(request.targetId);
+    if (!target || !content.contains(target) || !target.getClientRects().length) return;
+    // Run after step restoration, and scroll only the panel without focusing.
+    content.scrollTop += target.getBoundingClientRect().top - content.getBoundingClientRect().top - 8;
+    scrollPositionsRef.current[selectedStep] = content.scrollTop;
+    pendingRevealRef.current = null;
+  }, [revealRequest, selectedStep, state, mobile]);
 
   useEffect(() => {
     const shell = panelRef.current?.closest<HTMLElement>('.app-shell');

@@ -12,9 +12,12 @@ interface Props {
   enabled: boolean;
   selectedPointId: string | null;
   annotationStyle: AnnotationStyle;
-  onSelect: (pointId: string) => void;
+  onSelect: (pointId: string, interaction: BalloonInteraction) => BalloonSelectionResult;
   onCommit: (pointId: string, position: BalloonFramePosition) => void;
 }
+
+export type BalloonInteraction = 'focus' | 'drag' | 'drag-confirm' | 'activate';
+export type BalloonSelectionResult = boolean | 'selection-only';
 
 function rectStyle(rect: PreviewBalloon['rect']) {
   return { left: `${rect.left / VIDEO_VIEWPORT.width * 100}%`, top: `${rect.top / VIDEO_VIEWPORT.height * 100}%`,
@@ -54,14 +57,25 @@ export default function VideoBalloonOverlay(props: Props) {
         (position) => { if (latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) latest.current.onCommit(balloon.pointId, position); }, {
           threshold: 6, skipUnchanged: true, keepCommittedPreview: true,
           start: () => {
-            if (!latest.current.enabled || !latest.current.player.beginBalloonEdit(balloon.pointId)) return false;
-            latest.current.onSelect(balloon.pointId);
+            if (!latest.current.enabled) return false;
+            const selection = latest.current.onSelect(balloon.pointId, 'drag');
+            if (!selection) return false;
+            if (selection === 'selection-only') return selection;
+            if (!latest.current.player.beginBalloonEdit(balloon.pointId)) return false;
+            restoreFocusRef.current = balloon.pointId;
             target.focus({ preventScroll: true });
             return true;
           },
           end: (committed) => {
             if (latest.current.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) latest.current.player.finishBalloonEdit(committed);
             if (!committed) updateRects(latest.current.player.balloons);
+          },
+          activate: () => { if (latest.current.enabled) latest.current.onSelect(balloon.pointId, 'activate'); },
+          blockedMove: () => {
+            if (latest.current.enabled && latest.current.onSelect(balloon.pointId, 'drag-confirm')) {
+              restoreFocusRef.current = balloon.pointId;
+              target.focus({ preventScroll: true });
+            }
           },
         })];
     });
@@ -96,8 +110,15 @@ export default function VideoBalloonOverlay(props: Props) {
       style={rectStyle(balloon.rect)} aria-pressed={props.selectedPointId === balloon.pointId}
       aria-label={`${balloon.annotation.label}のバルーンを選択・移動`}
       onFocus={() => {
+        if (props.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) return;
+        if (!props.onSelect(balloon.pointId, 'focus')) {
+          const previous = props.selectedPointId && targetsRef.current.get(props.selectedPointId);
+          if (previous) previous.focus({ preventScroll: true });
+          else targetsRef.current.get(balloon.pointId)?.blur();
+          return;
+        }
         if (props.player.isEditingBalloon() && !props.player.isEditingTarget({ kind: 'balloon', pointId: balloon.pointId })) props.player.finishBalloonEdit(false);
-        restoreFocusRef.current = balloon.pointId; props.onSelect(balloon.pointId);
+        restoreFocusRef.current = balloon.pointId;
       }}
       onBlur={(event) => { if (event.relatedTarget instanceof HTMLElement && event.relatedTarget !== document.body
         && !containerRef.current?.contains(event.relatedTarget)) {
