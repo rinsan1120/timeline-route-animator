@@ -64,7 +64,7 @@ export function usePreviewViewport(options: Options) {
   const ignored = (target: EventTarget) => target instanceof Element && !!target.closest('.video-preview-reset');
 
   const onPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!latest.current.enabled || event.button !== 0 || !pointers.current.size && !event.isPrimary) return;
+    if (!latest.current.enabled || (event.button !== 0 && event.button !== 1) || !pointers.current.size && !event.isPrimary) return;
     if (!pointers.current.size) {
       suppressClick.current = false;
       if (ignored(event.target)) return;
@@ -82,7 +82,10 @@ export function usePreviewViewport(options: Options) {
       consume(event);
     } else {
       single.current = { id: event.pointerId, start: point, view: viewRef.current,
-        background: !latest.current.isTarget(event.target, point.x, point.y), moved: false };
+        background: event.button === 1 || !latest.current.isTarget(event.target, point.x, point.y), moved: false };
+      // A middle-button press always pans the view. Swallowing it here also
+      // prevents the browser autoscroll and any child tap/drag handling.
+      if (event.button === 1) consume(event);
     }
   };
   const onPointerMoveCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -151,7 +154,9 @@ export function usePreviewViewport(options: Options) {
   useEffect(() => {
     const viewport = viewportRef.current!;
     const wheel = (event: WheelEvent) => {
-      if (!event.ctrlKey || !latest.current.enabled || ignored(event.target!)) return;
+      // Plain wheel zooms the preview display only (anchored at the cursor);
+      // Ctrl+wheel from a trackpad pinch arrives through the same path.
+      if (!latest.current.enabled || ignored(event.target!)) return;
       event.preventDefault();
       if (pointers.current.size || trackpad.current || !Number.isFinite(event.deltaY)) return;
       const anchor = controls.current.local({ x: event.clientX, y: event.clientY });
