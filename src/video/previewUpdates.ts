@@ -12,7 +12,7 @@ export function sameRouteGeometry(a: readonly RoutePoint[], b: readonly RoutePoi
 // updates keep the existing plan and its (potentially expensive) Follow camera.
 export function sameFramePlanInputs(a: FramePlanOptions, b: FramePlanOptions) {
   const keys = ['duration', 'cameraMode', 'routeMarkerMode', 'commonPauseSeconds', 'preRollSeconds', 'postRollSeconds',
-    'introZoomEnabled', 'overviewZoomMode', 'overviewCustomZoom', 'followZoomPreset', 'followCustomZoom', 'followViewMode'] as const;
+    'introZoomEnabled', 'introZoomStartMode', 'introZoomStartZoom', 'overviewZoomMode', 'overviewCustomZoom', 'followZoomPreset', 'followCustomZoom', 'followViewMode'] as const;
   if (!keys.every((key) => a[key] === b[key]) || a.followCameraPlan !== b.followCameraPlan || !sameRouteGeometry(a.points, b.points)) return false;
   if (!a.points.every((point, index) => !!point.annotation?.label.trim() === !!b.points[index].annotation?.label.trim()
     && point.pauseSeconds === b.points[index].pauseSeconds)) return false;

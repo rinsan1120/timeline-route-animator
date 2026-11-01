@@ -156,6 +156,9 @@ export default function App() {
   const [followCustomZoom, setFollowCustomZoom] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom);
   const [followCustomZoomInput, setFollowCustomZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.followCustomZoom.toFixed(1));
   const [introZoomEnabled, setIntroZoomEnabled] = useState(DEFAULT_VIDEO_SETTINGS.introZoomEnabled);
+  const [introZoomStartMode, setIntroZoomStartMode] = useState<'auto' | 'custom'>(DEFAULT_VIDEO_SETTINGS.introZoomStartMode);
+  const [introZoomStartZoom, setIntroZoomStartZoom] = useState(DEFAULT_VIDEO_SETTINGS.introZoomStartZoom);
+  const [introZoomStartZoomInput, setIntroZoomStartZoomInput] = useState(DEFAULT_VIDEO_SETTINGS.introZoomStartZoom.toFixed(1));
   const [routeMarkerMode, setRouteMarkerMode] = useState<RouteMarkerMode>(DEFAULT_VIDEO_SETTINGS.routeMarkerMode);
   const [dayRouteColorsEnabled, setDayRouteColorsEnabled] = useState(DEFAULT_VIDEO_SETTINGS.dayRouteColorsEnabled);
   const [distanceHudOptions, setDistanceHudOptions] = useState(() => ({
@@ -184,7 +187,7 @@ export default function App() {
   const videoSettings: VideoSettings = {
     duration, commonPauseSeconds, preRollSeconds, postRollSeconds, cameraMode,
     overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode,
-    introZoomEnabled, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
+    introZoomEnabled, introZoomStartMode, introZoomStartZoom, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
   };
   const timelineBaselineRef = useRef<string | null>(null);
   const planBaselineRef = useRef<string | null>(null);
@@ -209,6 +212,9 @@ export default function App() {
     setFollowCustomZoomInput(settings.followCustomZoom.toFixed(1));
     setFollowViewMode(settings.followViewMode);
     setIntroZoomEnabled(settings.introZoomEnabled);
+    setIntroZoomStartMode(settings.introZoomStartMode);
+    setIntroZoomStartZoom(settings.introZoomStartZoom);
+    setIntroZoomStartZoomInput(settings.introZoomStartZoom.toFixed(1));
     setRouteMarkerMode(settings.routeMarkerMode);
     setDayRouteColorsEnabled(settings.dayRouteColorsEnabled);
     setRecordedTimeClockEnabled(settings.recordedTimeClockEnabled);
@@ -507,17 +513,17 @@ export default function App() {
     routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true,
     cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom,
     followZoomPreset, followCustomZoom, followViewMode, followCameraPlan: balloonFollowCamera ?? undefined,
-    introZoomEnabled, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined,
+    introZoomEnabled, introZoomStartMode, introZoomStartZoom, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined,
   }), [animationPoints, visibleDayMarkers, visibleDayNumbers, showRecordedTimeClock, dayRouteColorsEnabled,
     endpointMarkerPlacements, endpointMarkerFramePositions, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
     cameraMode, overviewCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom,
-    followViewMode, balloonFollowCamera, introZoomEnabled, annotationStyle, distanceHud]);
+    followViewMode, balloonFollowCamera, introZoomEnabled, introZoomStartMode, introZoomStartZoom, annotationStyle, distanceHud]);
   // Position resolution must survive its own state commit, but never a different
   // route, placement edit, camera, output range, or restored work session.
   const markerConversionToken = useMemo(() => ({}), [history.revision, workspaceMode, animationPoints, selectedOutputDay,
     dayMarkerPlacements, endpointMarkerPlacements, legacyDayKeys, dayMarkerNotes, planDayNotes, planDayStarts, startDate,
     routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, cameraMode,
-    overviewCamera, balloonFollowCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode, introZoomEnabled, annotationStyle]);
+    overviewCamera, balloonFollowCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode, introZoomEnabled, introZoomStartMode, introZoomStartZoom, annotationStyle]);
   const markerConversionTokenRef = useRef(markerConversionToken);
   markerConversionTokenRef.current = markerConversionToken;
   const markerFrameOptionsRef = useRef(framePreviewOptions);
@@ -1479,6 +1485,27 @@ export default function App() {
                 <label className="toggle-row"><span><strong>開始時ズーム</strong><small>MP4の冒頭で、広域表示から設定した画角へズームします。</small></span><input type="checkbox" checked={introZoomEnabled} disabled={!!videoProgress} onChange={(event) => setIntroZoomEnabled(event.target.checked)} /><i /></label>
                 <HelpTip helpKey="introZoom" />
               </div>
+              {introZoomEnabled && <>
+                <div className="control-label-with-help"><label>開始レベル</label><HelpTip helpKey="introZoomStart" /></div>
+                <div className="video-mode-options">
+                  {(['auto', 'custom'] as const).map((mode) => <button key={mode} className={introZoomStartMode === mode ? 'active' : ''} aria-pressed={introZoomStartMode === mode} disabled={!!videoProgress} onClick={() => setIntroZoomStartMode(mode)}>{mode === 'auto' ? '自動' : 'カスタム'}</button>)}
+                </div>
+                {introZoomStartMode === 'custom' && <label className="custom-zoom-number">
+                  Zoom
+                  <input type="number" inputMode="decimal" min="4" max="16" step="0.1"
+                    value={introZoomStartZoomInput} disabled={!!videoProgress}
+                    onChange={(event) => setIntroZoomStartZoomInput(event.currentTarget.value)}
+                    onBlur={(event) => {
+                      const input = event.currentTarget.value;
+                      const zoom = input.trim() && Number.isFinite(Number(input))
+                        ? Math.round(Math.min(16, Math.max(4, Number(input))) * 10) / 10 : introZoomStartZoom;
+                      setIntroZoomStartZoom(zoom);
+                      setIntroZoomStartZoomInput(zoom.toFixed(1));
+                    }}
+                    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                  />
+                </label>}
+              </>}
               <p className="range-note">※ 開始時ズームはMP4出力時のみ反映されます。映像タブでは処理負荷を抑えるため、ズーム後の画角で静止表示します。</p>
               <div className="control-label-with-help control-label-with-help--toggle">
                 <label className="toggle-row"><span><strong>DAYごとにルートを色分け</strong><small>ルート線・DAYマーカー・走行距離を同じ色で表示</small></span><input type="checkbox" checked={dayRouteColorsEnabled} disabled={!!videoProgress} onChange={(event) => setDayRouteColorsEnabled(event.target.checked)} /><i /></label>

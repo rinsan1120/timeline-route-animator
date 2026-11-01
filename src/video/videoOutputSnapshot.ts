@@ -5,6 +5,7 @@ import type { RoutePoint } from '../timeline/types';
 import { balloonPauseSeconds } from './balloonPauses';
 import { clampDistanceHudPlacement, distanceHudLayout } from './distanceHud';
 import { FOLLOW_ZOOM_BY_PRESET } from './followCamera';
+import { DEFAULT_INTRO_ZOOM_START_ZOOM } from './introZoom';
 import { createOverviewCamera } from './overviewCamera';
 import { DEFAULT_POST_ROLL_SECONDS, DEFAULT_PRE_ROLL_SECONDS } from './outputTiming';
 import { normalizePauseSeconds } from './playbackTimeline';
@@ -50,6 +51,8 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
     duration: options.duration,
     preRoll, postRoll: normalizePauseSeconds(options.postRollSeconds ?? DEFAULT_POST_ROLL_SECONDS),
     introZoom: preRoll > 0 && !!options.introZoomEnabled,
+    introZoomStart: preRoll > 0 && options.introZoomEnabled && options.introZoomStartMode === 'custom'
+      ? options.introZoomStartZoom ?? DEFAULT_INTRO_ZOOM_START_ZOOM : null,
     cameraMode,
     camera: camera ? [camera.longitude, camera.latitude, camera.zoom, camera.bearing, camera.pitch] : null,
     follow: cameraMode === 'follow' ? [preset === 'custom' ? options.followCustomZoom ?? 10 : FOLLOW_ZOOM_BY_PRESET[preset], options.followViewMode ?? 'top'] : null,

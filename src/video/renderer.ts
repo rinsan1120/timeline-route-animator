@@ -39,6 +39,8 @@ export interface RenderVideoOptions {
   overviewCamera?: VideoCamera;
   followCameraPlan?: FollowCameraPlan;
   introZoomEnabled?: boolean;
+  introZoomStartMode?: 'auto' | 'custom';
+  introZoomStartZoom?: number;
   duration: number;
   commonPauseSeconds?: number;
   preRollSeconds?: number;

@@ -1,7 +1,14 @@
 export const INTRO_ZOOM_MAX_START = 5;
 export const INTRO_ZOOM_MIN_DELTA = 1;
+export const INTRO_ZOOM_CUSTOM_MIN_DELTA = 0.5;
+export const DEFAULT_INTRO_ZOOM_START_ZOOM = 5;
 
-export function getIntroStartZoom(targetZoom: number, minZoom: number): number {
+export function getIntroStartZoom(targetZoom: number, minZoom: number, customStartZoom?: number): number {
+  // A custom start level is an absolute zoom, but it must stay below the
+  // target so the intro always zooms in, never out.
+  if (customStartZoom !== undefined && Number.isFinite(customStartZoom)) {
+    return Math.max(minZoom, Math.min(customStartZoom, targetZoom - INTRO_ZOOM_CUSTOM_MIN_DELTA));
+  }
   return Math.max(minZoom, Math.min(INTRO_ZOOM_MAX_START, targetZoom - INTRO_ZOOM_MIN_DELTA));
 }
 

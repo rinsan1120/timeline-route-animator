@@ -2,6 +2,7 @@ import type { RouteMarkerMode } from '../route/routeMarker';
 import { DEFAULT_DISTANCE_HUD, type DistanceHudSettings } from './distanceHud';
 import type { FollowViewMode, FollowZoomPreset, VideoCameraMode } from './followCamera';
 import { VIDEO_VIEWPORT } from './overviewCamera';
+import { DEFAULT_INTRO_ZOOM_START_ZOOM } from './introZoom';
 import { DEFAULT_POST_ROLL_SECONDS, DEFAULT_PRE_ROLL_SECONDS } from './outputTiming';
 import { MAX_POINT_PAUSE_SECONDS, POINT_PAUSE_STEP_SECONDS } from './playbackTimeline';
 
@@ -17,6 +18,8 @@ export interface VideoSettings {
   followCustomZoom: number;
   followViewMode: FollowViewMode;
   introZoomEnabled: boolean;
+  introZoomStartMode: 'auto' | 'custom';
+  introZoomStartZoom: number;
   routeMarkerMode: RouteMarkerMode;
   dayRouteColorsEnabled: boolean;
   recordedTimeClockEnabled: boolean;
@@ -28,7 +31,7 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   preRollSeconds: DEFAULT_PRE_ROLL_SECONDS, postRollSeconds: DEFAULT_POST_ROLL_SECONDS,
   cameraMode: 'overview', overviewZoomMode: 'auto', overviewCustomZoom: 10,
   followZoomPreset: 'standard', followCustomZoom: 10, followViewMode: 'top',
-  introZoomEnabled: true, routeMarkerMode: 'day', dayRouteColorsEnabled: false,
+  introZoomEnabled: true, introZoomStartMode: 'auto', introZoomStartZoom: DEFAULT_INTRO_ZOOM_START_ZOOM, routeMarkerMode: 'day', dayRouteColorsEnabled: false,
   recordedTimeClockEnabled: false, distanceHudSettings: { ...DEFAULT_DISTANCE_HUD },
 };
 
@@ -52,6 +55,10 @@ export function parseVideoSettings(value: unknown): VideoSettings {
     || (value.followViewMode !== 'top' && value.followViewMode !== 'oblique')
     || (value.routeMarkerMode !== 'day' && value.routeMarkerMode !== 'start-goal' && value.routeMarkerMode !== 'none')
     || typeof value.introZoomEnabled !== 'boolean' || typeof value.dayRouteColorsEnabled !== 'boolean' || typeof value.recordedTimeClockEnabled !== 'boolean'
+    // Intro start level fields are optional: settings saved before they
+    // existed must still load, falling back to the defaults below.
+    || (value.introZoomStartMode !== undefined && value.introZoomStartMode !== 'auto' && value.introZoomStartMode !== 'custom')
+    || (value.introZoomStartZoom !== undefined && (!inRange(value.introZoomStartZoom, 4, 16) || !isTenth(value.introZoomStartZoom as number)))
     || !isRecord(value.distanceHudSettings) || typeof value.distanceHudSettings.enabled !== 'boolean'
     || !inRange(value.distanceHudSettings.x, 0, VIDEO_VIEWPORT.width) || !inRange(value.distanceHudSettings.y, 0, VIDEO_VIEWPORT.height)
     || !inRange(value.distanceHudSettings.scale, 0.5, 2) || !isTenth(value.distanceHudSettings.scale)) throw new Error(SETTINGS_ERROR);
@@ -60,7 +67,10 @@ export function parseVideoSettings(value: unknown): VideoSettings {
     preRollSeconds: value.preRollSeconds, postRollSeconds: value.postRollSeconds,
     cameraMode: value.cameraMode, overviewZoomMode: value.overviewZoomMode, overviewCustomZoom: value.overviewCustomZoom,
     followZoomPreset: value.followZoomPreset, followCustomZoom: value.followCustomZoom, followViewMode: value.followViewMode,
-    introZoomEnabled: value.introZoomEnabled, routeMarkerMode: value.routeMarkerMode,
+    introZoomEnabled: value.introZoomEnabled,
+    introZoomStartMode: value.introZoomStartMode === 'custom' ? 'custom' : 'auto',
+    introZoomStartZoom: typeof value.introZoomStartZoom === 'number' ? value.introZoomStartZoom : DEFAULT_INTRO_ZOOM_START_ZOOM,
+    routeMarkerMode: value.routeMarkerMode,
     dayRouteColorsEnabled: value.dayRouteColorsEnabled, recordedTimeClockEnabled: value.recordedTimeClockEnabled,
     distanceHudSettings: { enabled: value.distanceHudSettings.enabled, x: value.distanceHudSettings.x, y: value.distanceHudSettings.y, scale: value.distanceHudSettings.scale },
   };

@@ -3,7 +3,7 @@ import type { RouteMarkerMode } from '../route/routeMarker';
 import { interpolateTripRoute, type DayMarker } from '../route/tripRoute';
 import { balloonPauseSeconds } from './balloonPauses';
 import { buildFollowCameraPlan, buildFollowPlaybackTimeline, sampleFollowOutputPlayback, sampleFollowPlayback, type FollowCameraPlan, type FollowPlaybackState, type FollowViewMode, type FollowZoomPreset, type GeoPosition, type VideoCameraMode } from './followCamera';
-import { getIntroStartZoom, interpolateIntroZoom } from './introZoom';
+import { DEFAULT_INTRO_ZOOM_START_ZOOM, getIntroStartZoom, interpolateIntroZoom } from './introZoom';
 import { createOverviewCamera, VIDEO_FPS, VIDEO_MIN_ZOOM, type VideoCamera } from './overviewCamera';
 import { DEFAULT_POST_ROLL_SECONDS, DEFAULT_PRE_ROLL_SECONDS, introZoomFrameProgress, outputVideoFrameCount } from './outputTiming';
 import { buildOverviewPlaybackTimeline, normalizePauseSeconds, samplePlaybackTimeline, type PlaybackTimeline } from './playbackTimeline';
@@ -21,6 +21,8 @@ export interface FramePlanOptions {
   preRollSeconds?: number;
   postRollSeconds?: number;
   introZoomEnabled?: boolean;
+  introZoomStartMode?: 'auto' | 'custom';
+  introZoomStartZoom?: number;
   overviewCamera?: VideoCamera;
   overviewZoomMode?: 'auto' | 'custom';
   overviewCustomZoom?: number;
@@ -105,16 +107,18 @@ export function buildFramePlan(options: FramePlanOptions): FramePlan {
     totalFrames, preFrames, animationFrames, postFrames: totalFrames - preFrames - animationFrames,
     playbackTimeline, introZoomEnabled: !!options.introZoomEnabled,
   };
+  const introCustomStartZoom = options.introZoomStartMode === 'custom'
+    ? options.introZoomStartZoom ?? DEFAULT_INTRO_ZOOM_START_ZOOM : undefined;
   if (follow) {
     const initialPlayback = sampleFollowPlayback(follow, 0);
     return {
       ...timing, cameraMode: 'follow', followCameraPlan: follow, initialPlayback,
-      introStartZoom: getIntroStartZoom(initialPlayback.zoom, VIDEO_MIN_ZOOM),
+      introStartZoom: getIntroStartZoom(initialPlayback.zoom, VIDEO_MIN_ZOOM, introCustomStartZoom),
     };
   }
   const customZoom = options.overviewZoomMode === 'custom' ? options.overviewCustomZoom ?? 10 : undefined;
   const camera = options.overviewCamera ?? createOverviewCamera(options.points, customZoom)!;
-  const introStartZoom = getIntroStartZoom(camera.zoom, VIDEO_MIN_ZOOM);
+  const introStartZoom = getIntroStartZoom(camera.zoom, VIDEO_MIN_ZOOM, introCustomStartZoom);
   return {
     ...timing, cameraMode: 'overview', overviewCamera: camera, introStartZoom,
     initialPlayback: {
