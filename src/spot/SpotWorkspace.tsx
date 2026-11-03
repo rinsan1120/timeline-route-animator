@@ -6,7 +6,7 @@ import { DEFAULT_ANNOTATION_STYLE } from '../route/annotationStyle';
 import { saveBlobWithPicker, saveErrorMessage } from '../files/saveBlob';
 import HelpTip from '../help/HelpTip';
 import SpotMap, { type SpotTool } from './SpotMap';
-import { spotsInBounds, type ImageBounds } from './imageBounds';
+import { resizeImageBounds, spotImageSize, spotsInBounds, type ImageBounds, type SpotAspectRatio } from './imageBounds';
 import { renderSpotImage } from './renderSpotImage';
 import type { RoutePoint } from '../timeline/types';
 
@@ -15,6 +15,8 @@ export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<SpotTool>('add');
   const [bounds, setBounds] = useState<ImageBounds | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<SpotAspectRatio>('16:9');
+  const imageSize = spotImageSize(aspectRatio);
   const [style, setStyle] = useState(DEFAULT_ANNOTATION_STYLE);
   const [label, setLabel] = useState('');
   const [fitRequest, setFitRequest] = useState(0);
@@ -44,7 +46,7 @@ export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy
     setBusy(true); onBusy(true); setError(''); setNotice('');
     try {
       // Open the picker in the click gesture; render only after the destination is chosen.
-      const name = await saveBlobWithPicker(() => renderSpotImage(points, bounds, style),
+      const name = await saveBlobWithPicker(() => renderSpotImage(points, bounds, style, aspectRatio),
         { suggestedName: 'spot-map.png', mimeType: 'image/png', extension: '.png' });
       if (name) setNotice(`PNGを保存しました（${name}）。`);
     } catch (reason) {
@@ -69,12 +71,20 @@ export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy
       </section>
       <section className="panel-section">
         <div className="section-heading"><span className="step">02</span><div><h2>画像範囲</h2><p>{bounds ? `範囲設定済み・対象 ${targetCount}件` : '画像範囲は未指定です'}</p></div></div>
+        <div className="control-label-with-help"><label>縦横比</label><HelpTip helpKey="spotAspectRatio" /></div>
+        <div className="video-mode-options" role="group" aria-label="画像の縦横比">
+          {(['16:9', '1:1'] as const).map((ratio) => <button key={ratio} type="button" className={aspectRatio === ratio ? 'active' : ''} aria-pressed={aspectRatio === ratio} disabled={busy} onClick={() => {
+            if (ratio === aspectRatio) return;
+            setBounds((current) => current ? resizeImageBounds(current, ratio) : null);
+            setAspectRatio(ratio); setNotice(''); setError('');
+          }}>{ratio}</button>)}
+        </div>
         <div className="control-label-with-help"><button disabled={busy} onClick={() => { setTool('bounds'); setError(''); }}>{bounds ? '範囲を再指定' : '画像範囲を指定'}</button><HelpTip helpKey="spotBounds" /></div>
         {bounds && <button disabled={busy} onClick={() => { setBounds(null); setTool('select'); setNotice(''); }}>範囲を解除</button>}
         {bounds && !targetCount && <p className="range-note">指定範囲内にスポットがありません。</p>}
       </section>
       <section className="panel-section">
-        <div className="section-heading"><span className="step">03</span><div><h2>画像設定</h2><p>PNG · 1920 × 1080</p></div></div>
+        <div className="section-heading"><span className="step">03</span><div><h2>画像設定</h2><p>PNG · {imageSize.width} × {imageSize.height}</p></div></div>
         <div className="annotation-style-controls">{(['balloonScale', 'fontScale'] as const).map((key) => <div className="annotation-style-item" key={key}>
           <div className="control-label-with-help"><label htmlFor={`spot-${key}`}>{key === 'balloonScale' ? 'バルーンサイズ' : '文字サイズ'} <span className="annotation-style-value">{Math.round(style[key] * 100)}%</span></label><HelpTip helpKey={key === 'balloonScale' ? 'spotBalloonScale' : 'balloonFontScale'} /></div>
           <input id={`spot-${key}`} type="range" min="50" max="200" step="10" value={style[key] * 100} disabled={busy} onChange={(event) => setStyle((current) => ({ ...current, [key]: Number(event.target.value) / 100 }))} />
@@ -86,14 +96,14 @@ export default function SpotWorkspace({ onBusy, onDirtyChange }: { onBusy: (busy
     <div className="map-area">
     <div id="spot-coordinate-jump" />
     <section className="map-stage">
-      <SpotMap points={points} selectedId={selectedId} tool={tool} busy={busy} bounds={bounds} fitRequest={fitRequest} annotationStyle={style}
+      <SpotMap points={points} selectedId={selectedId} tool={tool} busy={busy} bounds={bounds} aspectRatio={aspectRatio} fitRequest={fitRequest} annotationStyle={style}
         onSelect={setSelectedId} onAdd={(latitude, longitude) => {
           const next = appendPlanPoint(points, latitude, longitude); commit(next); setSelectedId(next.at(-1)!.id);
         }} onMove={(id, latitude, longitude) => { commit(movePoint(points, id, latitude, longitude)); setSelectedId(id); }}
         onPlacement={(id, placement) => commit(points.map((point) => point.id === id && point.annotation ? { ...point, annotation: { ...point.annotation, placement } } : point))}
         onBounds={(value) => { setBounds(value); setTool('select'); setError(''); setNotice(''); }} onError={setError} />
       {(error || notice) && <div className={`toast${error ? ' toast--error' : ''}`} role={error ? 'alert' : 'status'}><p>{error || notice}</p><button aria-label="閉じる" onClick={() => { setError(''); setNotice(''); }}>×</button></div>}
-      <div className="spot-tool-hint">{tool === 'bounds' ? 'ドラッグして16:9の画像範囲を指定' : tool === 'add' ? '地図をクリック／タップしてスポットを追加' : '地点・バルーン・オレンジの範囲をドラッグして移動'}</div>
+      <div className="spot-tool-hint">{tool === 'bounds' ? `ドラッグして${aspectRatio}の画像範囲を指定` : tool === 'add' ? '地図をクリック／タップしてスポットを追加' : '地点・バルーン・オレンジの範囲をドラッグして移動'}</div>
       <nav className="edit-toolbar" aria-label="スポット編集ツール">
         <button className={tool === 'select' ? 'active' : ''} aria-pressed={tool === 'select'} disabled={busy} onClick={() => setTool('select')}>選択</button>
         <button className={tool === 'add' ? 'active' : ''} aria-pressed={tool === 'add'} disabled={busy} onClick={() => setTool('add')}>連続追加</button>

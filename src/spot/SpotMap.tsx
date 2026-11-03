@@ -8,12 +8,12 @@ import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrai
 import type { RoutePoint } from '../timeline/types';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { PopupPlacement } from '../popup/placement';
-import { imageRectangle, moveImageRectangle, type ImageBounds, type Pixel } from './imageBounds';
+import { imageRectangle, moveImageRectangle, type ImageBounds, type Pixel, type SpotAspectRatio } from './imageBounds';
 
 export type SpotTool = 'select' | 'add' | 'bounds';
 interface Props {
   points: RoutePoint[]; selectedId: string | null; tool: SpotTool; busy: boolean;
-  bounds: ImageBounds | null; fitRequest: number; annotationStyle: AnnotationStyle;
+  bounds: ImageBounds | null; aspectRatio: SpotAspectRatio; fitRequest: number; annotationStyle: AnnotationStyle;
   onSelect: (id: string) => void;
   onAdd: (latitude: number, longitude: number) => void;
   onMove: (id: string, latitude: number, longitude: number) => void;
@@ -107,7 +107,7 @@ export default function SpotMap(props: Props) {
     const rect = event.currentTarget.getBoundingClientRect();
     return { x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)), y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)) };
   };
-  const dragRectangle = (event: PointerEvent<HTMLDivElement>) => imageRectangle(drag.current!.start, pixel(event), { width: event.currentTarget.clientWidth, height: event.currentTarget.clientHeight });
+  const dragRectangle = (event: PointerEvent<HTMLDivElement>) => imageRectangle(drag.current!.start, pixel(event), { width: event.currentTarget.clientWidth, height: event.currentTarget.clientHeight }, props.aspectRatio);
   const moveRectangle = (event: PointerEvent<HTMLDivElement>) => {
     const active = moving.current;
     if (!active || active.id !== event.pointerId || !container.current) return;

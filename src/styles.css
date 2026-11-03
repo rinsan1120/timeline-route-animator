@@ -246,6 +246,7 @@ select:focus, input:focus { border-color: #ff8c70; box-shadow: 0 0 0 3px rgba(25
 /* Spot image workspace: shared controls and balloons, independent map/bounds tools. */
 .spot-workspace .panel-section > button, .spot-workspace .control-label-with-help > button, .spot-workspace .annotation-editor button { min-height: 44px; margin-top: 8px; border: 1px solid #ccd5de; border-radius: 7px; background: #f8fafb; color: #27364a; cursor: pointer; }
 .spot-workspace .control-label-with-help > .generate-button { background: var(--orange); color: white; }
+.spot-workspace .video-mode-options button { height: 44px; }
 .spot-workspace button:disabled { opacity: .45; cursor: default; }
 .spot-workspace .range-note { font-size: 11px; margin-bottom: 12px; }
 .spot-anchor { z-index: 2; width: 24px; height: 24px; padding: 0; border: 3px solid white; border-radius: 50%; background: var(--orange); box-shadow: 0 1px 6px #27364a80; cursor: pointer; }

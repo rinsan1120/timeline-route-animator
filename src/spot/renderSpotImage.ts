@@ -5,15 +5,15 @@ import { waitForExportViewportReady } from '../map/exportViewportReady';
 import { annotationLayout, drawAnnotation } from '../route/annotationCanvas';
 import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RoutePoint } from '../timeline/types';
-import { imageCamera, longitudeInBounds, SPOT_IMAGE_SIZE, spotsInBounds, type ImageBounds } from './imageBounds';
+import { imageCamera, longitudeInBounds, spotImageSize, spotsInBounds, type ImageBounds, type SpotAspectRatio } from './imageBounds';
 
 const IMAGE_MAP_ERROR = '画像用の地図データを完全に読み込めませんでした。通信状況を確認して、もう一度PNGを生成してください。';
 
-export async function renderSpotImage(points: RoutePoint[], bounds: ImageBounds, style: AnnotationStyle): Promise<Blob> {
+export async function renderSpotImage(points: RoutePoint[], bounds: ImageBounds, style: AnnotationStyle, aspectRatio: SpotAspectRatio = '16:9'): Promise<Blob> {
   const targets = spotsInBounds(points, bounds);
   if (!targets.length) throw new Error('指定範囲内にスポットがありません。');
-  const { width, height } = SPOT_IMAGE_SIZE;
-  const camera = imageCamera(bounds);
+  const { width, height } = spotImageSize(aspectRatio);
+  const camera = imageCamera(bounds, aspectRatio);
   const container = document.createElement('div');
   Object.assign(container.style, { position: 'fixed', left: '-20000px', top: '0', width: `${width}px`, height: `${height}px`, pointerEvents: 'none' });
   document.body.appendChild(container);

@@ -2,7 +2,21 @@ import type { RoutePoint } from '../timeline/types';
 
 export interface ImageBounds { west: number; east: number; north: number; south: number }
 export interface Pixel { x: number; y: number }
+export type SpotAspectRatio = '16:9' | '1:1';
 export const SPOT_IMAGE_SIZE = { width: 1920, height: 1080 } as const;
+export function spotImageSize(ratio: SpotAspectRatio) {
+  return ratio === '1:1' ? { width: 1920, height: 1920 } : SPOT_IMAGE_SIZE;
+}
+
+const mercatorY = (latitude: number) => (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2;
+const latitudeAtY = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI;
+
+export function resizeImageBounds(bounds: ImageBounds, ratio: SpotAspectRatio): ImageBounds {
+  const centerY = (mercatorY(bounds.north) + mercatorY(bounds.south)) / 2;
+  const size = spotImageSize(ratio);
+  const halfHeight = (bounds.east - bounds.west) / 360 * size.height / size.width / 2;
+  return { ...bounds, north: latitudeAtY(centerY - halfHeight), south: latitudeAtY(centerY + halfHeight) };
+}
 
 export function moveImageRectangle(rect: ReturnType<typeof imageRectangle>, delta: Pixel, viewport: { width: number; height: number }) {
   // Keep a small part reachable even when the selected region is larger than the viewport.
@@ -14,8 +28,9 @@ export function moveImageRectangle(rect: ReturnType<typeof imageRectangle>, delt
   };
 }
 
-export function imageRectangle(start: Pixel, end: Pixel, viewport: { width: number; height: number }) {
-  const ratio = SPOT_IMAGE_SIZE.width / SPOT_IMAGE_SIZE.height;
+export function imageRectangle(start: Pixel, end: Pixel, viewport: { width: number; height: number }, aspectRatio: SpotAspectRatio = '16:9') {
+  const size = spotImageSize(aspectRatio);
+  const ratio = size.width / size.height;
   const dx = end.x >= start.x ? 1 : -1;
   const dy = end.y >= start.y ? 1 : -1;
   const width = Math.min(Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y) * ratio),
@@ -36,12 +51,12 @@ export function spotsInBounds(points: RoutePoint[], bounds: ImageBounds): RouteP
   });
 }
 
-export function imageCamera(bounds: ImageBounds) {
-  const mercatorY = (latitude: number) => (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2;
+export function imageCamera(bounds: ImageBounds, aspectRatio: SpotAspectRatio = '16:9') {
+  const size = spotImageSize(aspectRatio);
   const top = mercatorY(bounds.north);
   const bottom = mercatorY(bounds.south);
-  const zoom = Math.log2(Math.min(SPOT_IMAGE_SIZE.width / ((bounds.east - bounds.west) / 360 * 512),
-    SPOT_IMAGE_SIZE.height / ((bottom - top) * 512)));
+  const zoom = Math.log2(Math.min(size.width / ((bounds.east - bounds.west) / 360 * 512),
+    size.height / ((bottom - top) * 512)));
   if (!Number.isFinite(zoom) || bounds.east <= bounds.west || bounds.north <= bounds.south) throw new Error('画像範囲を指定してください。');
   return { center: [(bounds.east + bounds.west) / 2, Math.atan(Math.sinh(Math.PI * (1 - top - bottom))) * 180 / Math.PI] as [number, number], zoom, bearing: 0, pitch: 0 };
 }
