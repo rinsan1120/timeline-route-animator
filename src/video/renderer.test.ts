@@ -21,6 +21,13 @@ const mocks = vi.hoisted(() => ({
   bitmap: { close: vi.fn() },
   cancel: vi.fn(async () => {}),
   configureMap: null as null | ((map: any, index: number) => void),
+  auditInspect: vi.fn(async () => () => {}),
+}));
+
+// Renderer tests isolate map data acquisition; the real archive/protocol and
+// missing-ocean decisions are covered in tests/videoMapDataAudit.test.ts.
+vi.mock('./videoMapDataAudit', () => ({
+  createVideoMapDataAudit: () => ({ style: GSI_STYLE, inspect: mocks.auditInspect, dispose: vi.fn() }),
 }));
 
 vi.mock('maplibre-gl', () => ({
@@ -165,6 +172,31 @@ function failMapJump(map: any, jumpNumber: number, sourceId: string) {
 }
 
 describe('MP4 map readiness and retry', () => {
+  it.each(['inspection', 'loaded data'])('never captures or encodes when %s auditing fails despite a ready Map', async (stage) => {
+    const { points, createImageBitmap } = setupVideoEnvironment();
+    const fail = () => { throw new Error('synthetic missing water'); };
+    if (stage === 'inspection') mocks.auditInspect.mockRejectedValueOnce(new Error('synthetic missing water'))
+      .mockRejectedValueOnce(new Error('synthetic missing water'));
+    else mocks.auditInspect.mockResolvedValueOnce(fail).mockResolvedValueOnce(fail);
+    const { renderRouteVideo } = await import('./renderer');
+    await expect(renderRouteVideo({ points, duration: 5, revealRoute: true, onProgress: vi.fn() }))
+      .rejects.toThrow('もう一度MP4を生成してください');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps.every((map) => map.options.fadeDuration === 0 && map.removed)).toBe(true);
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+
+  it('retries once after an independent audit failure and uses the existing successful encoding path', async () => {
+    const { points } = setupVideoEnvironment();
+    mocks.auditInspect.mockRejectedValueOnce(new Error('synthetic temporary transport failure'));
+    const { renderRouteVideo } = await import('./renderer');
+    expect((await renderRouteVideo({ points, duration: 5, revealRoute: true, onProgress: vi.fn() })).type).toBe('video/mp4');
+    expect(mocks.maps).toHaveLength(2);
+    expect(mocks.maps[0].getCanvas).not.toHaveBeenCalled();
+    expect(mocks.add).toHaveBeenCalledTimes(330);
+  });
+
   it.each([4, 10])('never captures an incomplete overview at zoom %s, even after 2.5 seconds, and stops after two timeouts', async (zoom) => {
     vi.useFakeTimers();
     const { createImageBitmap, points } = setupVideoEnvironment();

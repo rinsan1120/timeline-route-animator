@@ -3,6 +3,7 @@ import { GSI_STYLE } from '../map/gsiStyle';
 import { installTerrainTintFallback, isTerrainTintError } from '../map/gsiTerrainTint';
 import { waitForExportViewportReady } from '../map/exportViewportReady';
 import type { VideoCamera } from './overviewCamera';
+import { createVideoMapDataAudit } from './videoMapDataAudit';
 
 // The caller owns the container and calls prepare sequentially.
 const styleReadyMaps = new WeakSet<maplibregl.Map>();
@@ -10,13 +11,21 @@ const VIDEO_MAP_TIMEOUT = 20_000;
 const VIDEO_MAP_ERROR = '動画用の地図データを完全に読み込めませんでした。通信状況を確認して、もう一度MP4を生成してください。';
 
 // Only map preparation is retried; successful maps and captured backgrounds are reused.
-export function createVideoMapSession(container: HTMLElement, signal?: AbortSignal) {
+export function createVideoMapSession(container: HTMLElement, signal?: AbortSignal, options: { auditData?: boolean } = {}) {
   let map: maplibregl.Map | null = null;
+  let audit: ReturnType<typeof createVideoMapDataAudit> | null = null;
+  let mapController: AbortController | null = null;
+  const onAbort = () => mapController?.abort();
   let loadError: Error | null = null;
   const onError = (event: maplibregl.ErrorEvent) => {
     if (!isTerrainTintError(event)) loadError = new Error(VIDEO_MAP_ERROR);
   };
   const dispose = () => {
+    mapController?.abort();
+    mapController = null;
+    signal?.removeEventListener('abort', onAbort);
+    audit?.dispose();
+    audit = null;
     if (map) {
       map.off('error', onError);
       map.remove();
@@ -30,18 +39,28 @@ export function createVideoMapSession(container: HTMLElement, signal?: AbortSign
       try {
         const created = !map;
         if (!map) {
+          mapController = new AbortController();
+          signal?.addEventListener('abort', onAbort, { once: true });
+          if (options.auditData !== false) audit = createVideoMapDataAudit(mapController.signal);
           map = new maplibregl.Map({
-            container, style: GSI_STYLE, center: [camera.longitude, camera.latitude],
+            container, style: audit?.style ?? GSI_STYLE, center: [camera.longitude, camera.latitude],
             zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch,
             interactive: false, attributionControl: false, pixelRatio: 1,
+            ...(options.auditData !== false ? { fadeDuration: 0 } : {}),
             canvasContextAttributes: { preserveDrawingBuffer: true },
           });
           installTerrainTintFallback(map);
           map.on('error', onError);
         }
-        await waitForStyle(map, VIDEO_MAP_TIMEOUT, () => loadError, signal);
+        const activeSignal = mapController!.signal;
+        await waitForStyle(map, VIDEO_MAP_TIMEOUT, () => loadError, activeSignal);
         if (created || move) map.jumpTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch });
-        await waitForExportViewportReady(map, VIDEO_MAP_TIMEOUT, () => loadError, VIDEO_MAP_ERROR, signal);
+        const [, assertDataLoaded] = await Promise.all([
+          waitForExportViewportReady(map, VIDEO_MAP_TIMEOUT, () => loadError, VIDEO_MAP_ERROR, activeSignal),
+          audit?.inspect(map, VIDEO_MAP_TIMEOUT),
+        ]);
+        assertDataLoaded?.();
+        if (loadError) throw loadError;
         return map;
       } catch (error) {
         dispose();

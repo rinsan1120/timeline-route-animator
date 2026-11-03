@@ -94,7 +94,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   Object.assign(mapContainer.style, { position: 'fixed', left: '-20000px', top: '0', width: `${VIDEO_VIEWPORT.width}px`, height: `${VIDEO_VIEWPORT.height}px`, pointerEvents: 'none' });
   document.body.appendChild(mapContainer);
   const controller = new AbortController();
-  const videoMap = createVideoMapSession(mapContainer, controller.signal);
+  const videoMap = createVideoMapSession(mapContainer, controller.signal, { auditData: false });
   let pointIndexById = new Map(options.points.map((point, index) => [point.id, index]));
   let dayMarkers = prepareVideoDayMarkers(options.dayMarkers ?? [], pointIndexById);
   let dayNumberByPointId = options.dayNumberByPointId ?? buildRoutePointDayNumbers(options.points, options.dayMarkers ?? []);
