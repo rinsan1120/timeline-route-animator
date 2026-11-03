@@ -4,7 +4,8 @@ import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader, PbfWriter } from 'pbf';
 import type { AddProtocolAction, Map as MapLibreMap } from 'maplibre-gl';
 import { GSI_STYLE, GSI_LOW_ZOOM_LAND_SOURCE_ID } from '../src/map/gsiStyle';
-import { supplementCoastalLand } from '../src/map/gsiCoastalLand';
+import { coastalLandAncestor, supplementCoastalLand, withGsiCoastalLand } from '../src/map/gsiCoastalLand';
+import { GSI_VECTOR_CONFIG } from '../src/map/gsiVectorConfig';
 import { createVideoMapDataAudit } from '../src/video/videoMapDataAudit';
 
 const mocks = vi.hoisted(() => ({
@@ -83,7 +84,8 @@ describe('video session map data audit', () => {
 
   it('serves the audited, supplemented bytes to this Map alone and protects its cached buffer', async () => {
     const data = new Uint8Array(readFileSync(new URL('./fixtures/gsi-coast/8-228-91.pbf', import.meta.url)));
-    const { audit } = setup({ detail: data });
+    const land = new Uint8Array(readFileSync(new URL('./fixtures/gsi-coast/7-114-45.pbf', import.meta.url)));
+    const { audit } = setup({ detail: data, land });
     const other = createVideoMapDataAudit();
     const source = audit.style.sources[GSI_LOW_ZOOM_LAND_SOURCE_ID];
     const original = GSI_STYLE.sources[GSI_LOW_ZOOM_LAND_SOURCE_ID];
@@ -92,14 +94,35 @@ describe('video session map data audit', () => {
     if (source.type !== 'vector') throw new Error('vector expected');
     const protocol = mocks.protocols.get(source.url!.split(':')[0])!;
     const first = await protocol({ url: `${source.url}/8/228/91` }, new AbortController());
-    expect(first.data).toEqual(supplementCoastalLand(data));
+    expect(first.data).toEqual(supplementCoastalLand(data, { z: 8, x: 228, y: 91 }, land));
     structuredClone(first.data, { transfer: [(first.data as Uint8Array).buffer] });
     const second = await protocol({ url: `${source.url}/8/228/91` }, new AbortController());
-    expect(second.data).toEqual(supplementCoastalLand(data));
-    expect(mocks.getZxy).toHaveBeenCalledOnce();
+    expect(second.data).toEqual(supplementCoastalLand(data, { z: 8, x: 228, y: 91 }, land));
+    expect(mocks.getZxy).toHaveBeenCalledTimes(2);
     audit.dispose(); other.dispose();
     expect(mocks.protocols.size).toBe(0);
   });
+
+  it.each(['10-928-376', '9-464-188', '8-232-94', '9-463-185', '9-466-183', '9-463-187', '9-455-191', '8-228-91'])
+    ('uses identical editor and video supplement rules for real tile %s', async (name) => {
+      const [z, x, y] = name.split('-').map(Number), tile = { z, x, y };
+      const ancestor = coastalLandAncestor(tile);
+      const data = new Uint8Array(readFileSync(new URL(`./fixtures/gsi-coast/${name}.pbf`, import.meta.url)));
+      const parentName = `${ancestor.z}-${ancestor.x}-${ancestor.y}`;
+      const land = parentName === '7-116-47' ? undefined
+        : new Uint8Array(readFileSync(new URL(`./fixtures/gsi-coast/${parentName}.pbf`, import.meta.url)));
+      const { audit } = setup({ detail: data, land });
+      const source = audit.style.sources[GSI_LOW_ZOOM_LAND_SOURCE_ID];
+      if (source.type !== 'vector') throw new Error('vector expected');
+      const protocol = mocks.protocols.get(source.url!.split(':')[0])!;
+      const video = await protocol({ url: `${source.url}/${z}/${x}/${y}` }, new AbortController());
+      const editor = withGsiCoastalLand(async (params) => ({
+        data: params.url.endsWith(`/7/${ancestor.x}/${ancestor.y}`) ? land ?? new Uint8Array() : data,
+      }));
+      const preview = await editor({ url: `pmtiles://${GSI_VECTOR_CONFIG.lowZoomLand.pmtilesUrl}/${z}/${x}/${y}` }, new AbortController());
+      expect(video.data).toEqual(preview.data);
+      audit.dispose();
+    });
 
   it.each([undefined, new Uint8Array()])('accepts directory-confirmed unrecorded or empty ocean with no land over it', async (data) => {
     const { audit, map } = setup({ detail: data });

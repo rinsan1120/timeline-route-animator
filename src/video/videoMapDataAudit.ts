@@ -3,7 +3,7 @@ import { PbfReader } from 'pbf';
 import { FetchSource, PMTiles, type Header } from 'pmtiles';
 import { addProtocol, removeProtocol, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl';
 import type { Geometry } from 'geojson';
-import { GSI_COASTAL_LAND_SOURCE_LAYER, supplementCoastalLand } from '../map/gsiCoastalLand';
+import { GSI_COASTAL_LAND_SOURCE_LAYER, coastalLandAncestor, supplementCoastalLand } from '../map/gsiCoastalLand';
 import { GSI_DETAILED_LAND_SOURCE_ID, GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_STYLE } from '../map/gsiStyle';
 import { GSI_OFFICIAL_SOURCE_ID } from '../map/gsiOfficialStyle';
 import { GSI_VECTOR_CONFIG } from '../map/gsiVectorConfig';
@@ -168,8 +168,9 @@ export function createVideoMapDataAudit(signal?: AbortSignal) {
       const response = await archive.getZxy(tile.z, tile.x, tile.y, controller.signal);
       if (!response) return { ...emptyAudit('absent'), data: new Uint8Array() };
       let data: Uint8Array = new Uint8Array(response.data);
-      if (tile.z >= GSI_ZOOM_CONFIG.lowZoomLand.maxZoom && tile.z < GSI_ZOOM_CONFIG.lowZoomLand.detailedLandMinZoom) {
-        data = supplementCoastalLand(data);
+      if (data.length && tile.z >= GSI_ZOOM_CONFIG.lowZoomLand.maxZoom && tile.z < GSI_ZOOM_CONFIG.lowZoomLand.detailedLandMinZoom) {
+        const reference = await readArchive(coastalLandAncestor(tile));
+        data = supplementCoastalLand(data, tile, reference.data);
       }
       return { ...summarize(data, tile), data, cacheControl: response.cacheControl, expires: response.expires };
     });
