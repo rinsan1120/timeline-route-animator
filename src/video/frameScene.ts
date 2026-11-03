@@ -11,14 +11,15 @@ import type { RoutePoint } from '../timeline/types';
 import type { FollowCameraPlan, FollowPlaybackState } from './followCamera';
 import type { VideoCamera } from './overviewCamera';
 import type { DistanceHudOptions } from './distanceHud';
-import type { FramePlanOptions, FrameState } from './frameTimeline';
+import { sampleFrame, type FramePlan, type FramePlanOptions, type FrameState } from './frameTimeline';
 import { isInVideoViewport, type VideoDayMarker } from './frameDrawing';
 import type { VideoFrameScene } from './frameRenderer';
-import { sampleRecordedRouteTime, followClockPointIndex } from './routeClock';
+import { DEFAULT_TIME_DISPLAY, sampleRecordedRouteTime, sampleRecordedTime, firstRecordedMilliseconds, followClockPointIndex, type FrameClockDisplay, type TimeDisplaySettings } from './routeClock';
 
 export interface FrameDrawingOptions extends FramePlanOptions {
   revealRoute: boolean;
   recordedTimeClockEnabled?: boolean;
+  timeDisplaySettings?: TimeDisplaySettings;
   distanceHud?: DistanceHudOptions;
   endpointMarkerPlacements?: EndpointMarkerPlacements;
   endpointMarkerFramePositions?: EndpointMarkerFramePositions;
@@ -27,12 +28,37 @@ export interface FrameDrawingOptions extends FramePlanOptions {
   dayRouteColorsEnabled?: boolean;
 }
 
-export function frameClockText(options: FrameDrawingOptions, state: FrameState): string | null {
-  if (!options.recordedTimeClockEnabled) return null;
-  const pointIndex = state.cameraMode === 'follow'
+function clockPointIndex(state: FrameState) {
+  return state.cameraMode === 'follow'
     ? followClockPointIndex(state.playback, state.pausePointIndex)
     : state.renderPath === 'intro-zoom' ? 0 : state.pausePointIndex;
+}
+
+export function frameClockText(options: FrameDrawingOptions, state: FrameState, pointIndex = clockPointIndex(state)): string | null {
+  if (!options.recordedTimeClockEnabled && (!options.timeDisplaySettings || options.timeDisplaySettings.labelMode === 'hidden')) return null;
   return sampleRecordedRouteTime(options.points, state.routeProgress, pointIndex);
+}
+
+// Sampling a two-second lookback makes interval visibility deterministic on seek
+// and independent of dropped preview frames. Time thresholds use recorded time.
+export function frameClockDisplay(options: FrameDrawingOptions, state: FrameState, plan: FramePlan, pointIndex = clockPointIndex(state)): FrameClockDisplay | null {
+  const text = frameClockText(options, state, pointIndex);
+  if (!text) return null;
+  const settings = options.timeDisplaySettings ?? DEFAULT_TIME_DISPLAY;
+  const pausedLabelVisible = settings.labelMode === 'paused';
+  let labelVisible = settings.labelMode === 'always' || (pausedLabelVisible && state.pausePointIndex !== null);
+  if (settings.labelMode === 'interval') {
+    const current = sampleRecordedTime(options.points, state.routeProgress, pointIndex);
+    const before = sampleFrame(plan, Math.max(0, state.frameIndex - Math.round(2 * plan.fps)));
+    const previous = sampleRecordedTime(options.points, before.routeProgress, clockPointIndex(before));
+    const start = firstRecordedMilliseconds(options.points);
+    if (current && previous && start !== null) {
+      const interval = settings.intervalMinutes * 60_000;
+      const bucket = Math.floor((current.milliseconds - start) / interval);
+      labelVisible = bucket > 0 && bucket > Math.floor((previous.milliseconds - start) / interval);
+    }
+  }
+  return { text, hudEnabled: !!options.recordedTimeClockEnabled, settings, labelVisible, pausedLabelVisible };
 }
 
 export function prepareVideoDayMarkers(dayMarkers: DayMarker[], pointIndexById: ReadonlyMap<string, number>) {
@@ -84,7 +110,7 @@ export function prepareOverviewFrameScene(
   distanceHud?: DistanceHudOptions,
   dayRouteColorsEnabled = false,
   pausePointIndex: number | null = null,
-  clockText: string | null = null,
+  clockDisplay: FrameClockDisplay | null = null,
   endpointMarkerFramePositions: EndpointMarkerFramePositions = {},
 ) {
   const position = interpolateTripRoute(points, progress)!;
@@ -93,7 +119,7 @@ export function prepareOverviewFrameScene(
   const x = markerStart.x + (markerEnd.x - markerStart.x) * position.segmentProgress;
   const y = markerStart.y + (markerEnd.y - markerStart.y) * position.segmentProgress;
   const scene: VideoFrameScene = {
-    background, routeSegments: [], markerPosition: { x, y }, clockText,
+    background, routeSegments: [], markerPosition: { x, y }, clockDisplay,
     annotations: [], annotationStyle, dayMarkers: [], dayRouteColorsEnabled, endpointMarkers: [],
   };
   for (const segment of routeSegments) {
@@ -167,7 +193,7 @@ export function prepareFollowFrameScene(
   distanceHud?: DistanceHudOptions,
   dayNumberByPointId: ReadonlyMap<string, number> = new Map(),
   dayRouteColorsEnabled = false,
-  clockText: string | null = null,
+  clockDisplay: FrameClockDisplay | null = null,
   endpointMarkerFramePositions: EndpointMarkerFramePositions = {},
 ) {
   const routeSegments = colorRouteSegments(
@@ -181,7 +207,7 @@ export function prepareFollowFrameScene(
   }));
   const markerPixel = map.project([playback.markerPosition.longitude, playback.markerPosition.latitude]);
   const scene: VideoFrameScene = {
-    background, routeSegments: projectedSegments, markerPosition: markerPixel, clockText,
+    background, routeSegments: projectedSegments, markerPosition: markerPixel, clockDisplay,
     annotations: [], annotationStyle, dayMarkers: [], dayRouteColorsEnabled, endpointMarkers: [],
   };
 

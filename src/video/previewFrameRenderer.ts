@@ -8,7 +8,7 @@ import { clampDistanceHudPlacement, distanceHudLayout, type DistanceHudPlacement
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
 import { buildFramePlan, getFrameIndexAtTime, sampleFrame, type FramePlan, type FrameState } from './frameTimeline';
 import { drawVideoFrame, type VideoFrameScene } from './frameRenderer';
-import { frameClockText, prepareFollowFrameScene, prepareOverviewFrameData, prepareOverviewFrameScene, prepareVideoDayMarkers, resolveVideoBalloons, type FrameDrawingOptions } from './frameScene';
+import { frameClockDisplay, prepareFollowFrameScene, prepareOverviewFrameData, prepareOverviewFrameScene, prepareVideoDayMarkers, resolveVideoBalloons, type FrameDrawingOptions } from './frameScene';
 import { createOverviewCamera, VIDEO_VIEWPORT, type VideoCamera } from './overviewCamera';
 import { createVideoMapSession } from './videoMapSession';
 import { buildVideoEvents, createVideoEventProjector, type VideoEvent } from './videoEvents';
@@ -103,6 +103,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
   let balloonsResolved = false;
   let eventProjector: ReturnType<typeof createVideoEventProjector> | null = null;
   let events: VideoEvent[] | null = null;
+  let playbackPaused = true;
   let displayedState: FrameState | null = null;
   let displayedPlan: FramePlan | null = null;
   let displayedScene: VideoFrameScene | null = null;
@@ -320,12 +321,12 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
         scene = prepareFollowFrameScene(overviewBackground, cachedProjection(map, state.camera), drawingOptions.points, playback,
           dayMarkers, options.routeMarkerMode ?? 'day', options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
           options.endpointMarkerPlacements ?? {}, options.revealRoute, options.distanceHud, dayNumberByPointId,
-          options.dayRouteColorsEnabled ?? false, frameClockText(drawingOptions, { ...state, pausePointIndex: 0 }), options.endpointMarkerFramePositions);
+          options.dayRouteColorsEnabled ?? false, frameClockDisplay(drawingOptions, state, cameraFramePlan, 0), options.endpointMarkerFramePositions);
       } else {
         scene = prepareOverviewFrameScene(overviewBackground, pixels, routeSegments, drawingOptions.points,
           state.routeProgress, options.revealRoute, annotations, overviewDayMarkers, options.routeMarkerMode ?? 'day',
           options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE, options.endpointMarkerPlacements ?? {}, options.distanceHud,
-          options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockText(drawingOptions, state), options.endpointMarkerFramePositions);
+          options.dayRouteColorsEnabled ?? false, state.pausePointIndex, frameClockDisplay(drawingOptions, state, cameraFramePlan), options.endpointMarkerFramePositions);
       }
     } else {
       // Follow's pre-roll samples the same initial camera, so preparation and
@@ -345,10 +346,22 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
       scene = prepareFollowFrameScene(dynamicBackground.bitmap, cachedProjection(map, state.camera), drawingOptions.points, state.playback,
         dayMarkers, options.routeMarkerMode ?? 'day', options.annotationStyle ?? DEFAULT_ANNOTATION_STYLE,
         options.endpointMarkerPlacements ?? {}, true,
-        options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockText(drawingOptions, state), options.endpointMarkerFramePositions);
+        options.distanceHud, dayNumberByPointId, options.dayRouteColorsEnabled ?? false, frameClockDisplay(drawingOptions, state, cameraFramePlan), options.endpointMarkerFramePositions);
+    }
+    if (scene.clockDisplay?.pausedLabelVisible && playbackPaused) {
+      scene = { ...scene, clockDisplay: { ...scene.clockDisplay, labelVisible: true } };
     }
     drawVideoFrame(context, scene);
     return { state, scene };
+  };
+
+  const setPlaybackPaused = (paused: boolean) => {
+    playbackPaused = paused;
+    if (disposed || !displayedScene?.clockDisplay?.pausedLabelVisible || !displayedState) return;
+    displayedScene = { ...displayedScene, clockDisplay: { ...displayedScene.clockDisplay,
+      labelVisible: paused || displayedState.pausePointIndex !== null } };
+    drawVideoFrame(context, displayedScene);
+    outputContext.drawImage(workCanvas, 0, 0);
   };
 
   const publishFrame = (request: FrameRequest, state: FrameState, scene: VideoFrameScene, plan: FramePlan): PreviewFrameResult => {
@@ -497,7 +510,7 @@ export function createPreviewFrameRenderer(canvas: HTMLCanvasElement, options: P
     draftScene = position ? scene : null;
     return getDisplayedMarkers();
   };
-  return { get framePlan() { return framePlan; }, renderFrame, updateOptions, cancelPendingFrames,
+  return { get framePlan() { return framePlan; }, renderFrame, updateOptions, cancelPendingFrames, setPlaybackPaused,
     getDisplayedState: () => displayedState, getDisplayedPlan: () => displayedPlan, getDisplayedBalloons, previewBalloonPosition,
     getDisplayedMarkers, previewMarkerPosition, getEvents, dispose };
 }

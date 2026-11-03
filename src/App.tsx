@@ -125,6 +125,7 @@ export default function App() {
   const [annotationLabel, setAnnotationLabel] = useState('');
   const [balloonEditorRequest, setBalloonEditorRequest] = useState<{ sequence: number; step: number; targetId: string } | null>(null);
   const [recordedTimeClockEnabled, setRecordedTimeClockEnabled] = useState(DEFAULT_VIDEO_SETTINGS.recordedTimeClockEnabled);
+  const [timeDisplaySettings, setTimeDisplaySettings] = useState(DEFAULT_VIDEO_SETTINGS.timeDisplaySettings);
   const [commonPauseSeconds, setCommonPauseSeconds] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds);
   const [commonPauseInput, setCommonPauseInput] = useState(DEFAULT_VIDEO_SETTINGS.commonPauseSeconds.toFixed(1));
   const [preRollSeconds, setPreRollSeconds] = useState(DEFAULT_VIDEO_SETTINGS.preRollSeconds);
@@ -187,7 +188,7 @@ export default function App() {
   const videoSettings: VideoSettings = {
     duration, commonPauseSeconds, preRollSeconds, postRollSeconds, cameraMode,
     overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom, followViewMode,
-    introZoomEnabled, introZoomStartMode, introZoomStartZoom, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, distanceHudSettings,
+    introZoomEnabled, introZoomStartMode, introZoomStartZoom, routeMarkerMode, dayRouteColorsEnabled, recordedTimeClockEnabled, timeDisplaySettings, distanceHudSettings,
   };
   const timelineBaselineRef = useRef<string | null>(null);
   const planBaselineRef = useRef<string | null>(null);
@@ -218,6 +219,7 @@ export default function App() {
     setRouteMarkerMode(settings.routeMarkerMode);
     setDayRouteColorsEnabled(settings.dayRouteColorsEnabled);
     setRecordedTimeClockEnabled(settings.recordedTimeClockEnabled);
+    setTimeDisplaySettings({ ...settings.timeDisplaySettings });
     setDistanceHudOptions({ enabled: settings.distanceHudSettings.enabled, scale: settings.distanceHudSettings.scale });
   }, []);
 
@@ -509,12 +511,13 @@ export default function App() {
     ? { settings: distanceHudSettings, model: distanceHudModel } : undefined, [distanceHudModel, distanceHudSettings]);
   const framePreviewOptions = useMemo<PreviewFrameOptions>(() => ({
     points: animationPoints, dayMarkers: visibleDayMarkers, dayNumberByPointId: visibleDayNumbers,
-    recordedTimeClockEnabled: showRecordedTimeClock, dayRouteColorsEnabled, endpointMarkerPlacements, endpointMarkerFramePositions,
+    recordedTimeClockEnabled: showRecordedTimeClock, timeDisplaySettings: recordedTimeAvailable ? timeDisplaySettings
+      : { ...timeDisplaySettings, labelMode: 'hidden' }, dayRouteColorsEnabled, endpointMarkerPlacements, endpointMarkerFramePositions,
     routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration, revealRoute: true,
     cameraMode, overviewCamera: overviewCamera ?? undefined, overviewZoomMode, overviewCustomZoom,
     followZoomPreset, followCustomZoom, followViewMode, followCameraPlan: balloonFollowCamera ?? undefined,
     introZoomEnabled, introZoomStartMode, introZoomStartZoom, annotationStyle, distanceHud: distanceHud ? { ...distanceHud, dayColorsEnabled: dayRouteColorsEnabled } : undefined,
-  }), [animationPoints, visibleDayMarkers, visibleDayNumbers, showRecordedTimeClock, dayRouteColorsEnabled,
+  }), [animationPoints, visibleDayMarkers, visibleDayNumbers, showRecordedTimeClock, recordedTimeAvailable, timeDisplaySettings, dayRouteColorsEnabled,
     endpointMarkerPlacements, endpointMarkerFramePositions, routeMarkerMode, commonPauseSeconds, preRollSeconds, postRollSeconds, duration,
     cameraMode, overviewCamera, overviewZoomMode, overviewCustomZoom, followZoomPreset, followCustomZoom,
     followViewMode, balloonFollowCamera, introZoomEnabled, introZoomStartMode, introZoomStartZoom, annotationStyle, distanceHud]);
@@ -1512,10 +1515,37 @@ export default function App() {
                 <HelpTip helpKey="dayRouteColors" />
               </div>
             </div>
-            {recordedTimeAvailable && <div className="control-label-with-help control-label-with-help--toggle" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
-              <label className="toggle-row"><span><strong>実績時刻を表示</strong></span><input type="checkbox" checked={recordedTimeClockEnabled}
-                disabled={!!videoProgress} onChange={(event) => setRecordedTimeClockEnabled(event.target.checked)} /><i /></label>
-              <HelpTip helpKey="recordedTimeClock" />
+            {recordedTimeAvailable && <div className="time-display-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
+              <div className="control-label-with-help control-label-with-help--toggle">
+                <label className="toggle-row"><span><strong>固定の時刻HUD</strong></span><input type="checkbox" checked={recordedTimeClockEnabled}
+                  disabled={!!videoProgress} onChange={(event) => setRecordedTimeClockEnabled(event.target.checked)} /><i /></label>
+                <HelpTip helpKey="recordedTimeClock" />
+              </div>
+              {recordedTimeClockEnabled && <>
+                <div role="group" aria-label="時刻HUDの表示位置" className="video-mode-options">
+                  {([['left', '左上'], ['right', '右上']] as const).map(([position, label]) => <button key={position}
+                    className={timeDisplaySettings.hudPosition === position ? 'active' : ''} aria-pressed={timeDisplaySettings.hudPosition === position}
+                    disabled={!!videoProgress} onClick={() => setTimeDisplaySettings((settings) => ({ ...settings, hudPosition: position }))}>{label}</button>)}
+                </div>
+                <div role="group" aria-label="時刻HUDのサイズ" className="video-mode-options">
+                  {([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([size, label]) => <button key={size}
+                    className={timeDisplaySettings.hudSize === size ? 'active' : ''} aria-pressed={timeDisplaySettings.hudSize === size}
+                    disabled={!!videoProgress} onClick={() => setTimeDisplaySettings((settings) => ({ ...settings, hudSize: size }))}>{label}</button>)}
+                </div>
+              </>}
+              <label className="time-display-select">現在地の時刻ラベル
+                <select value={timeDisplaySettings.labelMode} disabled={!!videoProgress}
+                  onChange={(event) => setTimeDisplaySettings((settings) => ({ ...settings, labelMode: event.target.value as typeof settings.labelMode }))}>
+                  <option value="hidden">非表示</option><option value="always">常時表示</option>
+                  <option value="paused">一時停止時のみ表示</option><option value="interval">一定間隔で表示</option>
+                </select>
+              </label>
+              {timeDisplaySettings.labelMode === 'interval' && <label className="time-display-select">表示間隔（記録時刻の経過）
+                <select value={timeDisplaySettings.intervalMinutes} disabled={!!videoProgress}
+                  onChange={(event) => setTimeDisplaySettings((settings) => ({ ...settings, intervalMinutes: Number(event.target.value) as 30 | 60 }))}>
+                  <option value={30}>30分</option><option value={60}>60分</option>
+                </select>
+              </label>}
             </div>}
             <div className="duration-controls" inert={busy || !!videoProgress || !!videoPlayer.editingBalloonId}>
               <div className="control-label-with-help"><label htmlFor="video-duration-range">移動時間</label><HelpTip helpKey="movementDuration" /></div>

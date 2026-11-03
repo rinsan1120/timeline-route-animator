@@ -4,7 +4,7 @@ import type { AnnotationStyle } from '../route/annotationStyle';
 import type { RouteDistanceProgress } from '../route/routeDistanceProgress';
 import { drawDistanceHud, type DistanceHudOptions } from './distanceHud';
 import { drawCurrentPositionMarker, drawDayMarker, drawEndpointMarker, drawMapAttribution, type VideoDayMarker } from './frameDrawing';
-import { drawRouteClock } from './routeClock';
+import { drawTimeDisplay, type FrameClockDisplay } from './routeClock';
 
 // All coordinates are already projected into the 1920×1080 video frame.
 // Visibility and progress are resolved by each mode before composition.
@@ -12,7 +12,7 @@ export interface VideoFrameScene {
   background: CanvasImageSource;
   routeSegments: { color: string; pixels: { x: number; y: number }[] }[];
   markerPosition: { x: number; y: number };
-  clockText: string | null;
+  clockDisplay: FrameClockDisplay | null;
   annotations: CanvasAnnotation[];
   annotationStyle: AnnotationStyle;
   dayMarkers: VideoDayMarker[];
@@ -42,11 +42,11 @@ export function drawVideoFrame(context: CanvasRenderingContext2D, scene: VideoFr
 
   const { x, y } = scene.markerPosition;
   drawCurrentPositionMarker(context, x, y);
-  drawRouteClock(context, scene.clockText, x, y);
   for (const annotation of scene.annotations) drawAnnotation(context, annotation, scene.annotationStyle);
   for (const dayMarker of scene.dayMarkers) drawDayMarker(context, dayMarker, scene.dayRouteColorsEnabled, scene.annotationStyle);
   for (const endpoint of scene.endpointMarkers) drawEndpointMarker(context, endpoint.pixel, endpoint.label, endpoint.placement, endpoint.framePosition);
   if (scene.distanceHud) drawDistanceHud(context, scene.distanceHud.progress, scene.distanceHud.options);
+  drawTimeDisplay(context, scene.clockDisplay, x, y);
   // Intentionally keep the existing Canvas state inheritance and draw this last.
   drawMapAttribution(context);
 }

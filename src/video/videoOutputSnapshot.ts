@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_DISPLAY } from './routeClock';
 import type { BalloonFramePosition, PopupPlacement } from '../popup/placement';
 import { DEFAULT_ANNOTATION_STYLE, annotationMinimumWidth, parseAnnotationStyle } from '../route/annotationStyle';
 import { buildRoutePointDayNumbers } from '../route/dayRouteColor';
@@ -40,9 +41,15 @@ export function createVideoOutputSnapshot(options: VideoOutputOptions): string {
   const hud = options.distanceHud?.settings.enabled ? options.distanceHud : null;
   const hudLayout = hud ? distanceHudLayout(hud.model, hud.settings.scale) : null;
   const hudPlacement = hud && hudLayout ? clampDistanceHudPlacement(hud.settings, hudLayout) : null;
+  const time = options.timeDisplaySettings ?? DEFAULT_TIME_DISPLAY;
+  const hasClock = options.recordedTimeClockEnabled || time.labelMode !== 'hidden';
   return JSON.stringify({
     route: options.points.map(geometry),
-    recordedTimes: options.recordedTimeClockEnabled ? options.points.map((point) => point.timestamp ?? null) : null,
+    recordedTimes: hasClock ? options.points.map((point) => point.timestamp ?? null) : null,
+    timeDisplay: hasClock ? { hudEnabled: !!options.recordedTimeClockEnabled,
+      hudPosition: options.recordedTimeClockEnabled ? time.hudPosition : null,
+      hudSize: options.recordedTimeClockEnabled ? time.hudSize : null,
+      labelMode: time.labelMode, intervalMinutes: time.labelMode === 'interval' ? time.intervalMinutes : null } : null,
     annotations,
     annotationStyle: annotations.some(Boolean) || (mode === 'day' && markers.length > 0) ? [style.fontScale,
       mode === 'day' && markers.length > 0 ? annotationMinimumWidth(style, 'day') : 0,
@@ -92,6 +99,7 @@ export function captureVideoOutputOptions(options: VideoOutputOptions): VideoOut
   const hudPoints = hud?.model.animationPoints === options.points ? points : hud?.model.animationPoints.map(copyPoint);
   return {
     ...options, points,
+    timeDisplaySettings: options.timeDisplaySettings ? { ...options.timeDisplaySettings } : undefined,
     dayMarkers: options.dayMarkers?.map((marker) => ({ ...marker, placement: copyPlacement(marker.placement), framePosition: copyFramePosition(marker.framePosition) })),
     dayNumberByPointId: options.dayNumberByPointId
       ? new Map(points.flatMap((point) => {

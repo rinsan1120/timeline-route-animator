@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_DISPLAY, type TimeDisplaySettings } from './routeClock';
 import type { RouteMarkerMode } from '../route/routeMarker';
 import { DEFAULT_DISTANCE_HUD, type DistanceHudSettings } from './distanceHud';
 import type { FollowViewMode, FollowZoomPreset, VideoCameraMode } from './followCamera';
@@ -23,6 +24,7 @@ export interface VideoSettings {
   routeMarkerMode: RouteMarkerMode;
   dayRouteColorsEnabled: boolean;
   recordedTimeClockEnabled: boolean;
+  timeDisplaySettings: TimeDisplaySettings;
   distanceHudSettings: DistanceHudSettings;
 }
 
@@ -32,7 +34,7 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   cameraMode: 'overview', overviewZoomMode: 'auto', overviewCustomZoom: 10,
   followZoomPreset: 'standard', followCustomZoom: 10, followViewMode: 'top',
   introZoomEnabled: true, introZoomStartMode: 'auto', introZoomStartZoom: DEFAULT_INTRO_ZOOM_START_ZOOM, routeMarkerMode: 'day', dayRouteColorsEnabled: false,
-  recordedTimeClockEnabled: false, distanceHudSettings: { ...DEFAULT_DISTANCE_HUD },
+  recordedTimeClockEnabled: true, timeDisplaySettings: { ...DEFAULT_TIME_DISPLAY }, distanceHudSettings: { ...DEFAULT_DISTANCE_HUD },
 };
 
 const SETTINGS_ERROR = '動画設定の形式が正しくありません。';
@@ -44,7 +46,7 @@ const isTenth = (value: number): boolean => Math.abs(value * 10 - Math.round(val
 // Absent settings are legacy data; a present object must contain valid settings.
 // Return only known fields, with a fresh HUD object for editable React state.
 export function parseVideoSettings(value: unknown): VideoSettings {
-  if (value === undefined) return { ...DEFAULT_VIDEO_SETTINGS, distanceHudSettings: { ...DEFAULT_VIDEO_SETTINGS.distanceHudSettings } };
+  if (value === undefined) return { ...DEFAULT_VIDEO_SETTINGS, timeDisplaySettings: { ...DEFAULT_TIME_DISPLAY }, distanceHudSettings: { ...DEFAULT_VIDEO_SETTINGS.distanceHudSettings } };
   if (!isRecord(value) || !inRange(value.duration, 5, 120) || !Number.isInteger(value.duration)
     || !isPause(value.commonPauseSeconds) || !isPause(value.preRollSeconds) || !isPause(value.postRollSeconds)
     || (value.cameraMode !== 'overview' && value.cameraMode !== 'follow')
@@ -62,7 +64,18 @@ export function parseVideoSettings(value: unknown): VideoSettings {
     || !isRecord(value.distanceHudSettings) || typeof value.distanceHudSettings.enabled !== 'boolean'
     || !inRange(value.distanceHudSettings.x, 0, VIDEO_VIEWPORT.width) || !inRange(value.distanceHudSettings.y, 0, VIDEO_VIEWPORT.height)
     || !inRange(value.distanceHudSettings.scale, 0.5, 2) || !isTenth(value.distanceHudSettings.scale)) throw new Error(SETTINGS_ERROR);
+  const time = value.timeDisplaySettings;
+  let timeDisplaySettings = { ...DEFAULT_TIME_DISPLAY };
+  if (time !== undefined) {
+    if (!isRecord(time)
+      || (time.hudPosition !== 'left' && time.hudPosition !== 'right')
+      || (time.hudSize !== 'small' && time.hudSize !== 'medium' && time.hudSize !== 'large')
+      || (time.labelMode !== 'hidden' && time.labelMode !== 'always' && time.labelMode !== 'paused' && time.labelMode !== 'interval')
+      || (time.intervalMinutes !== 30 && time.intervalMinutes !== 60)) throw new Error(SETTINGS_ERROR);
+    timeDisplaySettings = { hudPosition: time.hudPosition, hudSize: time.hudSize, labelMode: time.labelMode, intervalMinutes: time.intervalMinutes };
+  }
   return {
+    timeDisplaySettings,
     duration: value.duration, commonPauseSeconds: value.commonPauseSeconds,
     preRollSeconds: value.preRollSeconds, postRollSeconds: value.postRollSeconds,
     cameraMode: value.cameraMode, overviewZoomMode: value.overviewZoomMode, overviewCustomZoom: value.overviewCustomZoom,

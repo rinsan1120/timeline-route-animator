@@ -71,6 +71,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     if (renderer?.getDisplayedState()) {
       requestEpochRef.current += 1;
       const state = renderer.cancelPendingFrames()!;
+      renderer.setPlaybackPaused(true);
       if (!preserveAnchor && !updatingRef.current && state.frameIndex !== requestedFrameRef.current) selectEvent(null);
       retainedFrameRef.current = state.frameIndex;
       retainedPlanRef.current = renderer.getDisplayedPlan();
@@ -229,6 +230,7 @@ export function useVideoPlayer(options: PreviewFrameOptions, enabled: boolean, s
     const fromFrame = retainedFrameRef.current === plan.totalFrames - 1 ? 0 : retainedFrameRef.current;
     playingRef.current = true;
     setPlaybackStatus('playing');
+    renderer.setPlaybackPaused(false);
     const epoch = requestEpochRef.current;
     const isPlaying = () => playingRef.current && rendererRef.current === renderer && epoch === requestEpochRef.current;
     const origin = performance.now();

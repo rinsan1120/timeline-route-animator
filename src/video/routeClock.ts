@@ -32,6 +32,11 @@ export function hasRecordedRouteTime(points: RoutePoint[]): boolean {
 
 // 再生秒数は使わず、既存マーカーと同じ距離進行・停止地点から算出する。RoutePointは変更しない。
 export function sampleRecordedRouteTime(points: RoutePoint[], progress: number, pausePointIndex: number | null = null): string | null {
+  const time = sampleRecordedTime(points, progress, pausePointIndex);
+  return time ? formatTime(time) : null;
+}
+
+export function sampleRecordedTime(points: RoutePoint[], progress: number, pausePointIndex: number | null = null): RecordedTime | null {
   if (!points.length || !Number.isFinite(progress)) return null;
   const position = interpolateTripRoute(points, progress);
   if (!position) return null;
@@ -40,7 +45,7 @@ export function sampleRecordedRouteTime(points: RoutePoint[], progress: number, 
   if (exactIndex !== null) {
     if (!points[exactIndex]) return null;
     const exact = recordedTime(points[exactIndex].timestamp);
-    if (exact) return formatTime(exact);
+    if (exact) return exact;
   }
   const from = exactIndex ?? position.fromIndex;
   const to = exactIndex ?? position.toIndex;
@@ -65,7 +70,7 @@ export function sampleRecordedRouteTime(points: RoutePoint[], progress: number, 
       const fraction = (target - distances[left]) / length;
       if (fraction < 0 || fraction > 1) return null;
       // Offsetが変わる区間は左アンカーのoffsetを使用し、右の実績地点に到達したらその記録へ切り替える。
-      return formatTime({ milliseconds: Math.round(a.milliseconds + (b.milliseconds - a.milliseconds) * fraction), offsetMinutes: a.offsetMinutes });
+      return { milliseconds: Math.round(a.milliseconds + (b.milliseconds - a.milliseconds) * fraction), offsetMinutes: a.offsetMinutes };
     }
     start = end;
   }
@@ -73,8 +78,8 @@ export function sampleRecordedRouteTime(points: RoutePoint[], progress: number, 
 }
 
 export const ROUTE_CLOCK_STYLE = {
-  width: 56, height: 24, fontSize: 14, radius: 6, markerRadius: 11, gap: 6,
-  background: 'rgba(255,255,255,0.92)', color: '#07111f', border: 'rgba(7,17,31,0.35)',
+  width: 56, height: 24, fontSize: 14, radius: 12, markerRadius: 11, gap: 6,
+  background: 'rgba(38,42,47,0.84)', color: '#f8fafc', border: 'rgba(255,255,255,0.18)',
 } as const;
 
 export function routeClockRect(x: number, y: number, width: number, height: number, scale = 1) {
@@ -91,18 +96,19 @@ export function routeClockRect(x: number, y: number, width: number, height: numb
 
 export function drawRouteClock(context: CanvasRenderingContext2D, text: string | null, x: number, y: number) {
   if (!text) return;
-  const rect = routeClockRect(x, y, context.canvas.width, context.canvas.height, 2);
+  const scale = Math.min(context.canvas.width / 1920, context.canvas.height / 1080);
+  const rect = routeClockRect(x, y, context.canvas.width, context.canvas.height, 2 * scale);
   context.save();
   context.shadowBlur = 0;
   context.beginPath();
-  context.roundRect(rect.x, rect.y, rect.width, rect.height, ROUTE_CLOCK_STYLE.radius * 2);
+  context.roundRect(rect.x, rect.y, rect.width, rect.height, ROUTE_CLOCK_STYLE.radius * 2 * scale);
   context.fillStyle = ROUTE_CLOCK_STYLE.background;
   context.fill();
   context.strokeStyle = ROUTE_CLOCK_STYLE.border;
-  context.lineWidth = 2;
+  context.lineWidth = 2 * scale;
   context.stroke();
   context.fillStyle = ROUTE_CLOCK_STYLE.color;
-  context.font = `600 ${ROUTE_CLOCK_STYLE.fontSize * 2}px system-ui, sans-serif`;
+  context.font = `600 ${ROUTE_CLOCK_STYLE.fontSize * 2 * scale}px ui-monospace, Consolas, monospace`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillText(text, rect.x + rect.width / 2, rect.y + rect.height / 2);
@@ -112,4 +118,59 @@ export function drawRouteClock(context: CanvasRenderingContext2D, text: string |
 // DAY移動のパン中はマーカーが前日の終点に残るため、その地点を優先する。
 export function followClockPointIndex(playback: FollowPlaybackState, pausePointIndex: number | null): number | null {
   return pausePointIndex ?? (playback.phase === 'day-transition' ? playback.reachedPointIndex : null);
+}
+
+export interface TimeDisplaySettings {
+  hudPosition: 'left' | 'right';
+  hudSize: 'small' | 'medium' | 'large';
+  labelMode: 'hidden' | 'always' | 'paused' | 'interval';
+  intervalMinutes: 30 | 60;
+}
+
+export const DEFAULT_TIME_DISPLAY: TimeDisplaySettings = {
+  hudPosition: 'right', hudSize: 'medium', labelMode: 'hidden', intervalMinutes: 30,
+};
+
+export interface FrameClockDisplay {
+  text: string;
+  hudEnabled: boolean;
+  settings: TimeDisplaySettings;
+  labelVisible: boolean;
+  pausedLabelVisible: boolean;
+}
+
+export function drawTimeDisplay(context: CanvasRenderingContext2D, clock: FrameClockDisplay | null, x: number, y: number) {
+  if (!clock) return;
+  if (clock.labelVisible) drawRouteClock(context, clock.text, x, y);
+  if (!clock.hudEnabled) return;
+  const scale = Math.min(context.canvas.width / 1920, context.canvas.height / 1080);
+  const size = { small: 0.8, medium: 1, large: 1.25 }[clock.settings.hudSize] * scale;
+  const width = 216 * size, height = 116 * size, margin = 40 * scale;
+  const left = clock.settings.hudPosition === 'left' ? margin : context.canvas.width - margin - width;
+  context.save();
+  context.shadowBlur = 0;
+  context.beginPath();
+  context.roundRect(left, margin, width, height, 16 * size);
+  context.fillStyle = 'rgba(38,42,47,0.84)';
+  context.fill();
+  context.strokeStyle = 'rgba(255,255,255,0.18)';
+  context.lineWidth = size;
+  context.stroke();
+  context.textAlign = 'left';
+  context.textBaseline = 'top';
+  context.fillStyle = '#cbd5df';
+  context.font = `500 ${17 * size}px ui-monospace, Consolas, monospace`;
+  context.fillText('LOCAL TIME', left + 24 * size, margin + 20 * size);
+  context.fillStyle = '#f8fafc';
+  context.font = `600 ${48 * size}px ui-monospace, Consolas, monospace`;
+  context.fillText(clock.text, left + 24 * size, margin + 48 * size);
+  context.restore();
+}
+
+export function firstRecordedMilliseconds(points: RoutePoint[]): number | null {
+  for (const point of points) {
+    const time = recordedTime(point.timestamp);
+    if (time) return time.milliseconds;
+  }
+  return null;
 }
