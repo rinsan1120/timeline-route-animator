@@ -351,13 +351,13 @@ export const GSI_ATTRIBUTION = source.attributionText;
 
 const officialLayers = GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance);
 const nationalRouteLayer = officialLayers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
+const nationalRouteLayerWithoutFilter = nationalRouteLayer && (({ filter, ...layer }: MutableLayer) => layer)(nationalRouteLayer as MutableLayer);
 const configuredLayers = orderConfiguredLayers([
   ...officialLayers,
-  ...(labels.showLowZoomNationalRouteNumbers && nationalRouteLayer ? [{
-    ...nationalRouteLayer,
+  ...(labels.showLowZoomNationalRouteNumbers && nationalRouteLayerWithoutFilter ? [{
+    ...nationalRouteLayerWithoutFilter,
     id: 'gsi-lowzoom-national-route-number',
     'source-layer': GSI_ROUTE_NUMBER_SOURCE_LAYER,
-    filter: undefined,
     minzoom: GSI_ZOOM_CONFIG.labels.lowZoomNationalRouteNumber,
     maxzoom: 9,
   } as StyleLayer] : []),
