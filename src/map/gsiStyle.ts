@@ -4,6 +4,7 @@ import { GSI_COLOR_CONFIG } from './gsiColorConfig';
 import { GSI_ZOOM_CONFIG } from './gsiZoomConfig';
 import { GSI_VECTOR_CONFIG } from './gsiVectorConfig';
 import { GSI_COASTAL_LAND_SOURCE_LAYER } from './gsiCoastalLand';
+import { GSI_ROUTE_NUMBER_SCHEME, GSI_ROUTE_NUMBER_SOURCE_LAYER } from './gsiRouteNumber';
 
 type StyleLayer = StyleSpecification['layers'][number];
 type MutableLayer = StyleLayer & {
@@ -329,7 +330,7 @@ function orderConfiguredLayers(layersToOrder: StyleLayer[]): StyleLayer[] {
   const routeNumberLayers: StyleLayer[] = [];
 
   for (const layer of layersToOrder) {
-    if (isRouteNumberLayer(layer, [2901, 2903, 2904])) {
+    if (isRouteNumberLayer(layer, [2901, 2903, 2904]) || sourceLayerOf(layer) === GSI_ROUTE_NUMBER_SOURCE_LAYER) {
       routeNumberLayers.push(layer);
     } else if (labels.prioritizeMunicipalityNames && isMunicipalityLabelLayer(layer)) {
       municipalityLayers.push(layer);
@@ -348,9 +349,19 @@ if (!officialSource || officialSource.type !== 'vector') {
 
 export const GSI_ATTRIBUTION = source.attributionText;
 
-const configuredLayers = orderConfiguredLayers(
-  GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance),
-);
+const officialLayers = GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance);
+const nationalRouteLayer = officialLayers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
+const configuredLayers = orderConfiguredLayers([
+  ...officialLayers,
+  ...(labels.showLowZoomNationalRouteNumbers && nationalRouteLayer ? [{
+    ...nationalRouteLayer,
+    id: 'gsi-lowzoom-national-route-number',
+    'source-layer': GSI_ROUTE_NUMBER_SOURCE_LAYER,
+    filter: undefined,
+    minzoom: GSI_ZOOM_CONFIG.labels.lowZoomNationalRouteNumber,
+    maxzoom: 9,
+  } as StyleLayer] : []),
+]);
 
 // MapLibre 6.7のcolor-reliefは直下のinterpolateから色表を生成する（caseでは描画されない）。
 // 最後の1mで透明にし、5000m以上（NA=83886.08、signed負値を含む）は透明を維持。
@@ -384,7 +395,7 @@ export const GSI_STYLE: StyleSpecification = {
     } : {}),
     [GSI_OFFICIAL_SOURCE_ID]: {
       ...officialSource,
-      tiles: [source.vectorTileUrl],
+      tiles: [`${GSI_ROUTE_NUMBER_SCHEME}://{z}/{x}/{y}`],
       minzoom: GSI_ZOOM_CONFIG.source.minZoom,
       maxzoom: GSI_ZOOM_CONFIG.source.maxZoom,
       attribution: source.attributionHtml,

@@ -654,7 +654,8 @@ describe('GSI Vector video background', () => {
     ]);
     for (const path of protectedPaths) {
       const actualLayers = GSI_STYLE.layers.filter((layer) =>
-        (layer.metadata as { path?: string } | undefined)?.path === path);
+        (layer.metadata as { path?: string } | undefined)?.path === path
+        && layer.id !== 'gsi-lowzoom-national-route-number');
       expect(actualLayers.length, path).toBeGreaterThan(0);
       const officialLayers = GSI_OFFICIAL_STYLE.layers.filter((layer) =>
         (layer.metadata as { path?: string } | undefined)?.path === path
@@ -834,7 +835,7 @@ describe('GSI Vector video background', () => {
     expect(map.options.style).toBe(GSI_STYLE);
     expect(GSI_STYLE.sources[GSI_OFFICIAL_SOURCE_ID]).toMatchObject({
       type: 'vector',
-      tiles: ['https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/{z}/{x}/{y}.pbf'],
+      tiles: ['gsi-route://{z}/{x}/{y}'],
       minzoom: 4,
       maxzoom: 16,
     });

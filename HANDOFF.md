@@ -1,5 +1,13 @@
 # HANDOFF
 
+## 国道番号の広域補完（2026-11-04）
+
+- 最新mainを基準に、公式タイル用の`gsi-route`プロトコルを登録。z7/z8の要求だけ、その範囲のz9子タイル16枚／4枚から`transp.ftCode=2901`のポイントを変換し、専用`GsiRouteNumber`レイヤーを元のMVT byte列へ追記する。変換座標と番号でバッファ重複を除去し、親タイル境界は半開区間で所有を分ける。既存レイヤー・公式番号のZoom帯・配色・帰属表示は維持。
+- 共有`GSI_STYLE`の最前面側へ公式1349と同じ外観の補完シンボルを追加。`gsiZoomConfig.ts`の`labels.lowZoomNationalRouteNumber`（初期7.5）からZoom 9未満だけ表示し、9以上は従来の公式表示を使用。`gsiVectorConfig.ts`の`labels.showLowZoomNationalRouteNumbers`（初期true）で補完を切替。既存の国道番号表示OFFも尊重する。編集地図・プレビュー・MP4・PNGで共通利用。
+- z9取得は進行中のPromiseと最大128件の完了キャッシュを共有し、各MapのAbortSignalを独立管理。最後の利用者がキャンセルした場合のみ共有取得を中断する。元のHTTPS URLを通常fetchしてブラウザHTTPキャッシュも利用。子タイル欠落・取得失敗・解析失敗時は元タイルを返し、z9以上は子取得・マージを行わない。元タイルのHTTPエラーはMapLibreのステータス処理を維持する。
+- 合成fixtureで座標変換・異なるextent・バッファ重複・国道以外の除外・z7/z8・子欠落／失敗・z9以上不介入・共有キャッシュ／キャンセル・共有スタイルの外観と境界を検証。既存rendererテストは追加レイヤーとプロトコルURLへの期待値のみ更新。海陸補完・動画監査・カメラ・出力形式・編集機能・保存形式は変更なし。
+- 自動検証：`npm test`は288テスト成功、任意private実データ用1ファイルはスキップ。TypeScriptチェック成功。実ブラウザ・実PNG／MP4生成・目視確認は未実施。札幌／根室のZoom 7.5・8.5・9.1の継ぎ目、PNG 1枚、問題ルートのMP4 1回はオーナー確認。ローカルコミットまで、pushなし。
+
 ## Current handoff / branch baseline (2026-10-17)
 
 - **Current source of truth:** `main` in `rinsan1120/timeline-route-animator`; V1.3 is merged via [PR #28](https://github.com/rinsan1120/timeline-route-animator/pull/28), merge commit `b91055b`. The associated [main GitHub Pages deployment](https://github.com/rinsan1120/timeline-route-animator/actions/runs/38998626252) succeeded, including its existing tests and build.

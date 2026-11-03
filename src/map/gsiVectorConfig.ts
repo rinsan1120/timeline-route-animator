@@ -108,6 +108,8 @@ export const GSI_VECTOR_CONFIG = {
   labels: {
     // 国道番号（transp.ftCode === 2901）の公式レイヤ群を表示するか。Zoom帯・text-field・icon-imageは公式定義を維持する。
     showNationalRouteNumbers: true,
+    // z9の国道番号をz7/z8タイルへ補完し、広域表示でも国道番号を表示するか。
+    showLowZoomNationalRouteNumbers: true,
     // 高速道路・都市高速道路番号（transp.ftCode === 2903/2904）の公式レイヤ群を表示するか。
     showExpresswayRouteNumbers: true,
     // 公式spriteの道路番号icon-size倍率。1で公式値、大きくすると各Zoom帯の差を保ったまま大きくなる。

@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic MVT-shaped z8/z9 data, no personal data. The shield at parent (8192,4096) is buffered into both northern children. Children use different MVT extents; no-transp and empty-transp tiles are valid, missing tiles are not.",
+  "parent": { "z": 8, "x": 100, "y": 80 },
+  "children": [
+    { "z": 9, "x": 200, "y": 160, "extent": 4096, "points": [[4096,2048,2901,"12",1],[1024,1024,2901,"34",1],[2048,2048,2904,"E1",1],[3000,3000,2901,"56",2],[1024,1024,2901,"78",1]] },
+    { "z": 9, "x": 201, "y": 160, "extent": 8192, "points": [[0,4096,2901,"12",1],[-6144,2048,2901,"34",1],[2048,2048,2903,"C1",1]] },
+    { "z": 9, "x": 200, "y": 161, "extent": 4096, "points": [[2048,1024,2901,"90",1]] },
+    { "z": 9, "x": 201, "y": 161, "extent": 4096, "points": [] }
+  ]
+}
