@@ -36,6 +36,17 @@ describe('GSI style', () => {
     for (const layer of boundaries) expect(layer.paint).toMatchObject({ 'line-color': GSI_COLOR_CONFIG.boundary, 'line-opacity': GSI_VECTOR_CONFIG.lines.overviewBoundaryOpacity });
   });
 
+  it('applies natural-name zoom floors without changing unrelated labels', () => {
+    const layer = (id: string) => GSI_STYLE.layers.find((item) => item.id === `gsibv-vectortile-layer-${id}`);
+    expect(layer('1499')?.minzoom).toBe(8);
+    expect(layer('1518')?.minzoom).toBe(10);
+    expect(layer('1504')?.minzoom).toBe(11);
+    expect(layer('1496')?.minzoom).toBe(12);
+    expect(layer('1497')?.minzoom).toBe(14);
+    for (const id of ['1519', '1524', '1525', '1495']) expect(layer(id)).toBeUndefined();
+    expect(layer('1514')?.minzoom).toBe(8);
+  });
+
   it('places hillshade above the color relief and removes both before the DEM fallback', () => {
     const tint = GSI_STYLE.layers.findIndex((layer) => layer.id === GSI_TERRAIN_TINT_LAYER_ID);
     expect(GSI_STYLE.layers[tint + 1]).toMatchObject({ id: GSI_HILLSHADE_LAYER_ID, type: 'hillshade', source: GSI_DEM_SOURCE_ID });

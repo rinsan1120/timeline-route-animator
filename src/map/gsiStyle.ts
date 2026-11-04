@@ -60,6 +60,22 @@ function isMunicipalityLabelLayer(layer: StyleLayer): boolean {
     && metadataPathOf(layer) === '注記-市区町村';
 }
 
+function naturalNameMinZoom(layer: StyleLayer): number | undefined {
+  if (layer.type !== 'symbol' || sourceLayerOf(layer) !== 'label') return undefined;
+  const categories: number[] = [];
+  const visit = (filter: unknown): void => {
+    if (!Array.isArray(filter)) return;
+    if ((filter[0] === 'in' || filter[0] === '==') && filter[1] === 'annoCtg') {
+      categories.push(...filter.slice(2).filter((value): value is number => typeof value === 'number'));
+    } else filter.forEach(visit);
+  };
+  visit((layer as MutableLayer).filter);
+  if (!categories.length) return undefined;
+  const group = (code: number) => code === 321 ? 'lake' : [311, 312, 314, 315, 316].includes(code) ? 'mountain' : code === 322 ? 'river' : undefined;
+  const category = group(categories[0]);
+  return category && categories.every((code) => group(code) === category) ? GSI_ZOOM_CONFIG.labels.naturalNames[category] : undefined;
+}
+
 function isOverviewMajorRoadLayer(layer: StyleLayer): boolean {
   return sourceLayerOf(layer) === 'road' && metadataPathOf(layer) === '道路-主要な道路';
 }
@@ -262,6 +278,9 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
     cloned.paint = { ...cloned.paint, 'line-opacity': lines.overviewBoundaryOpacity };
   }
 
+  const naturalMinZoom = naturalNameMinZoom(cloned);
+  if (naturalMinZoom !== undefined) cloned.minzoom = Math.max(cloned.minzoom ?? 0, naturalMinZoom);
+
   const facilityMinZoom = roadFacilityNameMinZoom(path);
   if (facilityMinZoom !== undefined && cloned.type === 'symbol' && cloned.layout?.['text-field'] !== undefined) {
     cloned.minzoom = facilityMinZoom;
@@ -356,7 +375,8 @@ if (!officialSource || officialSource.type !== 'vector') {
 
 export const GSI_ATTRIBUTION = source.attributionText;
 
-const officialLayers = GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance);
+const officialLayers = GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(applyConfiguredAppearance)
+  .filter((layer) => layer.maxzoom === undefined || (layer.minzoom ?? 0) < layer.maxzoom);
 const nationalRouteLayer = officialLayers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
 const nationalRouteLayerWithoutFilter = nationalRouteLayer && (({ filter, ...layer }: MutableLayer) => layer)(nationalRouteLayer as MutableLayer);
 const configuredLayers = orderConfiguredLayers([

@@ -647,7 +647,7 @@ describe('GSI Vector video background', () => {
   it('retains unrelated symbols, place names, route numbers and the order of roads and water', () => {
     const protectedPaths = new Set([
       '記号-墓地', '記号-神社', '記号-寺院', '記号-官公署', '記号-史跡・名勝・天然記念物',
-      '注記-都道府県', '注記-市区町村', '注記-山', '注記-河川名', '注記-湖沼名', '注記-道路名',
+      '注記-都道府県', '注記-市区町村', '注記-山', '注記-道路名',
       '交通構造物-国道番号', '交通構造物-都市高速道路番号', '交通構造物-高速道路番号',
       '交通構造物-インターチェンジ', '交通構造物-ジャンクション',
       '交通構造物-サービスエリア', '交通構造物-パーキングエリア',

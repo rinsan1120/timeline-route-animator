@@ -32,6 +32,8 @@ export const GSI_ZOOM_CONFIG = {
     fadeEndZoom: 9,
   },
   labels: {
+    // 自然地名の分類別表示開始Zoom（公式の開始Zoomを早めない）。
+    naturalNames: { lake: 8, mountain: 10, river: 12 },
     // 国道番号の表示を開始するZoom。小さい値ほど広域表示から見える。
     // タイルに対象地物が含まれないZoomでは、この値を下げても表示されない。
     // ブラウザ地図左下の「Zoom x.x」を確認しながら調整する。
