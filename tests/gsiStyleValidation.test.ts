@@ -50,6 +50,18 @@ describe('GSI style', () => {
     expect(layer('1514')?.minzoom).toBe(8);
   });
 
+  it('keeps mountain range labels smaller with their original zoom bands and natural color', () => {
+    for (const [id, minzoom, maxzoom, stops] of [
+      ['1490', 8, 11, [[8, 10], [9, 12], [10, 13]]],
+      ['1491', 11, 14, [[12, 12], [13, 13], [14, 14]]],
+      ['1517', 6, 8, [[7, 11], [8, 12]]],
+    ] as const) {
+      expect(GSI_STYLE.layers.find((layer) => layer.id === `gsibv-vectortile-layer-${id}`)).toMatchObject({
+        minzoom, maxzoom, layout: { 'text-size': { stops } }, paint: { 'text-color': GSI_COLOR_CONFIG.naturalLabel },
+      });
+    }
+  });
+
   it('places hillshade above the color relief and removes both before the DEM fallback', () => {
     const tint = GSI_STYLE.layers.findIndex((layer) => layer.id === GSI_TERRAIN_TINT_LAYER_ID);
     expect(GSI_STYLE.layers[tint + 1]).toMatchObject({ id: GSI_HILLSHADE_LAYER_ID, type: 'hillshade', source: GSI_DEM_SOURCE_ID });

@@ -281,6 +281,16 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   const naturalMinZoom = naturalNameMinZoom(cloned);
   if (naturalMinZoom !== undefined) cloned.minzoom = Math.max(cloned.minzoom ?? 0, naturalMinZoom);
 
+  if (cloned.type === 'symbol' && sourceLayer === 'label'
+    && filterContainsValue(cloned.filter, 'annoCtg', new Set([333]))) {
+    const sizes: Record<string, number[][]> = {
+      'gsibv-vectortile-layer-1490': [[8, 10], [9, 12], [10, 13]],
+      'gsibv-vectortile-layer-1491': [[12, 12], [13, 13], [14, 14]],
+      'gsibv-vectortile-layer-1517': [[7, 11], [8, 12]],
+    };
+    if (sizes[cloned.id]) cloned.layout = { ...cloned.layout, 'text-size': { stops: sizes[cloned.id] } };
+  }
+
   const facilityMinZoom = roadFacilityNameMinZoom(path);
   if (facilityMinZoom !== undefined && cloned.type === 'symbol' && cloned.layout?.['text-field'] !== undefined) {
     cloned.minzoom = facilityMinZoom;
