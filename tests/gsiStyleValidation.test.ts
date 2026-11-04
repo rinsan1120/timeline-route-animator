@@ -26,7 +26,10 @@ describe('GSI style', () => {
       layout: { 'text-field': '{vt_text}', 'text-font': ['NotoSansCJKjp-Regular'], 'text-size': ['match', ['get', 'vt_code'], 1301, 15, 1302, 13, 12] },
       paint: { 'text-color': GSI_COLOR_CONFIG.lowZoomMunicipalityLabel, 'text-halo-color': GSI_COLOR_CONFIG.labelHalo },
     });
-    expect(index).toBeLessThan(GSI_STYLE.layers.findIndex((layer) => layer.id === 'gsibv-vectortile-layer-1515'));
+    const officialIndex = GSI_STYLE.layers.findIndex((layer) => layer.id === 'gsibv-vectortile-layer-1515');
+    expect(index).toBeGreaterThan(GSI_STYLE.layers.findIndex((layer) => layer.id === 'gsibv-vectortile-layer-1518'));
+    expect(index + 1).toBe(officialIndex);
+    expect(GSI_STYLE.layers.at(-1)?.id).toBe('gsi-lowzoom-national-route-number');
   });
 
   it('shows only the overview prefectural boundary layers and stops them at zoom 10', () => {

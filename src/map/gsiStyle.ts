@@ -358,7 +358,7 @@ function orderConfiguredLayers(layersToOrder: StyleLayer[]): StyleLayer[] {
   for (const layer of layersToOrder) {
     if (isRouteNumberLayer(layer, [2901, 2903, 2904]) || sourceLayerOf(layer) === GSI_ROUTE_NUMBER_SOURCE_LAYER) {
       routeNumberLayers.push(layer);
-    } else if (labels.prioritizeMunicipalityNames && isMunicipalityLabelLayer(layer)) {
+    } else if (labels.prioritizeMunicipalityNames && (layer.id === 'gsi-lowzoom-municipality-label' || isMunicipalityLabelLayer(layer))) {
       municipalityLayers.push(layer);
     } else {
       otherLayers.push(layer);
