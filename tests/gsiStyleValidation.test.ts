@@ -62,6 +62,15 @@ describe('GSI style', () => {
     }
   });
 
+  it('removes opacity fades only from prefecture and mountain range labels', () => {
+    for (const id of ['1490', '1491', '1514', '1517', '1531']) {
+      expect(GSI_STYLE.layers.find((layer) => layer.id === `gsibv-vectortile-layer-${id}`))
+        .toMatchObject({ paint: { 'text-opacity': 1, 'icon-opacity': 1 } });
+    }
+    const municipality = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1515');
+    expect(municipality?.paint?.['text-opacity']).toEqual(['interpolate', ['linear'], ['zoom'], 8, 0.9, 8.5, 1]);
+  });
+
   it('places hillshade above the color relief and removes both before the DEM fallback', () => {
     const tint = GSI_STYLE.layers.findIndex((layer) => layer.id === GSI_TERRAIN_TINT_LAYER_ID);
     expect(GSI_STYLE.layers[tint + 1]).toMatchObject({ id: GSI_HILLSHADE_LAYER_ID, type: 'hillshade', source: GSI_DEM_SOURCE_ID });

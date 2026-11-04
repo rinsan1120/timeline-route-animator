@@ -357,6 +357,10 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
     }
   }
   applyZoomTransition(cloned);
+  if (cloned.type === 'symbol' && sourceLayer === 'label'
+    && filterContainsValue(cloned.filter, 'annoCtg', new Set([140, 333]))) {
+    cloned.paint = { ...cloned.paint, 'text-opacity': 1, 'icon-opacity': 1 };
+  }
   return cloned;
 }
 
