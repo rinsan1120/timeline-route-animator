@@ -103,6 +103,8 @@ export const GSI_VECTOR_CONFIG = {
     railwayWidthScale: 0.8,
     // boundary source-layerの公式線幅倍率。大きくすると都道府県界・市区町村界が強くなる。
     boundaryWidthScale: 1,
+    // 広域の都道府県界を控えめに表示する不透明度。
+    overviewBoundaryOpacity: 0.4,
   },
 
   labels: {
@@ -120,6 +122,8 @@ export const GSI_VECTOR_CONFIG = {
     showPrefectureNames: true,
     // 市区町村名の公式注記レイヤを表示するか。Zoom別の注記構成は変更しない。
     showMunicipalityNames: true,
+    // PMTilesの市区町村名で広域の公式注記を補完する。
+    showLowZoomMunicipalityNames: true,
     // 市区町村名を一般注記より前面へ配置し、伊勢崎市などの自治体名を優先表示する。
     // タイルに存在しない市区町村名を新たに生成するものではない。
     prioritizeMunicipalityNames: true,
@@ -154,7 +158,7 @@ export const GSI_VECTOR_CONFIG = {
     railways: true,
     // waterarea・river・lake・coastlineの表示。falseで水域と水系を除外する。
     water: true,
-    // boundary source-layerの表示。falseで都道府県界・市区町村界を除外する。
+    // boundary source-layerの表示。falseで市区町村界を除外し、都道府県界はZoom 10未満のみ表示する。
     boundaries: false,
     // transp.ftCode === 2901の国道番号表示。falseで国道番号記号を除外する。
     nationalRouteNumbers: true,

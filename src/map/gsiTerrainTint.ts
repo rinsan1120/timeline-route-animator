@@ -1,5 +1,5 @@
 import type { ErrorEvent, Map as MapLibreMap, MapSourceDataEvent } from 'maplibre-gl';
-import { GSI_DEM_SOURCE_ID, GSI_TERRAIN_TINT_LAYER_ID } from './gsiStyle';
+import { GSI_DEM_SOURCE_ID, GSI_HILLSHADE_LAYER_ID, GSI_TERRAIN_TINT_LAYER_ID } from './gsiStyle';
 
 export function isTerrainTintError(event: ErrorEvent): boolean {
   // MapLibre 6.7 Style.addSourceのevented parentがsourceIdを付加する。
@@ -8,6 +8,7 @@ export function isTerrainTintError(event: ErrorEvent): boolean {
 }
 
 export function removeTerrainTint(map: MapLibreMap): void {
+  if (map.getLayer(GSI_HILLSHADE_LAYER_ID)) map.removeLayer(GSI_HILLSHADE_LAYER_ID);
   if (map.getLayer(GSI_TERRAIN_TINT_LAYER_ID)) map.removeLayer(GSI_TERRAIN_TINT_LAYER_ID);
   if (map.getSource(GSI_DEM_SOURCE_ID)) map.removeSource(GSI_DEM_SOURCE_ID);
 }

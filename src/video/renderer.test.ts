@@ -712,7 +712,9 @@ describe('GSI Vector video background', () => {
     expect(detailedLand.maxzoom).toBeUndefined();
     expect(GSI_STYLE.sources[GSI_DETAILED_LAND_SOURCE_ID]).toMatchObject({ type: 'vector', minzoom: 4, maxzoom: 16 });
     expect(GSI_STYLE.layers[5].id).toBe(GSI_TERRAIN_TINT_LAYER_ID);
-    expect(GSI_STYLE.layers.slice(6).every((layer) => 'source' in layer && layer.source === GSI_OFFICIAL_SOURCE_ID)).toBe(true);
+    expect(GSI_STYLE.layers[6]).toMatchObject({ id: 'gsi-terrain-hillshade', source: GSI_DEM_SOURCE_ID });
+    expect(GSI_STYLE.layers[7]).toMatchObject({ id: 'gsi-lowzoom-municipality-label', source: GSI_LOW_ZOOM_LAND_SOURCE_ID });
+    expect(GSI_STYLE.layers.slice(8).every((layer) => 'source' in layer && layer.source === GSI_OFFICIAL_SOURCE_ID)).toBe(true);
   });
 
   it.each([

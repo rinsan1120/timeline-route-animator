@@ -38,6 +38,8 @@ export const GSI_ZOOM_CONFIG = {
     nationalRouteNumber: 4,
     // z9から補完した国道番号の表示開始Zoom。補完対象はz7/z8のみ、Zoom 9で公式表示へ切り替わる。
     lowZoomNationalRouteNumber: 7.5,
+    // PMTilesによる広域市区町村名の表示開始Zoom。Zoom 10で終了する。
+    lowZoomMunicipalityName: 7.5,
     roadFacilities: {
       // インターチェンジ名称の表示開始Zoom。小さくすると広域から、大きくすると拡大時から表示する。
       // 対象Zoomのタイルに名称データがある場合のみ表示できる。

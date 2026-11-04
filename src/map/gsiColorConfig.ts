@@ -11,9 +11,9 @@ export const GSI_COLOR_CONFIG = {
   // 「道路-主要な道路」に公式outlineがある場合だけ使う輪郭色。独自outlineは生成しない。
   overviewMajorRoadOutline: '#95A6B4',
   // road source-layerのmotorway === 1に使う高速道路色。オレンジ色ルートと識別しやすい緑色とする。
-  motorway: '#0e8536',
-  // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい淡いベージュとする。
-  nationalRoad: '#eccd7f',
+  motorway: '#619473',
+  // road source-layerのrdCtg === 0に使う一般国道色。オレンジ色ルートと混同しにくい黄みを抑えた色とする。
+  nationalRoad: '#d4c075',
   // road source-layerのrdCtg === 1に使う都道府県道色。道路網を主張させない淡い青灰色とする。
   prefecturalRoad: '#cfdbe4',
   // road source-layerのその他道路に使う線色。市区町村道や細街路を背景へ溶け込ませる。

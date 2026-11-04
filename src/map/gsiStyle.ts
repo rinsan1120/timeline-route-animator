@@ -24,6 +24,7 @@ export const GSI_REQUIRED_VECTOR_SOURCE_IDS = [GSI_OFFICIAL_SOURCE_ID,
   ...(lowZoomLand.enabled ? [GSI_LOW_ZOOM_LAND_SOURCE_ID, GSI_DETAILED_LAND_SOURCE_ID] : [])];
 export const GSI_DEM_SOURCE_ID = 'gsi-dem';
 export const GSI_TERRAIN_TINT_LAYER_ID = 'gsi-terrain-tint';
+export const GSI_HILLSHADE_LAYER_ID = 'gsi-terrain-hillshade';
 const WATER_SOURCE_LAYERS = new Set(['waterarea', 'river', 'lake', 'coastline']);
 const DETAILED_LANDFORM_SOURCE_LAYERS = new Set(['landforma', 'landforml', 'landformp']);
 const GEODETIC_POINT_CODES = new Set([7101, 7102, 7103]);
@@ -95,7 +96,8 @@ function shouldKeepLayer(layer: StyleLayer): boolean {
   if (sourceLayer && DETAILED_LANDFORM_SOURCE_LAYERS.has(sourceLayer) && !visibility.detailedLandforms) return false;
   if (sourceLayer === 'railway' && !visibility.railways) return false;
   if (sourceLayer && WATER_SOURCE_LAYERS.has(sourceLayer) && !visibility.water) return false;
-  if (sourceLayer === 'boundary' && !visibility.boundaries) return false;
+  if (sourceLayer === 'boundary' && !visibility.boundaries
+    && !filterContainsValue((layer as MutableLayer).filter, 'ftCode', new Set([1211, 51212]))) return false;
   if (isRouteNumberLayer(layer, [2901]) && (!visibility.nationalRouteNumbers || !labels.showNationalRouteNumbers)) return false;
   if (isRouteNumberLayer(layer, [2903, 2904]) && (!visibility.expresswayRouteNumbers || !labels.showExpresswayRouteNumbers)) return false;
   if (
@@ -255,6 +257,11 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
   const sourceLayer = sourceLayerOf(cloned);
   const path = metadataPathOf(cloned);
 
+  if (sourceLayer === 'boundary' && !visibility.boundaries) {
+    cloned.maxzoom = Math.min(cloned.maxzoom ?? 10, 10);
+    cloned.paint = { ...cloned.paint, 'line-opacity': lines.overviewBoundaryOpacity };
+  }
+
   const facilityMinZoom = roadFacilityNameMinZoom(path);
   if (facilityMinZoom !== undefined && cloned.type === 'symbol' && cloned.layout?.['text-field'] !== undefined) {
     cloned.minzoom = facilityMinZoom;
@@ -353,6 +360,21 @@ const officialLayers = GSI_OFFICIAL_STYLE.layers.filter(shouldKeepLayer).map(app
 const nationalRouteLayer = officialLayers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349');
 const nationalRouteLayerWithoutFilter = nationalRouteLayer && (({ filter, ...layer }: MutableLayer) => layer)(nationalRouteLayer as MutableLayer);
 const configuredLayers = orderConfiguredLayers([
+  ...(lowZoomLand.enabled && labels.showMunicipalityNames && labels.showLowZoomMunicipalityNames ? [{
+    id: 'gsi-lowzoom-municipality-label',
+    type: 'symbol' as const,
+    source: GSI_LOW_ZOOM_LAND_SOURCE_ID,
+    'source-layer': 'Anno',
+    minzoom: GSI_ZOOM_CONFIG.labels.lowZoomMunicipalityName,
+    maxzoom: 10,
+    filter: ['in', 'vt_code', 1301, 1302, 1303],
+    layout: {
+      'text-field': '{vt_text}',
+      'text-font': ['NotoSansCJKjp-Regular'],
+      'text-size': ['match', ['get', 'vt_code'], 1301, 13, 1302, 11, 10],
+    },
+    paint: { 'text-color': colors.placeLabel, 'text-halo-color': colors.labelHalo, 'text-halo-width': 1 },
+  } as StyleLayer] : []),
   ...officialLayers,
   ...(labels.showLowZoomNationalRouteNumbers && nationalRouteLayerWithoutFilter ? [{
     ...nationalRouteLayerWithoutFilter,
@@ -463,6 +485,11 @@ export const GSI_STYLE: StyleSpecification = {
         'color-relief-color': terrainTintColor,
         'color-relief-opacity': GSI_COLOR_CONFIG.terrain.opacity,
       },
+    }, {
+      id: GSI_HILLSHADE_LAYER_ID,
+      type: 'hillshade' as const,
+      source: GSI_DEM_SOURCE_ID,
+      paint: { 'hillshade-exaggeration': 0.15 },
     }] : []),
     ...configuredLayers,
   ],
