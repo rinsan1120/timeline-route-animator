@@ -50,6 +50,9 @@ export const GSI_COLOR_CONFIG = {
   elevation: '#786f65',
 
   terrain: {
+    hillshadeShadow: 'rgba(43, 58, 48, 0.30)',
+    hillshadeHighlight: 'rgba(255, 255, 255, 0.30)',
+    hillshadeAccent: 'rgba(43, 58, 48, 0.15)',
     // DEM標高着色の不透明度。1に近いほど標高色が強く、0に近いほど下地が見える。
     opacity: 0.85,
     // [標高m, 色] の順。標高帯の間は線形補間し、平地から山地への色変化を作る。

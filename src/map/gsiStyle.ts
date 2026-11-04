@@ -489,7 +489,12 @@ export const GSI_STYLE: StyleSpecification = {
       id: GSI_HILLSHADE_LAYER_ID,
       type: 'hillshade' as const,
       source: GSI_DEM_SOURCE_ID,
-      paint: { 'hillshade-exaggeration': 0.15 },
+      paint: {
+        'hillshade-exaggeration': 0.15,
+        'hillshade-shadow-color': colors.terrain.hillshadeShadow,
+        'hillshade-highlight-color': colors.terrain.hillshadeHighlight,
+        'hillshade-accent-color': colors.terrain.hillshadeAccent,
+      },
     }] : []),
     ...configuredLayers,
   ],
