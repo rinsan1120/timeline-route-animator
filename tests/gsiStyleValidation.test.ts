@@ -71,6 +71,17 @@ describe('GSI style', () => {
     expect(municipality?.paint?.['text-opacity']).toEqual(['interpolate', ['linear'], ['zoom'], 8, 0.9, 8.5, 1]);
   });
 
+  it('enlarges only the official municipality label below zoom 14', () => {
+    const overview = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1515');
+    expect(overview).toMatchObject({ minzoom: 8, maxzoom: 14,
+      layout: { 'text-size': { stops: [[9, 12], [10, 15], [11, 17], [12, 19], [13, 21], [14, 22]] } },
+      paint: { 'text-color': GSI_COLOR_CONFIG.lowZoomMunicipalityLabel } });
+    const detailed = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1516');
+    expect(detailed).toMatchObject({ minzoom: 14, maxzoom: 17,
+      layout: { 'text-size': { stops: [[9, 10], [10, 12], [11, 14], [12, 16], [13, 18], [14, 20], [15, 28], [16, 60], [17, 100]] } },
+      paint: { 'text-color': GSI_COLOR_CONFIG.placeLabel } });
+  });
+
   it('places hillshade above the color relief and removes both before the DEM fallback', () => {
     const tint = GSI_STYLE.layers.findIndex((layer) => layer.id === GSI_TERRAIN_TINT_LAYER_ID);
     expect(GSI_STYLE.layers[tint + 1]).toMatchObject({ id: GSI_HILLSHADE_LAYER_ID, type: 'hillshade', source: GSI_DEM_SOURCE_ID });

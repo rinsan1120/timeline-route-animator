@@ -291,6 +291,11 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
     if (sizes[cloned.id]) cloned.layout = { ...cloned.layout, 'text-size': { stops: sizes[cloned.id] } };
   }
 
+  const isOverviewMunicipality = isMunicipalityLabelLayer(cloned) && (cloned.minzoom ?? 0) < 14;
+  if (isOverviewMunicipality) {
+    cloned.layout = { ...cloned.layout, 'text-size': { stops: [[9, 12], [10, 15], [11, 17], [12, 19], [13, 21], [14, 22]] } };
+  }
+
   const facilityMinZoom = roadFacilityNameMinZoom(path);
   if (facilityMinZoom !== undefined && cloned.type === 'symbol' && cloned.layout?.['text-field'] !== undefined) {
     cloned.minzoom = facilityMinZoom;
@@ -356,6 +361,7 @@ function applyConfiguredAppearance(layer: StyleLayer): StyleLayer {
       paint['text-color'] = colors.routeNumberText;
     }
   }
+  if (isOverviewMunicipality) cloned.paint = { ...cloned.paint, 'text-color': colors.lowZoomMunicipalityLabel };
   applyZoomTransition(cloned);
   if (cloned.type === 'symbol' && sourceLayer === 'label'
     && filterContainsValue(cloned.filter, 'annoCtg', new Set([140, 333]))) {
