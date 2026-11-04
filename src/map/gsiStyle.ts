@@ -371,9 +371,9 @@ const configuredLayers = orderConfiguredLayers([
     layout: {
       'text-field': '{vt_text}',
       'text-font': ['NotoSansCJKjp-Regular'],
-      'text-size': ['match', ['get', 'vt_code'], 1301, 13, 1302, 11, 10],
+      'text-size': ['match', ['get', 'vt_code'], 1301, 15, 1302, 13, 12],
     },
-    paint: { 'text-color': colors.placeLabel, 'text-halo-color': colors.labelHalo, 'text-halo-width': 1 },
+    paint: { 'text-color': colors.lowZoomMunicipalityLabel, 'text-halo-color': colors.labelHalo, 'text-halo-width': 1 },
   } as StyleLayer] : []),
   ...officialLayers,
   ...(labels.showLowZoomNationalRouteNumbers && nationalRouteLayerWithoutFilter ? [{

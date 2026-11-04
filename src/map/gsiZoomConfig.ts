@@ -36,8 +36,8 @@ export const GSI_ZOOM_CONFIG = {
     // タイルに対象地物が含まれないZoomでは、この値を下げても表示されない。
     // ブラウザ地図左下の「Zoom x.x」を確認しながら調整する。
     nationalRouteNumber: 4,
-    // z9から補完した国道番号の表示開始Zoom。補完対象はz7/z8のみ、Zoom 9で公式表示へ切り替わる。
-    lowZoomNationalRouteNumber: 7.5,
+    // z9から補完した国道番号の表示開始Zoom。補完対象はz8のみ、Zoom 9で公式表示へ切り替わる。
+    lowZoomNationalRouteNumber: 8.5,
     // PMTilesによる広域市区町村名の表示開始Zoom。Zoom 10で終了する。
     lowZoomMunicipalityName: 7.5,
     roadFacilities: {

@@ -32,6 +32,8 @@ export const GSI_COLOR_CONFIG = {
   boundary: '#9da5ad',
   // label source-layerの都道府県名・市区町村名・主要地名の文字色。
   placeLabel: '#596168',
+  // 広域の市区町村名を背景や道路番号の中でも読みやすくする。
+  lowZoomMunicipalityLabel: '#41494f',
   // label source-layerの山・湖・河川・海等の自然地名の文字色。
   naturalLabel: '#637783',
   // 道路名・鉄道路線名等の交通注記に使う文字色。

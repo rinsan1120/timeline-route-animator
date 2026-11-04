@@ -23,8 +23,8 @@ describe('GSI style', () => {
       type: 'symbol', source: GSI_LOW_ZOOM_LAND_SOURCE_ID, 'source-layer': 'Anno',
       minzoom: GSI_ZOOM_CONFIG.labels.lowZoomMunicipalityName, maxzoom: 10,
       filter: ['in', 'vt_code', 1301, 1302, 1303],
-      layout: { 'text-field': '{vt_text}', 'text-font': ['NotoSansCJKjp-Regular'], 'text-size': ['match', ['get', 'vt_code'], 1301, 13, 1302, 11, 10] },
-      paint: { 'text-color': GSI_COLOR_CONFIG.placeLabel, 'text-halo-color': GSI_COLOR_CONFIG.labelHalo },
+      layout: { 'text-field': '{vt_text}', 'text-font': ['NotoSansCJKjp-Regular'], 'text-size': ['match', ['get', 'vt_code'], 1301, 15, 1302, 13, 12] },
+      paint: { 'text-color': GSI_COLOR_CONFIG.lowZoomMunicipalityLabel, 'text-halo-color': GSI_COLOR_CONFIG.labelHalo },
     });
     expect(index).toBeLessThan(GSI_STYLE.layers.findIndex((layer) => layer.id === 'gsibv-vectortile-layer-1515'));
   });

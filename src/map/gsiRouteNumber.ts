@@ -7,7 +7,7 @@ export const GSI_ROUTE_NUMBER_SOURCE_LAYER = 'GsiRouteNumber';
 export const GSI_ROUTE_NUMBER_SCHEME = 'gsi-route';
 type TileCoordinate = { z: number; x: number; y: number };
 type ChildTile = { coordinate: TileCoordinate; data: Uint8Array | undefined };
-const supported = (tile: TileCoordinate) => tile.z === 7 || tile.z === 8;
+const supported = (tile: TileCoordinate) => tile.z === 8;
 
 export function routeNumberChildren(tile: TileCoordinate): TileCoordinate[] {
   if (!supported(tile)) return [];
@@ -23,7 +23,7 @@ export function supplementRouteNumbers(data: Uint8Array, tile: TileCoordinate, c
   if (!expected.length || expected.some((coord) => !children.some((child) =>
     child.coordinate.z === coord.z && child.coordinate.x === coord.x && child.coordinate.y === coord.y && child.data?.length))) return data;
   if (new VectorTile(new PbfReader(data)).layers[GSI_ROUTE_NUMBER_SOURCE_LAYER]) return data;
-  // Preserve the z9 integer grid when folding up to sixteen children together.
+  // Preserve the z9 integer grid when folding four children together.
   const extent = 16384;
   const scale = 2 ** (9 - tile.z);
   const points: { x: number; y: number; number: string }[] = [];

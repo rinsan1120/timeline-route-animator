@@ -50,17 +50,6 @@ describe('GSI national route number supplement', () => {
     expect(supplementRouteNumbers(result, fixture.parent, children)).toBe(result);
   });
 
-  it('folds sixteen z9 children into z7 even when original transp is absent', () => {
-    const parent = { z: 7, x: 50, y: 40 };
-    const references = routeNumberChildren(parent).map((coordinate) => ({ coordinate, data: encode([[2048, 1024, 2901, '12', 1]]) }));
-    const base = encode([], 4096, 'road');
-    const result = supplementRouteNumbers(base, parent, references);
-    expect(shields(result)).toHaveLength(16);
-    expect(shields(result)[0]).toEqual([2048, 1024, '12']);
-    expect(shields(result)[15]).toEqual([14336, 13312, '12']);
-    expect(result.slice(0, base.length)).toEqual(base);
-  });
-
   it('returns original bytes for missing or empty child tiles, but accepts a valid tile without transp', () => {
     expect(supplementRouteNumbers(original, fixture.parent, children.slice(1))).toBe(original);
     expect(supplementRouteNumbers(original, fixture.parent, children.map((child, i) => i ? child : { ...child, data: undefined }))).toBe(original);
@@ -69,7 +58,7 @@ describe('GSI national route number supplement', () => {
     expect(shields(supplementRouteNumbers(original, fixture.parent, valid))).toHaveLength(4);
   });
 
-  it.each([4, 6, 9, 10, 16])('never reads children or modifies z%s', async (z) => {
+  it.each([4, 6, 7, 9, 10, 16])('never reads children or modifies z%s', async (z) => {
     const read = vi.fn();
     expect(await createRouteNumberSupplement(read)(original, { ...fixture.parent, z }, new AbortController().signal)).toBe(original);
     expect(supplementRouteNumbers(original, { ...fixture.parent, z }, children)).toBe(original);
@@ -156,7 +145,7 @@ describe('GSI national route number supplement', () => {
   it('uses the configured start zoom, official appearance and exclusive z9 boundary in the shared style', () => {
     const injected = GSI_STYLE.layers.find((layer) => layer.id === 'gsi-lowzoom-national-route-number')!;
     const native = GSI_STYLE.layers.find((layer) => layer.id === 'gsibv-vectortile-layer-1349')!;
-    expect(injected).toMatchObject({ type: 'symbol', source: GSI_OFFICIAL_SOURCE_ID, 'source-layer': GSI_ROUTE_NUMBER_SOURCE_LAYER, minzoom: 7.5, maxzoom: 9 });
+    expect(injected).toMatchObject({ type: 'symbol', source: GSI_OFFICIAL_SOURCE_ID, 'source-layer': GSI_ROUTE_NUMBER_SOURCE_LAYER, minzoom: 8.5, maxzoom: 9 });
     expect(injected.layout).toEqual(native.layout);
     expect(injected.paint).toEqual(native.paint);
     expect(injected.layout).toMatchObject({ 'icon-image': '国道番号-20', 'text-field': '{nRNo}', 'icon-size': { stops: [[9, 0.5], [14, 0.5], [17, 1], [18, 1]] }, 'text-size': { stops: [[9, 10], [14, 10], [17, 24], [18, 24]] } });
